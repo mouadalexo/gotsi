@@ -4,11 +4,9 @@ const { requireManager } = require('../utils/permissions');
 const { successEmbed, errorEmbed, warningEmbed, E } = require('../utils/embeds');
 const { buildPendingMatchesSelect, buildResultModal, buildAllResultsEmbed } = require('../panels/resultsPanel');
 const { buildTournamentSelectMenu } = require('../panels/tournamentPanel');
-const { AttachmentBuilder } = require('discord.js');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { generateResultImage } = require('../utils/imageGen');
-const { ensureTeamLogo } = require('../utils/logoFetcher');
 const { postResultAndNextRound } = require('./manageInteractions');
+const { makeResultEmbed } = require('../utils/tournamentEmbeds');
 
 async function handleResultInteraction(interaction, client) {
   const id = interaction.customId;
@@ -91,21 +89,21 @@ async function handleResultInteraction(interaction, client) {
       }
     }
 
-    // Re-fetch match with updated scores for image generation
+    // Re-fetch match with updated scores
     const updatedMatch = db.findById('matches', matchId);
 
-    // Post result image to results channel
+    // Post result embed to results channel
     const resultsCh = await getTargetChannel(interaction.guild, tournament.template, 'results');
     if (resultsCh) {
       try {
-        await ensureTeamLogo(homeTeam);
-        await ensureTeamLogo(awayTeam);
-        const resBuf = await generateResultImage(updatedMatch, homeTeam, awayTeam, tournament);
-        await resultsCh.send({ files: [new AttachmentBuilder(resBuf, { name: 'result.png' })] });
-      } catch (e) { console.error('[ResultImage]', e.message); }
+        const ttEntry = db.findOne('tournament_teams', tt => tt.tournament_id === match.tournament_id && tt.team_id === match.home_team_id);
+        const grpName = ttEntry?.group_name || '?';
+        const resEmbed = makeResultEmbed(homeTeam.name, homeScore, awayTeam.name, awayScore, grpName, 'Round ' + updatedMatch.round, tournament.name);
+        await resultsCh.send({ embeds: [resEmbed] });
+      } catch (e) { console.error('[ResultEmbed]', e.message); }
     }
 
-    // Post standings + next round schedule (non-blocking, won't block reply)
+    // Post standings + next round schedule (non-blocking)
     postResultAndNextRound(interaction.guild, updatedMatch, tournament, homeTeam, awayTeam, client)
       .catch(e => console.error('[PostResultAndNextRound]', e.message));
 
@@ -117,7 +115,7 @@ async function handleResultInteraction(interaction, client) {
 
     return interaction.reply({
       embeds: [successEmbed('Result Recorded',
-        `${resultLabel}\n\nResult image + standings posted to results channel.`
+        `${resultLabel}\n\nResult embed + standings posted to results channel.`
       )],
       ephemeral: true,
     });

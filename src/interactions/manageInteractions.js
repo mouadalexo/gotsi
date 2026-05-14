@@ -1,6 +1,6 @@
 'use strict';
 const {
-  ActionRowBuilder, StringSelectMenuBuilder, AttachmentBuilder, EmbedBuilder,
+  ActionRowBuilder, StringSelectMenuBuilder, EmbedBuilder,
 } = require('discord.js');
 const { db } = require('../utils/database');
 const { requireManager } = require('../utils/permissions');
@@ -13,10 +13,9 @@ const {
 const { buildGroupStandingsEmbed, buildStandingsRow, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 const { buildPendingMatchesSelect, buildResultModal } = require('../panels/resultsPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { ensureTeamLogos, ensureTeamLogo } = require('../utils/logoFetcher');
+const { makeScheduleEmbed, makeStandingsEmbed } = require('../utils/tournamentEmbeds');
 const { searchMembers } = require('../utils/memberSearch');
 const { DEFAULT_TEAMS } = require('../data/seed');
-const { generateScheduleImage, generateStandingsImage } = require('../utils/imageGen');
 
 // Active auto-schedule timers: tournamentId -> setTimeout handle
 const autoScheduleTimers = new Map();
@@ -46,42 +45,31 @@ async function refreshManagePanel(interaction, template) {
   } catch {}
 }
 
-async function postScheduleImage(guild, tournament, client) {
+async function postScheduleEmbed(guild, tournament, client) {
   const matches = db.get('matches').filter(m => m.tournament_id === tournament.id && m.status === 'pending');
   if (!matches.length) return;
 
   const teams = db.get('teams');
-  await ensureTeamLogos(teams);
-
   const ttEntries = db.get('tournament_teams').filter(tt => tt.tournament_id === tournament.id);
   const groupOfTeam = {};
   for (const tt of ttEntries) groupOfTeam[tt.team_id] = tt.group_name || 'A';
 
-  const byGroup = {};
-  for (const m of matches) {
-    const g = groupOfTeam[m.home_team_id] || 'A';
-    if (!byGroup[g]) byGroup[g] = [];
-    byGroup[g].push(m);
-  }
-
   const rounds = [...new Set(matches.map(m => m.round))].sort((a, b) => a - b);
   const currentRound = rounds[0] || 1;
-  const totalRounds  = rounds.length;
-
-  const buf = await generateScheduleImage(currentRound, totalRounds, byGroup, teams, tournament);
+  const byRound = matches.filter(m => m.round === currentRound);
+  const embedMatches = byRound.map(m => {
+    const home = teams.find(t => t.id === m.home_team_id) || { name: 'TBD' };
+    const away = teams.find(t => t.id === m.away_team_id) || { name: 'TBD' };
+    return { home: home.name, away: away.name, group: groupOfTeam[m.home_team_id] || 'A' };
+  });
+  const schedEmbed = makeScheduleEmbed(embedMatches, 'Round ' + currentRound, tournament.name);
   const scheduleCh = await getTargetChannel(guild, tournament.template, 'matchSchedule');
-  if (scheduleCh) {
-    await scheduleCh.send({
-      content: `📅 **${tournament.name} — Round ${currentRound} Schedule**`,
-      files: [new AttachmentBuilder(buf, { name: 'schedule.png' })],
-    });
-  }
+  if (scheduleCh) await scheduleCh.send({ embeds: [schedEmbed] });
 }
 
 // Exported: called from resultInteractions after saving a result
 async function postResultAndNextRound(guild, match, tournament, homeTeam, awayTeam, client) {
   const teams = db.get('teams');
-  await ensureTeamLogos([homeTeam, awayTeam]);
 
   // Post standings embed + image to results channel
   const resultsCh = await getTargetChannel(guild, tournament.template, 'results');
@@ -105,21 +93,6 @@ async function postResultAndNextRound(guild, match, tournament, homeTeam, awayTe
       db.setConfig(`standings_msg_${tournament.id}`, msg.id);
     }
 
-    // Post standings image
-    try {
-      const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tournament.id);
-      const groups = {};
-      for (const tt of ttRows) {
-        const g = tt.group_name || 'A';
-        if (!groups[g]) groups[g] = [];
-        groups[g].push({ ...teams.find(t => t.id === tt.team_id), ...tt });
-      }
-      for (const g of Object.keys(groups)) {
-        groups[g].sort((a, b) => (b.points || 0) - (a.points || 0));
-      }
-      const standBuf = await generateStandingsImage(tournament, groups);
-      await resultsCh.send({ files: [new AttachmentBuilder(standBuf, { name: 'standings.png' })] });
-    } catch {}
   }
 
   // Check if all matches in current round are done → post next round schedule
@@ -137,7 +110,7 @@ async function postResultAndNextRound(guild, match, tournament, homeTeam, awayTe
       );
       if (nextMatches.length > 0) {
         try {
-          await postScheduleImage(guild, tournament, client);
+          await postScheduleEmbed(guild, tournament, client);
           if (resultsCh) {
             await resultsCh.send({
               embeds: [new EmbedBuilder()
@@ -277,8 +250,6 @@ async function handleManageInteraction(interaction, client) {
       if (!team) continue;
 
       // Kick off logo fetch in background (non-blocking)
-      ensureTeamLogo(team).catch(() => {});
-
       const already = db.findOne('tournament_teams',
         tt => tt.tournament_id === tournamentId && tt.team_id === team.id
       );
@@ -477,7 +448,7 @@ async function handleManageInteraction(interaction, client) {
     if (!t) return interaction.reply({ embeds: [warningEmbed('No Tournament', 'Create a season first.')], ephemeral: true });
 
     await interaction.deferReply({ ephemeral: true });
-    await postScheduleImage(interaction.guild, t, client);
+    await postScheduleEmbed(interaction.guild, t, client);
     return interaction.editReply({ embeds: [successEmbed('Schedule Posted', 'Match schedule image sent to the schedule channel!')] });
   }
 
@@ -503,7 +474,7 @@ async function handleManageInteraction(interaction, client) {
     if (autoScheduleTimers.has(tournamentId)) clearTimeout(autoScheduleTimers.get(tournamentId));
     const timer = setTimeout(async () => {
       try {
-        await postScheduleImage(interaction.guild, t, client);
+        await postScheduleEmbed(interaction.guild, t, client);
         db.setConfig(`auto_schedule_${tournamentId}`, null);
         autoScheduleTimers.delete(tournamentId);
       } catch (e) { console.error('[AutoSchedule]', e); }

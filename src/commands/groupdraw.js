@@ -1,8 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { db } = require('../utils/database');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { generateGroupDrawImage } = require('../utils/imageGen');
-const { AttachmentBuilder } = require('discord.js');
+const { makeGroupRegistrationEmbed } = require('../utils/tournamentEmbeds');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -61,17 +60,15 @@ module.exports = {
         groupedTeams[g].push(team);
       }
 
-      // ── Generate & post image ────────────────────────────────────────────────
-      const buf       = generateGroupDrawImage(tournament, groupedTeams);
-      const targetCh  = await getTargetChannel(interaction.guild, tournament.template, 'groupDraw')
-                     || await getTargetChannel(interaction.guild, tournament.template, 'matchSchedule')
-                     || interaction.channel;
+      // ── Build embed and post ────────────────────────────────────────────────
+      const groupedNames = {};
+      for (const [g, gTeams] of Object.entries(groupedTeams)) {
+        groupedNames[g] = gTeams.map(t => t.name);
+      }
+      const drawEmbed = makeGroupRegistrationEmbed(groupedNames, tournament.name);
+      await targetCh.send({ embeds: [drawEmbed] });
 
-      await targetCh.send({
-        files: [new AttachmentBuilder(buf, { name: 'group_draw.png' })],
-      });
-
-      await interaction.editReply({
+            await interaction.editReply({
         content: `✅ Group draw posted to <#${targetCh.id}> — **${Object.keys(groupedTeams).length} groups**.`,
       });
 

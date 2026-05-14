@@ -1,15 +1,11 @@
 'use strict';
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const { db } = require('../utils/database');
 const { COLORS, E } = require('../utils/embeds');
 const { buildTeamListEmbed, buildTeamManageButtons } = require('../panels/teamListPanel');
 const { buildTournamentListEmbed, buildTournamentButtons, TEMPLATES } = require('../panels/tournamentPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
-const {
-  generateScheduleImage,
-  generateResultImage,
-  generateStandingsImage,
-} = require('../utils/imageGen');
+const { makeScheduleEmbed, makeResultEmbed, makeStandingsEmbed } = require('../utils/tournamentEmbeds');
 
 // Round-robin schedule generator
 function generateRounds(teamIds) {
@@ -174,73 +170,51 @@ module.exports = {
       const teamListCh = await getTargetChannel(interaction.guild, template, 'teamList') || interaction.channel;
       await teamListCh.send({ embeds: [buildTeamListEmbed()], components: [buildTeamManageButtons()] });
 
-      // ── Step 4: post schedule images (one image per round) ───────────────
-      await step(4, TOTAL, 'Generating & posting schedule images...');
+      // ── Step 4: post schedule embeds ─────────────────────────────────────
+      await step(4, TOTAL, 'Posting schedule embeds...');
       const scheduleCh = await getTargetChannel(interaction.guild, template, 'matchSchedule') || interaction.channel;
-
       for (const [roundNum, rMatches] of Object.entries(matchesByRound).sort((a, b) => Number(a[0]) - Number(b[0]))) {
-        // Build matchesByGroup map expected by generateScheduleImage
-        const matchesByGroup = {};
-        for (const m of rMatches) {
-          const g = m.group_name || 'A';
-          if (!matchesByGroup[g]) matchesByGroup[g] = [];
-          matchesByGroup[g].push(m);
-        }
-        const buf = await generateScheduleImage(Number(roundNum), totalRounds, matchesByGroup, allTeamsById, tournament);
-        const att = new AttachmentBuilder(buf, { name: `schedule_round${roundNum}.png` });
-        await scheduleCh.send({ files: [att] });
+        const embedMatches = rMatches.map(m => {
+          const home = allTeamsById[m.home_team_id] || { name: 'TBD' };
+          const away = allTeamsById[m.away_team_id] || { name: 'TBD' };
+          return { home: home.name, away: away.name, group: m.group_name || 'A' };
+        });
+        await scheduleCh.send({ embeds: [makeScheduleEmbed(embedMatches, 'Round ' + roundNum, tournament.name)] });
       }
 
-      // ── Step 5: simulate 3 results with images ────────────────────────────
-      await step(5, TOTAL, 'Simulating results and posting result images...');
+            // ── Step 5: simulate 3 results with embeds ────────────────────────────
+      await step(5, TOTAL, 'Simulating results and posting result embeds...');
       const resultsCh = await getTargetChannel(interaction.guild, template, 'results') || interaction.channel;
       const sample = allMatches.slice(0, 3);
-
       for (const match of sample) {
         const hs = Math.floor(Math.random() * 5);
-        const as = Math.floor(Math.random() * 5);
+        const as_ = Math.floor(Math.random() * 5);
         const home = allTeamsById[match.home_team_id];
         const away = allTeamsById[match.away_team_id];
-
-        // Update DB stats
-        db.update('matches', match.id, { home_score: hs, away_score: as, status: 'played', played_at: new Date().toISOString() });
+        const grpName = match.group_name || 'A';
+        db.update('matches', match.id, { home_score: hs, away_score: as_, status: 'played', played_at: new Date().toISOString() });
         const homeTT = db.findOne('tournament_teams', tt => tt.tournament_id === match.tournament_id && tt.team_id === match.home_team_id);
         const awayTT = db.findOne('tournament_teams', tt => tt.tournament_id === match.tournament_id && tt.team_id === match.away_team_id);
-        const homeWon = hs > as, awayWon = as > hs, draw = hs === as;
-        if (homeTT) db.update('tournament_teams', homeTT.id, {
-          goals_for: (homeTT.goals_for || 0) + hs, goals_against: (homeTT.goals_against || 0) + as,
-          wins: (homeTT.wins || 0) + (homeWon ? 1 : 0), draws: (homeTT.draws || 0) + (draw ? 1 : 0),
-          losses: (homeTT.losses || 0) + (awayWon ? 1 : 0), points: (homeTT.points || 0) + (homeWon ? 3 : draw ? 1 : 0),
-        });
-        if (awayTT) db.update('tournament_teams', awayTT.id, {
-          goals_for: (awayTT.goals_for || 0) + as, goals_against: (awayTT.goals_against || 0) + hs,
-          wins: (awayTT.wins || 0) + (awayWon ? 1 : 0), draws: (awayTT.draws || 0) + (draw ? 1 : 0),
-          losses: (awayTT.losses || 0) + (homeWon ? 1 : 0), points: (awayTT.points || 0) + (awayWon ? 3 : draw ? 1 : 0),
-        });
-
-        // Post result image
-        const fullMatch = db.findById('matches', match.id);
-        const buf = await generateResultImage(fullMatch, home, away, tournament);
-        const att = new AttachmentBuilder(buf, { name: 'result.png' });
-        await resultsCh.send({ files: [att] });
+        const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
+        if (homeTT) db.update('tournament_teams', homeTT.id, { goals_for: (homeTT.goals_for||0)+hs, goals_against: (homeTT.goals_against||0)+as_, wins: (homeTT.wins||0)+(homeWon?1:0), draws: (homeTT.draws||0)+(draw?1:0), losses: (homeTT.losses||0)+(awayWon?1:0), points: (homeTT.points||0)+(homeWon?3:draw?1:0) });
+        if (awayTT) db.update('tournament_teams', awayTT.id, { goals_for: (awayTT.goals_for||0)+as_, goals_against: (awayTT.goals_against||0)+hs, wins: (awayTT.wins||0)+(awayWon?1:0), draws: (awayTT.draws||0)+(draw?1:0), losses: (awayTT.losses||0)+(homeWon?1:0), points: (awayTT.points||0)+(awayWon?3:draw?1:0) });
+        await resultsCh.send({ embeds: [makeResultEmbed(home.name, hs, away.name, as_, grpName, 'Round ' + match.round, tournament.name)] });
       }
 
-      // ── Step 6: post standings image ──────────────────────────────────────
-      await step(6, TOTAL, 'Generating standings image...');
+            // ── Step 6: post standings embed ──────────────────────────────────────
+      await step(6, TOTAL, 'Posting standings embed...');
       const ttAll = db.get('tournament_teams').filter(tt => tt.tournament_id === tournament.id);
       const groupedStandings = {};
       for (const tt of ttAll) {
         const g = tt.group_name || 'A';
         if (!groupedStandings[g]) groupedStandings[g] = [];
-        const team = allTeamsById[tt.team_id] || { name: 'TBD', emoji: '⚽', short_name: '???' };
+        const team = allTeamsById[tt.team_id] || { name: 'TBD' };
         groupedStandings[g].push({ ...team, ...tt });
       }
       for (const g of Object.keys(groupedStandings)) {
-        groupedStandings[g].sort((a, b) => (b.points || 0) - (a.points || 0) || ((b.goals_for || 0) - (b.goals_against || 0)) - ((a.goals_for || 0) - (a.goals_against || 0)));
+        groupedStandings[g].sort((a, b) => (b.points||0)-(a.points||0) || ((b.goals_for||0)-(b.goals_against||0))-((a.goals_for||0)-(a.goals_against||0)));
       }
-      const standingsBuf = generateStandingsImage(tournament, groupedStandings);
-      const standingsAtt = new AttachmentBuilder(standingsBuf, { name: 'standings.png' });
-      await resultsCh.send({ files: [standingsAtt] });
+      await resultsCh.send({ embeds: [makeStandingsEmbed(groupedStandings, tournament.name)] });
 
       // Post tournament panel in current channel
       await interaction.channel.send({ embeds: [buildTournamentListEmbed()], components: [buildTournamentButtons()] });
