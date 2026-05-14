@@ -168,7 +168,7 @@ module.exports = {
       // ── Step 3: post team list ────────────────────────────────────────────
       await step(3, TOTAL, 'Posting team list...');
       const teamListCh = await getTargetChannel(interaction.guild, template, 'teamList') || interaction.channel;
-      await teamListCh.send({ embeds: [buildRosterEmbed(tournament.id)] });
+      await interaction.client.rest.post(`/channels/${teamListCh.id}/messages`, { body: buildRosterEmbed(tournament.id) });
 
       // ── Step 4: post schedule embeds ─────────────────────────────────────
       await step(4, TOTAL, 'Posting schedule embeds...');
