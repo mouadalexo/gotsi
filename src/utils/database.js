@@ -7,8 +7,8 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 const DEFAULT_DB = {
   teams: [], players: [], tournaments: [], tournament_teams: [], matches: [],
-  admins: [], config: {},
-  _nextId: { teams: 1, players: 1, tournaments: 1, tournament_teams: 1, matches: 1, admins: 1 },
+  admins: [], winners: [], config: {},
+  _nextId: { teams: 1, players: 1, tournaments: 1, tournament_teams: 1, matches: 1, admins: 1, winners: 1 },
 };
 
 let _db = null;
@@ -22,23 +22,27 @@ function load() {
           if (_db[key] === undefined) _db[key] = DEFAULT_DB[key];
         }
         if (!_db._nextId) _db._nextId = { ...DEFAULT_DB._nextId };
-        if (!_db._nextId.admins) _db._nextId.admins = 1;
+        if (!_db._nextId.admins)   _db._nextId.admins   = 1;
+        if (!_db._nextId.winners)  _db._nextId.winners  = 1;
         // Migrate tournaments to new fields
         for (const t of (_db.tournaments || [])) {
-          if (t.type             === undefined) t.type             = 'group_knockout';
-          if (t.teams_per_group  === undefined) t.teams_per_group  = t.group_size || 4;
-          if (t.advance_per_group=== undefined) t.advance_per_group= 2;
-          if (t.encounters       === undefined) t.encounters       = 1;
-          if (t.players_per_team === undefined) t.players_per_team = 1;
-          if (t.win_pts          === undefined) t.win_pts          = 3;
-          if (t.draw_pts         === undefined) t.draw_pts         = 1;
-          if (t.loss_pts         === undefined) t.loss_pts         = 0;
-          if (t.forfeit_pts      === undefined) t.forfeit_pts      = 0;
-          if (t.registration_open=== undefined) t.registration_open= (t.status === 'setup');
-          if (t.channels         === undefined) t.channels         = {};
-          if (t.panel1_ref       === undefined) t.panel1_ref       = null;
-          if (t.panel2_ref       === undefined) t.panel2_ref       = null;
-          if (t.panel3_ref       === undefined) t.panel3_ref       = null;
+          if (t.type               === undefined) t.type               = 'group_knockout';
+          if (t.teams_per_group    === undefined) t.teams_per_group    = t.group_size || 4;
+          if (t.advance_per_group  === undefined) t.advance_per_group  = 2;
+          if (t.encounters         === undefined) t.encounters         = 1;
+          if (t.players_per_team   === undefined) t.players_per_team   = 1;
+          if (t.win_pts            === undefined) t.win_pts            = 3;
+          if (t.draw_pts           === undefined) t.draw_pts           = 1;
+          if (t.loss_pts           === undefined) t.loss_pts           = 0;
+          if (t.forfeit_pts        === undefined) t.forfeit_pts        = 0;
+          if (t.registration_open  === undefined) t.registration_open  = (t.status === 'setup');
+          if (t.channels           === undefined) t.channels           = {};
+          if (t.panel1_ref         === undefined) t.panel1_ref         = null;
+          if (t.panel2_ref         === undefined) t.panel2_ref         = null;
+          if (t.panel3_ref         === undefined) t.panel3_ref         = null;
+          // Winners history fields
+          if (t.winner_role_id        === undefined) t.winner_role_id        = null;
+          if (t.winners_history_ref   === undefined) t.winners_history_ref   = null;
         }
       } catch (_) { _db = JSON.parse(JSON.stringify(DEFAULT_DB)); }
     } else { _db = JSON.parse(JSON.stringify(DEFAULT_DB)); }
@@ -58,9 +62,9 @@ function nextId(table) {
 const db = {
   get:    (table)           => load()[table],
   save,
-  findById:   (table, id)        => load()[table].find(r => r.id === id),
-  findWhere:  (table, predicate) => load()[table].filter(predicate),
-  findOne:    (table, predicate) => load()[table].find(predicate),
+  findById:    (table, id)        => load()[table].find(r => r.id === id),
+  findWhere:   (table, predicate) => load()[table].filter(predicate),
+  findOne:     (table, predicate) => load()[table].find(predicate),
   insert: (table, data) => {
     const rec = { id: nextId(table), created_at: new Date().toISOString(), ...data };
     load()[table].push(rec); save(); return rec;

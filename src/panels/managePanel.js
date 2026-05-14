@@ -43,6 +43,7 @@ function buildManagePanelV2() {
   });
   const admins  = db.get('admins') || [];
   const botCfg  = db.getConfig('bot_config') || {};
+  const catId   = db.getConfig('winners_history_category');
 
   const E_CUP  = '<a:cup:1501741159557500971>';
   const inner  = [];
@@ -61,25 +62,38 @@ function buildManagePanelV2() {
     inner.push(txt('No tournaments yet. Click **New Tournament** to create one.'));
   } else {
     const statusIcon = { setup: '⚙️', active: '🟢', finished: '🏁' };
-    const lines = tournaments.slice(0, 8).map(t =>
-      `${statusIcon[t.status] || '⚙️'}  **${t.name}**  S${t.season}  \`${t.status}\`` +
-      (t.status === 'active' ? `  —  ${db.get('tournament_teams').filter(tt => tt.tournament_id === t.id).length} teams` : '')
-    );
-    inner.push(txt(`**Tournaments**\n${lines.join('\n')}`));
+    const lines = tournaments.slice(0, 8).map(t => {
+      const roleSet = t.winner_role_id ? ' 🏆' : '';
+      return (
+        `${statusIcon[t.status] || '⚙️'}  **${t.name}**  S${t.season}  \`${t.status}\`` +
+        (t.status === 'active' ? `  —  ${db.get('tournament_teams').filter(tt => tt.tournament_id === t.id).length} teams` : '') +
+        roleSet
+      );
+    });
+    inner.push(txt(`**Tournaments** *(🏆 = winner role configured)*\n${lines.join('\n')}`));
   }
   inner.push(SEP);
 
   // Main action buttons
   inner.push({ type: 1, components: [
-    btn('New Tournament',   'mgr2_newtournament', 1),
+    btn('New Tournament',   'mgr2_newtournament',  1),
     btn('Set Channels',     'mgr2_channels_start', 2),
-    btn('Manage Admins',    'mgr2_admins',        2),
-    btn('Bot Settings',     'mgr2_bots',          2),
-    btn('Refresh',          'mgr2_refresh',       2),
+    btn('Manage Admins',    'mgr2_admins',         2),
+    btn('Bot Settings',     'mgr2_bots',           2),
+    btn('Refresh',          'mgr2_refresh',        2),
   ]});
   inner.push({ type: 1, components: [
-    btn('Reset Everything', 'mgr2_reset', 4),
+    btn('🏆 Winners Setup', 'mgr2_winners',        1),
+    btn('Reset Everything', 'mgr2_reset',          4),
   ]});
+  inner.push(SEP);
+
+  // Winners history category status
+  if (catId) {
+    inner.push(txt(`**Winners History Category:** <#${catId}>`));
+  } else {
+    inner.push(txt('**Winners History Category:** _Not configured_ — use **🏆 Winners Setup** to configure.'));
+  }
   inner.push(SEP);
 
   // Admins list
@@ -130,8 +144,46 @@ function buildAdminsSubPanel() {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
+// ── Winners Setup sub-panel ───────────────────────────────────────────────────
+function buildWinnersSubPanel() {
+  const tournaments = db.get('tournaments');
+  const catId       = db.getConfig('winners_history_category');
+  const inner       = [];
+
+  inner.push(txt(
+    `# 🏆  Winners History Setup\n` +
+    `> **Category:** ${catId ? `<#${catId}>` : '`Not configured`'}`
+  ));
+  inner.push(SEP);
+
+  if (!tournaments.length) {
+    inner.push(txt('No tournaments yet.'));
+  } else {
+    const lines = tournaments.slice(0, 10).map(t => {
+      const roleStatus = t.winner_role_id ? `✅ <@&${t.winner_role_id}>` : '`Not set`';
+      const refStatus  = t.winners_history_ref ? `✅ linked` : '`Not set`';
+      return `**${t.name}** S${t.season}\n` +
+             `> Winner Role: ${roleStatus}  |  History Msg: ${refStatus}`;
+    });
+    inner.push(txt(lines.join('\n')));
+  }
+  inner.push(SEP);
+
+  inner.push({ type: 1, components: [
+    btn('Set Category',      'mgr2_winners_setup',      1),
+    btn('Set Winner Role',   'mgr2_winner_role_start',  2),
+    btn('Set History Msg',   'mgr2_winref_start',       2),
+    btn('Back',              'mgr2_refresh',            2),
+  ]});
+  inner.push(SEP);
+  inner.push(txt('-# Night Stars  •  Winners History Setup'));
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFFD700, components: inner }] };
+}
+
 module.exports = {
   buildNewSeasonModal,
   buildManagePanelV2,
   buildAdminsSubPanel,
+  buildWinnersSubPanel,
 };

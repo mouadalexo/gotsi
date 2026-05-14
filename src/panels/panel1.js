@@ -107,23 +107,44 @@ function buildPanel1(tournament) {
     const playedKO    = knockoutMatches.filter(m => m.status === 'played');
     const finalRound  = playedKO.length ? Math.min(...playedKO.map(m => m.round)) : null;
     const finalMatch  = finalRound !== null ? playedKO.find(m => m.round === finalRound) : null;
+    let winnerTeamId  = null;
     let winnerName    = '?';
     if (finalMatch) {
-      const winId     = finalMatch.home_score > finalMatch.away_score ? finalMatch.home_team_id : finalMatch.away_team_id;
-      winnerName      = db.findById('teams', winId)?.name || 'Unknown';
+      winnerTeamId = finalMatch.home_score > finalMatch.away_score ? finalMatch.home_team_id : finalMatch.away_team_id;
+      winnerName   = db.findById('teams', winnerTeamId)?.name || 'Unknown';
     }
+
+    // Check if winner already confirmed for this season
+    const confirmedWinner = db.findOne('winners', w => w.tournament_id === tid && w.season === t.season);
+
     inner.push(txt(
       `> **Status:** FINISHED  |  **Season ${t.season} Complete**\n` +
-      `> 🏆  **Champion: ${winnerName}**`
+      `> 🏆  **Champion: ${winnerName}**` +
+      (confirmedWinner ? `\n> ✅  **Winner confirmed & role assigned**` : '')
     ));
     inner.push(SEP);
-    inner.push(txt('Season is complete! Click **New Edition** to start the next season.'));
-    inner.push(SEP);
-    inner.push({ type: 1, components: [
-      btn('New Edition', `p1_${tid}_newedition`, 1, null),
-      btn('Settings',    `p1_${tid}_settings`,   2, null),
-      btn('Refresh',     `p1_${tid}_refresh`,    2, null),
-    ]});
+
+    if (!confirmedWinner) {
+      inner.push(txt(
+        '⚠️ Winner not yet officially confirmed. Click **Confirm Winner** to assign the winner role and update the Winners History leaderboard.\n\n' +
+        'Or click **New Edition** to start the next season.'
+      ));
+      inner.push(SEP);
+      inner.push({ type: 1, components: [
+        btn('🏆 Confirm Winner', `p1_${tid}_confirm_winner`, 1, null),
+        btn('New Edition',       `p1_${tid}_newedition`,     2, null),
+        btn('Settings',          `p1_${tid}_settings`,       2, null),
+        btn('Refresh',           `p1_${tid}_refresh`,        2, null),
+      ]});
+    } else {
+      inner.push(txt('Season is officially complete! Click **New Edition** to start the next season.'));
+      inner.push(SEP);
+      inner.push({ type: 1, components: [
+        btn('New Edition', `p1_${tid}_newedition`, 1, null),
+        btn('Settings',    `p1_${tid}_settings`,   2, null),
+        btn('Refresh',     `p1_${tid}_refresh`,    2, null),
+      ]});
+    }
   }
 
   inner.push(SEP);
