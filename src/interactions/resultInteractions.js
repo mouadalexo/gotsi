@@ -99,7 +99,7 @@ async function handleResultInteraction(interaction, client) {
         const ttEntry = db.findOne('tournament_teams', tt => tt.tournament_id === match.tournament_id && tt.team_id === match.home_team_id);
         const grpName = ttEntry?.group_name || '?';
         const resEmbed = makeResultEmbed(homeTeam.name, homeScore, awayTeam.name, awayScore, grpName, 'Round ' + updatedMatch.round, tournament.name);
-        await resultsCh.send({ embeds: [resEmbed] });
+        await interaction.client.rest.post(`/channels/${resultsCh.id}/messages`, { body: resEmbed });
       } catch (e) { console.error('[ResultEmbed]', e.message); }
     }
 

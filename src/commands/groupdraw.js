@@ -66,7 +66,7 @@ module.exports = {
         groupedNames[g] = gTeams.map(t => t.name);
       }
       const drawEmbed = makeGroupRegistrationEmbed(groupedNames, tournament.name);
-      await targetCh.send({ embeds: [drawEmbed] });
+      await interaction.client.rest.post(`/channels/${targetCh.id}/messages`, { body: drawEmbed });
 
             await interaction.editReply({
         content: `✅ Group draw posted to <#${targetCh.id}> — **${Object.keys(groupedTeams).length} groups**.`,

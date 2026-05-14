@@ -10,7 +10,7 @@ const {
   buildNewSeasonModal, buildTeamSearchModal, buildPlayerSearchModal, buildAutoScheduleModal,
   getActiveTournament,
 } = require('../panels/managePanel');
-const { buildGroupStandingsEmbed, buildStandingsRow, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
+const { buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 const { buildPendingMatchesSelect, buildResultModal } = require('../panels/resultsPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
 const { makeScheduleEmbed, makeStandingsEmbed } = require('../utils/tournamentEmbeds');
@@ -62,9 +62,10 @@ async function postScheduleEmbed(guild, tournament, client) {
     const away = teams.find(t => t.id === m.away_team_id) || { name: 'TBD' };
     return { home: home.name, away: away.name, group: groupOfTeam[m.home_team_id] || 'A' };
   });
-  const schedEmbed = makeScheduleEmbed(embedMatches, 'Round ' + currentRound, tournament.name);
+
+  const schedBody = makeScheduleEmbed(embedMatches, 'Round ' + currentRound, tournament.name);
   const scheduleCh = await getTargetChannel(guild, tournament.template, 'matchSchedule');
-  if (scheduleCh) await scheduleCh.send({ embeds: [schedEmbed] });
+  if (scheduleCh) await client.rest.post(`/channels/${scheduleCh.id}/messages`, { body: schedBody });
 }
 
 // Exported: called from resultInteractions after saving a result
@@ -75,21 +76,30 @@ async function postResultAndNextRound(guild, match, tournament, homeTeam, awayTe
   const resultsCh = await getTargetChannel(guild, tournament.template, 'results');
 
   if (resultsCh && match.stage === 'group') {
-    const standingsEmbed = buildGroupStandingsEmbed(tournament.id);
-    const row = buildStandingsRow(tournament.id);
+    // Build standings from tournament_teams
+    const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tournament.id);
+    const groupsMap = {};
+    for (const tt of ttRows) {
+      const g = tt.group_name || 'A';
+      if (!groupsMap[g]) groupsMap[g] = [];
+      groupsMap[g].push({ ...teams.find(t => t.id === tt.team_id), ...tt });
+    }
+    for (const g of Object.keys(groupsMap)) {
+      groupsMap[g].sort((a, b) => (b.points || 0) - (a.points || 0) || ((b.goals_for||0)-(b.goals_against||0)) - ((a.goals_for||0)-(a.goals_against||0)));
+    }
+    const standBody = makeStandingsEmbed(groupsMap, tournament.name, 2, tournament.id);
 
     // Try to edit existing pinned standings message, else post new
     const storedMsgId = db.getConfig(`standings_msg_${tournament.id}`);
     let posted = false;
     if (storedMsgId) {
       try {
-        const old = await resultsCh.messages.fetch(storedMsgId);
-        await old.edit({ embeds: [standingsEmbed], components: [row] });
+        await client.rest.patch(`/channels/${resultsCh.id}/messages/${storedMsgId}`, { body: standBody });
         posted = true;
       } catch {}
     }
     if (!posted) {
-      const msg = await resultsCh.send({ embeds: [standingsEmbed], components: [row] });
+      const msg = await client.rest.post(`/channels/${resultsCh.id}/messages`, { body: standBody });
       db.setConfig(`standings_msg_${tournament.id}`, msg.id);
     }
 

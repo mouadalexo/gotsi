@@ -1,32 +1,35 @@
 'use strict';
-const { EmbedBuilder } = require('discord.js');
 
-const RED      = 0xCC0000;
-const GOLD     = 0xFFD700;
-const GREEN    = 0x00C853;
-const GRAY     = 0x95A5A6;
+// ── Accent colours ─────────────────────────────────────────────────────────────
+const RED  = 0xCC0000;
+const GOLD = 0xFFD700;
+const GREEN = 0x00C853;
+const GRAY  = 0x95A5A6;
 
-const TROPHY    = '🏆';
-const BALL      = '⚽';
-const CALENDAR  = '📅';
-const CHART     = '📊';
-const STAR      = '⭐';
-const CROWN     = '👑';
-const SHIELD    = '🛡️';
-const LINE      = '──────────────────────────';
-const THIN_LINE = '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄';
+// ── Custom server emojis ───────────────────────────────────────────────────────
+const E_CUP        = '<a:cup:1501741159557500971>';
+const E_HASHTAG    = '<a:hashtag:1501741088736678069>';
+const E_SMALLARROW = '<a:smallarrow:1472222559645863936>';
+const E_FIRE       = '<a:fire:1472250580583059611>';
+const E_CROWN      = '<:crownn:1501741176296964277>';
 
-function rankIcon(pos) {
-  return pos <= 3 ? ['🥇', '🥈', '🥉'][pos - 1] : `\`${pos}.\``;
+// ── Component V2 helpers ───────────────────────────────────────────────────────
+const sep = (spacing = 'small') => ({ type: 14, divider: true, spacing });
+const txt = (content)           => ({ type: 10, content });
+
+function container(accentColor, components) {
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: accentColor, components }],
+  };
 }
 
-// ── 1. Schedule embed ─────────────────────────────────────────────────────────
+// ── 1. Schedule embed ──────────────────────────────────────────────────────────
 function makeScheduleEmbed(matches, roundName, seasonName) {
-  const embed = new EmbedBuilder()
-    .setColor(RED)
-    .setTitle(`${CALENDAR}  SCHEDULE  —  ${roundName.toUpperCase()}`)
-    .setDescription(`**${seasonName}**\n${LINE}`)
-    .setFooter({ text: `Night Stars eFootball Tournament  •  ${seasonName}` });
+  const inner = [
+    txt(`${E_CUP}  **SCHEDULE  —  ${seasonName}  ·  ${roundName.toUpperCase()}**`),
+    sep(),
+  ];
 
   const grouped = {};
   for (const m of matches) {
@@ -35,138 +38,147 @@ function makeScheduleEmbed(matches, roundName, seasonName) {
     grouped[grp].push(m);
   }
 
-  for (const [grp, grpMatches] of Object.entries(grouped)) {
-    const lines = grpMatches.map(m =>
-      `${BALL}  **${m.home.toUpperCase()}**  \`vs\`  **${m.away.toUpperCase()}**`
-    );
-    embed.addFields({
-      name: grp ? `🔹 GROUP ${grp}` : `${BALL} MATCHES`,
-      value: lines.join('\n') + `\n${THIN_LINE}`,
-      inline: false,
+  const entries = Object.entries(grouped).sort();
+  entries.forEach(([grp, grpMatches], i) => {
+    const PAD  = 22;
+    const lines = grpMatches.map(m => {
+      const h = m.home.toUpperCase().slice(0, PAD).padEnd(PAD);
+      const a = m.away.toUpperCase().slice(0, PAD);
+      return `${E_SMALLARROW}  \`${h}  vs  ${a}\``;
     });
-  }
-  return embed;
+    inner.push(txt(`${E_HASHTAG}  **GROUP ${grp}**\n${lines.join('\n')}`));
+    if (i < entries.length - 1) inner.push(sep());
+  });
+
+  inner.push(sep());
+  inner.push(txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`));
+  return container(RED, inner);
 }
 
-// ── 2. Result embed (single match) ───────────────────────────────────────────
-function makeResultEmbed(home, homeScore, away, awayScore, group, roundName, seasonName) {
+// ── 2. Result embed (single match) ────────────────────────────────────────────
+function makeResultEmbed(home, homeScore, away, awayScore, roundName, seasonName) {
   const h = home.toUpperCase();
   const a = away.toUpperCase();
   let color, outcomeLine;
 
   if (homeScore > awayScore) {
     color = GREEN;
-    outcomeLine = `${CROWN}  **${h} WINS**  ${CROWN}`;
+    outcomeLine = `${E_CROWN}  **${h} WINS**  ${E_CROWN}`;
   } else if (awayScore > homeScore) {
     color = GREEN;
-    outcomeLine = `${CROWN}  **${a} WINS**  ${CROWN}`;
+    outcomeLine = `${E_CROWN}  **${a} WINS**  ${E_CROWN}`;
   } else {
     color = GRAY;
-    outcomeLine = `🤝  **MATCH DRAWN**`;
+    outcomeLine = `${E_FIRE}  **MATCH DRAWN**  ${E_FIRE}`;
   }
 
-  const scoreLine = `\`\`\`\n${h.padEnd(20)} ${homeScore}  —  ${awayScore}  ${a}\n\`\`\``;
-
-  return new EmbedBuilder()
-    .setColor(color)
-    .setTitle(`${TROPHY}  FULL TIME  —  GROUP ${group}  •  ${roundName.toUpperCase()}`)
-    .setDescription(`**${seasonName}**\n${LINE}\n${scoreLine}\n${outcomeLine}\n${LINE}`)
-    .setFooter({ text: `Night Stars eFootball Tournament  •  ${seasonName}` });
+  return container(color, [
+    txt(`${E_CUP}  **FULL TIME  —  ${seasonName}  ·  ${roundName.toUpperCase()}**`),
+    sep(),
+    txt(`**${h}  ${homeScore}  —  ${awayScore}  ${a}**`),
+    sep('large'),
+    txt(outcomeLine),
+    sep(),
+    txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`),
+  ]);
 }
 
-// ── 3. Multi-results embed ────────────────────────────────────────────────────
-function makeMultiResultsEmbed(results, roundName, seasonName) {
-  const embed = new EmbedBuilder()
-    .setColor(RED)
-    .setTitle(`${TROPHY}  RESULTS  —  ${roundName.toUpperCase()}`)
-    .setDescription(`**${seasonName}**\n${LINE}`)
-    .setFooter({ text: `Night Stars eFootball Tournament  •  ${seasonName}` });
-
-  const grouped = {};
+// ── 3. Multi-results embed ─────────────────────────────────────────────────────
+function makeMultiResultsEmbed(results, seasonName) {
+  const byRound = {};
   for (const r of results) {
-    const grp = r.group || '';
-    if (!grouped[grp]) grouped[grp] = [];
-    grouped[grp].push(r);
+    const key = r.round || 1;
+    if (!byRound[key]) byRound[key] = [];
+    byRound[key].push(r);
   }
 
-  for (const [grp, grpResults] of Object.entries(grouped)) {
-    const lines = grpResults.map(r => {
+  const inner = [
+    txt(`${E_CUP}  **RESULTS  —  ${seasonName}**`),
+    sep(),
+  ];
+
+  const entries = Object.entries(byRound).sort((a, b) => Number(a[0]) - Number(b[0]));
+  entries.forEach(([round, roundResults], i) => {
+    const lines = roundResults.map(r => {
       const h = r.home.toUpperCase(), a = r.away.toUpperCase();
-      if (r.hs > r.as) return `${STAR} **${h}**  \`${r.hs} — ${r.as}\`  ${a}`;
-      if (r.as > r.hs) return `**${h}**  \`${r.hs} — ${r.as}\`  **${a}** ${STAR}`;
-      return `**${h}**  \`${r.hs} — ${r.as}\`  **${a}**  _(Draw)_`;
+      if (r.hs > r.as) return `${E_CROWN} **${h}**  \`${r.hs} — ${r.as}\`  ${a}`;
+      if (r.as > r.hs) return `${h}  \`${r.hs} — ${r.as}\`  **${a}** ${E_CROWN}`;
+      return `${E_FIRE} **${h}**  \`${r.hs} — ${r.as}\`  **${a}**`;
     });
-    embed.addFields({
-      name: grp ? `🔹 GROUP ${grp}` : `${TROPHY} RESULTS`,
-      value: lines.join('\n') + `\n${THIN_LINE}`,
-      inline: false,
-    });
-  }
-  return embed;
+    inner.push(txt(`${E_HASHTAG}  **ROUND ${round}**\n${lines.join('\n')}`));
+    if (i < entries.length - 1) inner.push(sep());
+  });
+
+  inner.push(sep());
+  inner.push(txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`));
+  return container(RED, inner);
 }
 
-// ── 4. Standings embed ────────────────────────────────────────────────────────
-function makeStandingsEmbed(groups, seasonName, advanceSpots = 2) {
-  const embed = new EmbedBuilder()
-    .setColor(RED)
-    .setTitle(`${CHART}  STANDINGS  —  GROUP STAGE`)
-    .setDescription(`**${seasonName}**  •  Top ${advanceSpots} from each group advance\n${LINE}`)
-    .setFooter({ text: `✅ = Advances to Knockout Stage  •  Night Stars eFootball Tournament` });
+// ── 4. Standings embed ─────────────────────────────────────────────────────────
+function makeStandingsEmbed(groups, seasonName, advanceSpots = 2, tournamentId = null) {
+  const NW     = 18;
+  const header = `\`#  ${'Team'.padEnd(NW)}  J   Dif   Pts\``;
 
-  for (const [grpName, teams] of Object.entries(groups)) {
-    const header = `\`${'#'.padEnd(2)} ${'TEAM'.padEnd(22)} ${'P'.padStart(2)} ${'W'.padStart(2)} ${'D'.padStart(2)} ${'L'.padStart(2)} ${'GD'.padStart(4)} ${'PTS'.padStart(4)}\``;
+  const inner = [
+    txt(`${E_CUP}  **STANDINGS  —  ${seasonName}**`),
+    sep(),
+  ];
+
+  const entries = Object.entries(groups).sort();
+  entries.forEach(([grpName, teams], gi) => {
     const rows = [header];
     teams.forEach((t, i) => {
-      const pos = i + 1;
-      const name = (t.name || '').slice(0, 20);
-      const p   = t.p   || (t.wins || 0) + (t.draws || 0) + (t.losses || 0);
-      const w   = t.w   || t.wins   || 0;
-      const d   = t.d   || t.draws  || 0;
-      const l   = t.l   || t.losses || 0;
-      const gd  = t.gd  ?? ((t.goals_for || 0) - (t.goals_against || 0));
-      const pts = t.pts ?? t.points ?? 0;
-      const gdStr = gd > 0 ? `+${gd}` : String(gd);
-      const adv = pos <= advanceSpots ? '✅' : '  ';
-      rows.push(
-        `\`${String(pos).padEnd(2)} ${name.padEnd(22)} ${String(p).padStart(2)} ${String(w).padStart(2)} ${String(d).padStart(2)} ${String(l).padStart(2)} ${gdStr.padStart(4)} ${String(pts).padStart(4)}\`  ${adv}`
-      );
+      const pos  = i + 1;
+      const name = (t.name || '').slice(0, NW).padEnd(NW);
+      const j    = (t.wins || 0) + (t.draws || 0) + (t.losses || 0);
+      const gd   = (t.goals_for || 0) - (t.goals_against || 0);
+      const pts  = t.points ?? t.pts ?? 0;
+      const dif  = gd >= 0 ? `+${gd}` : String(gd);
+      rows.push(`\`${String(pos).padEnd(2)} ${name}  ${String(j).padStart(1)}  ${dif.padStart(4)}  ${String(pts).padStart(3)}\``);
     });
-    embed.addFields({
-      name: `🔹 GROUP ${grpName}`,
-      value: rows.join('\n') + `\n${THIN_LINE}`,
-      inline: false,
+    inner.push(txt(`${E_HASHTAG}  **GROUP ${grpName}**\n${rows.join('\n')}`));
+    if (gi < entries.length - 1) inner.push(sep());
+  });
+
+  inner.push(sep());
+  inner.push(txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`));
+
+  if (tournamentId !== null) {
+    inner.push({
+      type: 1,
+      components: [{
+        type: 2, style: 2,
+        label: 'View All Results',
+        emoji: { id: '1501741159557500971', name: 'cup', animated: true },
+        custom_id: `view_results_${tournamentId}`,
+      }],
     });
   }
-  return embed;
+
+  return container(RED, inner);
 }
 
-// ── 5. Group registration embed ───────────────────────────────────────────────
+// ── 5. Group registration embed ────────────────────────────────────────────────
 function makeGroupRegistrationEmbed(groups, seasonName) {
-  const embed = new EmbedBuilder()
-    .setColor(RED)
-    .setTitle(`${SHIELD}  GROUP DRAW  —  ${seasonName.toUpperCase()}`)
-    .setDescription(`**Tournament Groups**\n${LINE}`)
-    .setFooter({ text: `Night Stars eFootball Tournament  •  ${seasonName}` });
+  const inner = [
+    txt(`${E_CUP}  **GROUP DRAW  —  ${seasonName.toUpperCase()}**`),
+    sep(),
+  ];
 
-  for (const [grpName, teams] of Object.entries(groups)) {
-    const lines = teams.map((team, i) => `\`${i + 1}.\`  **${team.toUpperCase()}**`);
-    embed.addFields({
-      name: `🔹 GROUP ${grpName}`,
-      value: lines.join('\n'),
-      inline: true,
-    });
-  }
-  return embed;
+  const entries = Object.entries(groups).sort();
+  entries.forEach(([grpName, teams], i) => {
+    const lines = teams.map(team => `${E_SMALLARROW}  **${team.toUpperCase()}**`);
+    inner.push(txt(`${E_HASHTAG}  **GROUP ${grpName}**\n${lines.join('\n')}`));
+    if (i < entries.length - 1) inner.push(sep());
+  });
+
+  inner.push(sep());
+  inner.push(txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`));
+  return container(RED, inner);
 }
 
-// ── 6. Bracket embed ──────────────────────────────────────────────────────────
+// ── 6. Bracket embed ───────────────────────────────────────────────────────────
 function makeBracketEmbed(rounds, seasonName) {
-  const embed = new EmbedBuilder()
-    .setColor(GOLD)
-    .setTitle(`${TROPHY}  KNOCKOUT BRACKET  —  ${seasonName.toUpperCase()}`)
-    .setDescription(LINE)
-    .setFooter({ text: `⭐ = Winner  •  ⏳ = Not played yet  •  Night Stars eFootball Tournament` });
-
   const roundIcons = {
     'round of 16':    '🔵',
     'quarter-finals': '🟠',
@@ -174,22 +186,28 @@ function makeBracketEmbed(rounds, seasonName) {
     'final':          '⭐',
   };
 
-  for (const [roundName, matches] of Object.entries(rounds)) {
-    const icon = roundIcons[roundName.toLowerCase()] || '🔹';
+  const inner = [
+    txt(`${E_CUP}  **KNOCKOUT BRACKET  —  ${seasonName.toUpperCase()}**`),
+    sep(),
+  ];
+
+  const entries = Object.entries(rounds);
+  entries.forEach(([roundName, matches], i) => {
+    const icon  = roundIcons[roundName.toLowerCase()] || '🔹';
     const lines = matches.map(m => {
       const h = m.home.toUpperCase(), a = m.away.toUpperCase();
       if (m.hs == null) return `⏳  **${h}**  \`vs\`  **${a}**`;
-      if (m.hs > m.as) return `${STAR} **${h}**  \`${m.hs} — ${m.as}\`  ${a}`;
-      if (m.as > m.hs) return `**${h}**  \`${m.hs} — ${m.as}\`  **${a}** ${STAR}`;
-      return `**${h}**  \`${m.hs} — ${m.as}\`  **${a}**  _(Draw)_`;
+      if (m.hs > m.as) return `${E_CROWN} **${h}**  \`${m.hs} — ${m.as}\`  ${a}`;
+      if (m.as > m.hs) return `${h}  \`${m.hs} — ${m.as}\`  **${a}** ${E_CROWN}`;
+      return `${E_FIRE} **${h}**  \`${m.hs} — ${m.as}\`  **${a}**`;
     });
-    embed.addFields({
-      name: `${icon}  ${roundName.toUpperCase()}`,
-      value: lines.join('\n') + `\n${THIN_LINE}`,
-      inline: false,
-    });
-  }
-  return embed;
+    inner.push(txt(`${icon}  **${roundName.toUpperCase()}**\n${lines.join('\n')}`));
+    if (i < entries.length - 1) inner.push(sep());
+  });
+
+  inner.push(sep());
+  inner.push(txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`));
+  return container(GOLD, inner);
 }
 
 module.exports = {

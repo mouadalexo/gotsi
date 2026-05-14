@@ -179,7 +179,7 @@ module.exports = {
           const away = allTeamsById[m.away_team_id] || { name: 'TBD' };
           return { home: home.name, away: away.name, group: m.group_name || 'A' };
         });
-        await scheduleCh.send({ embeds: [makeScheduleEmbed(embedMatches, 'Round ' + roundNum, tournament.name)] });
+        await interaction.client.rest.post(`/channels/${scheduleCh.id}/messages`, { body: makeScheduleEmbed(embedMatches, 'Round ' + roundNum, tournament.name) });
       }
 
             // ── Step 5: simulate 3 results with embeds ────────────────────────────
@@ -198,7 +198,7 @@ module.exports = {
         const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
         if (homeTT) db.update('tournament_teams', homeTT.id, { goals_for: (homeTT.goals_for||0)+hs, goals_against: (homeTT.goals_against||0)+as_, wins: (homeTT.wins||0)+(homeWon?1:0), draws: (homeTT.draws||0)+(draw?1:0), losses: (homeTT.losses||0)+(awayWon?1:0), points: (homeTT.points||0)+(homeWon?3:draw?1:0) });
         if (awayTT) db.update('tournament_teams', awayTT.id, { goals_for: (awayTT.goals_for||0)+as_, goals_against: (awayTT.goals_against||0)+hs, wins: (awayTT.wins||0)+(awayWon?1:0), draws: (awayTT.draws||0)+(draw?1:0), losses: (awayTT.losses||0)+(homeWon?1:0), points: (awayTT.points||0)+(awayWon?3:draw?1:0) });
-        await resultsCh.send({ embeds: [makeResultEmbed(home.name, hs, away.name, as_, grpName, 'Round ' + match.round, tournament.name)] });
+        await interaction.client.rest.post(`/channels/${resultsCh.id}/messages`, { body: makeResultEmbed(home.name, hs, away.name, as_, grpName, 'Round ' + match.round, tournament.name) });
       }
 
             // ── Step 6: post standings embed ──────────────────────────────────────
@@ -214,7 +214,7 @@ module.exports = {
       for (const g of Object.keys(groupedStandings)) {
         groupedStandings[g].sort((a, b) => (b.points||0)-(a.points||0) || ((b.goals_for||0)-(b.goals_against||0))-((a.goals_for||0)-(a.goals_against||0)));
       }
-      await resultsCh.send({ embeds: [makeStandingsEmbed(groupedStandings, tournament.name)] });
+      await interaction.client.rest.post(`/channels/${resultsCh.id}/messages`, { body: makeStandingsEmbed(groupedStandings, tournament.name) });
 
       // Post tournament panel in current channel
       await interaction.channel.send({ embeds: [buildTournamentListEmbed()], components: [buildTournamentButtons()] });
