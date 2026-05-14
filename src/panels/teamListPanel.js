@@ -10,49 +10,78 @@ const _sep = (sp = "small") => ({ type: 14, divider: true, spacing: sp });
 const _txt = c => ({ type: 10, content: c });
 const _box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
 
-// ─── Roster embed: Component V2 — exact format per spec ──────────────────────
-function buildRosterEmbed(tournamentId) {
-  const tournament = db.findById("tournaments", tournamentId);
-  if (!tournament) return _box(0xED4245, [_txt("❌  Tournament not found.")]);
+/*
+ * TEAMS LIST — buildTeamsListEmbed(tournamentId)
+ * Always use this function. Never rebuild the format from scratch.
+ *
+ * flags: 32768 | accent_color: 0x2b2d31 | type-17 container | max 40 components total
+ * Header:  # <cup>  {TEMPLATE}  Team List / <channelutility> The N registered teams ...
+ * NSEL slot: **N    Team name <arrow> name** / [U+3000] Player <smallarrow> <@id>
+ * MCL slot:  **N   Team name <arrow> name** / [U+3000] Player 1 ... / [U+3000] Player 2 ...
+ * Padding: >=10 teams = single digit 4 spaces / double digit 3 spaces. <10 = always 3 spaces
+ * If teams > 18: groups multiple teams per slot to stay within 40-component Discord limit
+ * Footer: -# copyright 2026 Night Stars
+ */
+function buildTeamsListEmbed(tournamentId) {
+  const tournament = db.findById('tournaments', tournamentId);
+  if (!tournament) return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: [{ type: 10, content: 'Tournament not found.' }] }] };
 
-  const ttRows  = db.get("tournament_teams").filter(tt => tt.tournament_id === tournamentId);
-  const teams   = db.get("teams");
-  const players = db.get("players");
+  const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tournamentId);
+  const teams   = db.get('teams');
+  const players = db.get('players');
 
-  const E_CUP     = "<a:cup:1501741159557500971>";
-  const E_ARROW   = "<a:arrow:1501741110798585927>";
-  const E_SMALL   = "<a:smallarrow:1472222559645863936>";
-  const E_CHANNEL = "<a:channelutility:1501741046734786600>";
+  const E_CUP     = '<a:cup:1501741159557500971>';
+  const E_ARROW   = '<a:arrow:1501741110798585927>';
+  const E_SMALL   = '<a:smallarrow:1472222559645863936>';
+  const E_CHANNEL = '<a:channelutility:1501741046734786600>';
+  const INDENT    = '\u3000';
+  const SEP       = { type: 14, divider: true, spacing: 1 };
 
-  const playersPerTeam = tournament.template === "MCL" ? 2 : 1;
+  const isMCL          = tournament.template === 'MCL';
+  const playersPerTeam = isMCL ? 2 : 1;
+  const needsPad       = ttRows.length >= 10;
 
   const enrolledTeams = ttRows.map(tt => ({
-    team:    teams.find(t => t.id === tt.team_id) || { name: "Unknown", emoji: "⚽", short_name: "???" },
+    team:    teams.find(t => t.id === tt.team_id) || { name: 'Unknown' },
     players: players.filter(p => p.team_id === tt.team_id),
   }));
 
-  const totalPlayers = enrolledTeams.reduce((s, e) => s + e.players.length, 0);
+  const countLabel = `The **${enrolledTeams.length}** registered teams for **${tournament.template}** **S${tournament.season}**`;
 
-  const lines = [
-    `# ${E_CUP}  ${tournament.template}  —  Team List`,
-    `${E_CHANNEL}  The **${totalPlayers}** registered players for **Season ${tournament.season}** of the **${tournament.template}**`,
-  ];
+  const MAX_TEAM_SLOTS = 18;
+  const groupSize = enrolledTeams.length <= MAX_TEAM_SLOTS ? 1 : Math.ceil(enrolledTeams.length / MAX_TEAM_SLOTS);
 
-  enrolledTeams.forEach(({ team, players: tp }, i) => {
-    lines.push(`**${i + 1}    Team name   ${E_ARROW}   ${team.name}**`);
+  function teamLine(team, tp, i) {
+    const num     = String(i + 1);
+    const spacing = needsPad ? (num.length === 1 ? '    ' : '   ') : '   ';
+    let line = `**${num}${spacing}Team name   ${E_ARROW}   ${team.name}**`;
     if (playersPerTeam === 1) {
       const p = tp[0];
-      lines.push(`     Player   ${E_SMALL}   ${p ? `<@${p.discord_id}>` : "`No player assigned`"}`);
+      line += `\n${INDENT} Player   ${E_SMALL}   ${p ? '<@' + p.discord_id + '>' : '\`No player assigned\`'}`;
     } else {
       for (let s = 0; s < playersPerTeam; s++) {
         const p = tp[s];
-        lines.push(`     Player ${s + 1}   ${E_SMALL}   ${p ? `<@${p.discord_id}>` : "`No player assigned`"}`);
+        line += `\n${INDENT} Player ${s + 1}   ${E_SMALL}   ${p ? '<@' + p.discord_id + '>' : '\`No player assigned\`'}`;
       }
     }
-  });
+    return line;
+  }
 
-  lines.push("-# © 2026 Night Stars • All rights reserved");
-  return _box(0xFFD700, [_txt(lines.join("\n"))]);
+  const inner = [];
+  inner.push({ type: 10, content: `# ${E_CUP}  ${tournament.template}  —  Team List\n${E_CHANNEL}  ${countLabel}` });
+  inner.push(SEP);
+
+  for (let i = 0; i < enrolledTeams.length; i += groupSize) {
+    const group   = enrolledTeams.slice(i, i + groupSize);
+    const content = group.map(({ team, players: tp }, j) => teamLine(team, tp, i + j)).join('\n');
+    inner.push({ type: 10, content });
+    inner.push(SEP);
+  }
+
+  inner.push({ type: 10, content: '-# \u00a9 2026 Night Stars \u2022 All rights reserved' });
+  inner.push(SEP);
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: inner }] };
 }
 
 // ─── Admin team database embed ────────────────────────────────────────────────
@@ -78,19 +107,19 @@ function buildTeamListEmbed() {
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.primary)
-    .setTitle("🏟️  NS eFootball — Team Database")
+    .setTitle("NS eFootball — Team Database")
     .setDescription("All registered teams available in the bot.")
     .setTimestamp();
 
   if (categories.international.length) {
     const chunks = chunkArray(categories.international, 10);
     chunks.forEach((chunk, i) => {
-      embed.addFields({ name: i === 0 ? "🌍 International Clubs" : "🌍 International (cont.)", value: fieldValue(chunk), inline: false });
+      embed.addFields({ name: i === 0 ? "International Clubs" : "International (cont.)", value: fieldValue(chunk), inline: false });
     });
   }
-  if (categories.morocco.length) embed.addFields({ name: "🇲🇦 Moroccan Clubs",  value: fieldValue(categories.morocco), inline: false });
-  if (categories.saudi.length)   embed.addFields({ name: "🇸🇦 Saudi Clubs",     value: fieldValue(categories.saudi),   inline: false });
-  if (categories.custom.length)  embed.addFields({ name: "⚙️ Custom Teams",      value: fieldValue(categories.custom),  inline: false });
+  if (categories.morocco.length) embed.addFields({ name: "Moroccan Clubs",  value: fieldValue(categories.morocco), inline: false });
+  if (categories.saudi.length)   embed.addFields({ name: "Saudi Clubs",     value: fieldValue(categories.saudi),   inline: false });
+  if (categories.custom.length)  embed.addFields({ name: "Custom Teams",    value: fieldValue(categories.custom),  inline: false });
 
   embed.setFooter({ text: `${teams.length} teams registered` });
   return embed;
@@ -160,4 +189,4 @@ function buildCustomTeamModal() {
     );
 }
 
-module.exports = { buildRosterEmbed, buildTeamListEmbed, buildTeamManageButtons, buildTeamSelectMenu, buildAddPlayerModal, buildCustomTeamModal };
+module.exports = { buildTeamsListEmbed, buildTeamListEmbed, buildTeamManageButtons, buildTeamSelectMenu, buildAddPlayerModal, buildCustomTeamModal };
