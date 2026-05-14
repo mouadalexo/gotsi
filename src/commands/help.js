@@ -62,4 +62,14 @@ module.exports = {
           value: 'Set a deadline on a match and get a reminder.',
           inline: true,
         },
+        {
+          name: '`/help`',
+          value: 'Shows this guide (only visible to you).',
+          inline: true,
+        },
+      )
+      .setFooter({ text: 'Page 2 / 3  —  Commands' });
+
+    await interaction.reply({ embeds: [e1, e2], ephemeral: true });
+  },
 };
