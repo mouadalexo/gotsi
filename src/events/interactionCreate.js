@@ -5,6 +5,7 @@ const { handleTournamentInteraction }         = require('../interactions/tournam
 const { handleResultInteraction }             = require('../interactions/resultInteractions');
 const { handleManageInteraction }             = require('../interactions/manageInteractions');
 const { handleMgr2Interaction }              = require('../interactions/manageInteractionsNew');
+const { handleTestInteraction }               = require('../interactions/testInteractions');
 const { handleAdminInteraction }              = require('../interactions/adminInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
@@ -15,6 +16,8 @@ const TEAM_IDS = [
   'team_add_predefined', 'team_predefined_select', 'team_add_custom',
   'custom_team_modal', 'team_add_player', 'team_select', 'team_remove', 'team_remove_select',
 ];
+
+const TEST_IDS = ['test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw'];
 
 module.exports = {
   name: 'interactionCreate',
@@ -28,6 +31,11 @@ module.exports = {
       }
 
       const id = interaction.customId || '';
+
+      // ── Test panel ─────────────────────────────────────────────────────────
+      if (TEST_IDS.includes(id)) {
+        return handleTestInteraction(interaction);
+      }
 
       // ── Admin panel ────────────────────────────────────────────────────────
       if (id === 'adm_refresh' || id.startsWith('adm_set_') || id.startsWith('adm_channels_modal_')) {
