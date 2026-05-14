@@ -11,7 +11,7 @@ const E_HASHTAG = "<a:hashtag:1501741088736678069>";
 const E_CROWN   = "<:crownn:1501741176296964277>";
 const E_FIRE    = "<a:fire:1472250580583059611>";
 
-const sep = (sp = "small") => ({ type: 14, divider: true, spacing: sp });
+const sep = (sp = 1) => ({ type: 14, divider: true, spacing: sp });
 const txt = c => ({ type: 10, content: c });
 const box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
 
