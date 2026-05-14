@@ -25,50 +25,54 @@ if (fs.existsSync(envPath)) {
 const { Client, GatewayIntentBits } = require('discord.js');
 const { db } = require('../src/utils/database');
 
-const E_CROWN = '<:crownn:1501741176296964277>';
-const E_FIRE  = '<a:fire:1472250580583059611>';
-const E_CUP   = '<a:cup:1501741159557500971>';
-const SEP     = { type: 14, divider: true, spacing: 1 };
-const txt     = c => ({ type: 10, content: c });
-
-const WINNERS = [
-  { season: 1,  display: '<@1362933955510276138>' },
-  { season: 2,  display: '<@1164893262956470354>' },
-  { season: 3,  display: '<@1362933955510276138>' },
-  { season: 4,  display: '**m7cnsllk**' },
-  { season: 5,  display: '<@1164893262956470354>' },
-  { season: 6,  display: '**m7cnsllk**' },
-  { season: 7,  display: '<@1362933955510276138>' },
-  { season: 8,  display: '<@1338704217090822185>' },
-  { season: 9,  display: '<@1338704217090822185>' },
-  { season: 10, display: '**Ilyas Ragnar**' },
-  { season: 11, display: '**Ilyas Ragnar**' },
-  { season: 12, display: '**Ilyas Ragnar**' },
-  { season: 13, display: '<@1362933955510276138>' },
-  { season: 14, display: '<@1164893262956470354>' },
-  { season: 15, display: '**TIKOO**' },
-];
+const E_PIN    = '<a:pin:1501740992884117504>';
+const E_FIRE   = '<a:fire:1472250580583059611>';
+const E_CROWNN = '<:crownn:1501741176296964277>';
+const E_CROWN  = '<a:crown:1501741170668077127>';
+const E_CUP    = '<a:cup:1501741159557500971>';
+const SEP      = { type: 14, divider: true, spacing: 1 };
+const txt      = c => ({ type: 10, content: c });
 
 const PRIZE_ROLE = '<@&1462986630267797598>';
+
+// Season 1 uses crownn (static), seasons 2-15 use crown (animated)
+const WINNERS = [
+  { season: 1,  emoji: E_CROWNN, display: '<@1362933955510276138>' },
+  { season: 2,  emoji: E_CROWN,  display: '<@1164893262956470354>' },
+  { season: 3,  emoji: E_CROWN,  display: '<@1362933955510276138>' },
+  { season: 4,  emoji: E_CROWN,  display: '**m7cnsllk**' },
+  { season: 5,  emoji: E_CROWN,  display: '<@1164893262956470354>' },
+  { season: 6,  emoji: E_CROWN,  display: '**m7cnsllk**' },
+  { season: 7,  emoji: E_CROWN,  display: '<@1362933955510276138>' },
+  { season: 8,  emoji: E_CROWN,  display: '<@1338704217090822185>' },
+  { season: 9,  emoji: E_CROWN,  display: '<@1338704217090822185>' },
+  { season: 10, emoji: E_CROWN,  display: '**Ilyas Ragnar**' },
+  { season: 11, emoji: E_CROWN,  display: '**Ilyas Ragnar**' },
+  { season: 12, emoji: E_CROWN,  display: '**Ilyas Ragnar**' },
+  { season: 13, emoji: E_CROWN,  display: '<@1362933955510276138>' },
+  { season: 14, emoji: E_CROWN,  display: '<@1164893262956470354>' },
+  { season: 15, emoji: E_CROWN,  display: '**TIKOO**' },
+];
 
 function buildPayload() {
   const inner = [];
 
   inner.push(txt(
-    `# ${E_CUP}  NSEL Winners History\n` +
+    `${E_PIN} **NSEL Winners History** ${E_PIN}\n\n` +
     `${E_FIRE} **the prize is ${PRIZE_ROLE}** ${E_FIRE}`
   ));
   inner.push(SEP);
-
   inner.push(txt('╔═══════════════╗'));
+  inner.push(SEP);
 
   for (const w of WINNERS) {
-    inner.push(txt(`${E_CROWN}  **SEASON ${w.season}** : ${w.display}`));
+    inner.push(txt(`${w.emoji} **SEASON ${w.season}** : ${w.display}`));
   }
 
+  inner.push(SEP);
   inner.push(txt('╚═══════════════╝'));
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  NSEL  •  Winners History'));
+  inner.push(txt(`-# Night Stars  •  NSEL  •  Winners History`));
 
   return {
     flags: 32768,
@@ -86,19 +90,16 @@ client.once('clientReady', async () => {
   const guild = client.guilds.cache.first();
   if (!guild) { console.error('No guild found!'); client.destroy(); return; }
 
-  // Find the NSEL tournament
   const nsel = db.findOne('tournaments', t =>
     (t.template || '').toUpperCase() === 'NSEL' ||
     (t.name || '').toUpperCase().includes('NSEL')
   );
 
-  // Find the winners history channel from DB config or tournament ref
-  const catId   = db.getConfig('winners_history_category');
-  const ref      = nsel?.winners_history_ref;
+  const catId = db.getConfig('winners_history_category');
+  const ref   = nsel?.winners_history_ref;
 
   let targetChannel = null;
 
-  // Try to find by existing ref first
   if (ref?.channelId) {
     try {
       targetChannel = await guild.channels.fetch(ref.channelId);
@@ -106,7 +107,6 @@ client.once('clientReady', async () => {
     } catch (_) {}
   }
 
-  // Fall back to searching category for nsel-winners channel
   if (!targetChannel && catId) {
     const channels = guild.channels.cache.filter(
       c => c.parentId === catId && c.isTextBased()
@@ -119,13 +119,13 @@ client.once('clientReady', async () => {
   }
 
   if (!targetChannel) {
-    console.error('Could not find a winners history channel.');
-    console.error('Set it manually: /manage → 🏆 Winners Setup → Set History Msg');
+    console.error('Could not find the NSEL winners history channel.');
+    console.error('Set the channel ref via: /manage → 🏆 Winners Setup → Set History Msg');
     client.destroy();
     return;
   }
 
-  // Delete the old message if we have a ref to it
+  // Delete the old placeholder message if it exists
   if (ref?.messageId) {
     try {
       const old = await targetChannel.messages.fetch(ref.messageId);
@@ -155,8 +155,8 @@ client.once('clientReady', async () => {
     });
     console.log(`✓ DB updated with new message ref`);
   } else {
-    console.log(`Note: No NSEL tournament found in DB — ref not saved.`);
-    console.log(`Channel: ${targetChannel.id} | Message: ${newMsg.id}`);
+    console.log(`Note: No NSEL tournament in DB — ref not saved automatically.`);
+    console.log(`Manually link it: Channel ${targetChannel.id} | Message ${newMsg.id}`);
   }
 
   console.log('\n✅ Done! Winners history posted successfully.');
