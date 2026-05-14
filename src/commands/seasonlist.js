@@ -78,7 +78,7 @@ module.exports = {
       const isDuo    = tournament.type === 'duo' || tournament.template === 'MCL';
       const total    = enrolledTeams.length;
       const indent   = playerIndent(total);
-      const targetCh = await getTargetChannel(interaction.guild, tournament.template, 'teamList') || interaction.channel;
+      const targetCh = await getTargetChannel(interaction.guild, tournament.template, 'teamsList') || interaction.channel;
 
       const DIVIDER = { type: 14, spacing: 1, divider: true };
       const innerComponents = [];

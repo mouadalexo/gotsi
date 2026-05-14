@@ -16,8 +16,8 @@ const _box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_
  *
  * flags: 32768 | accent_color: 0x2b2d31 | type-17 container | max 40 components total
  * Header:  # <cup>  {TEMPLATE}  Team List / <channelutility> The N registered teams ...
- * NSEL slot: **N    Team name <arrow> name** / [U+3000] Player <smallarrow> <@id>
- * MCL slot:  **N   Team name <arrow> name** / [U+3000] Player 1 ... / [U+3000] Player 2 ...
+ * NSEL slot: **N    Team name <arrow> name** / <@id>
+ * MCL slot:  **N   Team name <arrow> name** / <@id1> / <@id2>
  * Padding: >=10 teams = single digit 4 spaces / double digit 3 spaces. <10 = always 3 spaces
  * If teams > 18: groups multiple teams per slot to stay within 40-component Discord limit
  * Footer: -# copyright 2026 Night Stars
@@ -32,9 +32,7 @@ function buildTeamsListEmbed(tournamentId) {
 
   const E_CUP     = '<a:cup:1501741159557500971>';
   const E_ARROW   = '<a:arrow:1501741110798585927>';
-  const E_SMALL   = '<a:smallarrow:1472222559645863936>';
   const E_CHANNEL = '<a:channelutility:1501741046734786600>';
-  const INDENT    = '\u3000';
   const SEP       = { type: 14, divider: true, spacing: 1 };
 
   const isMCL          = tournament.template === 'MCL';
@@ -57,11 +55,11 @@ function buildTeamsListEmbed(tournamentId) {
     let line = `**${num}${spacing}Team name   ${E_ARROW}   ${team.name}**`;
     if (playersPerTeam === 1) {
       const p = tp[0];
-      line += `\n${INDENT} Player   ${E_SMALL}   ${p ? '<@' + p.discord_id + '>' : '\`No player assigned\`'}`;
+      line += p ? `\n<@${p.discord_id}>` : '';
     } else {
       for (let s = 0; s < playersPerTeam; s++) {
         const p = tp[s];
-        line += `\n${INDENT} Player ${s + 1}   ${E_SMALL}   ${p ? '<@' + p.discord_id + '>' : '\`No player assigned\`'}`;
+        line += p ? `\n<@${p.discord_id}>` : '';
       }
     }
     return line;
@@ -86,58 +84,27 @@ function buildTeamsListEmbed(tournamentId) {
 
 // ─── Admin team database embed ────────────────────────────────────────────────
 function buildTeamListEmbed() {
-  const teams = db.get("teams").sort((a, b) => {
-    if (a.category !== b.category) return a.category.localeCompare(b.category);
-    return a.name.localeCompare(b.name);
-  });
-  const players = db.get("players");
-
-  const categories = { international: [], morocco: [], saudi: [], custom: [] };
-  for (const t of teams) {
-    const playerCount = players.filter(p => p.team_id === t.id).length;
-    const cat = categories[t.category] || categories.custom;
-    const playerLine = playerCount > 0 ? `  *(${playerCount}p)*` : "";
-    cat.push(`${E.smallarrow} ${t.emoji} **${t.name}** \`${t.short_name}\`${playerLine}`);
+  const teams = db.get("teams");
+  if (!teams.length) {
+    return new EmbedBuilder().setColor(COLORS.warning).setTitle("No Teams").setDescription("No teams in the database.");
   }
-
-  function fieldValue(lines) {
-    if (!lines.length) return "`empty`";
-    return [" " + lines[0], ...lines.slice(1)].join("\n");
-  }
-
-  const embed = new EmbedBuilder()
+  const lines = teams.map(t => `${t.emoji || "⚽"} **${t.name}** \`${t.short_name}\` — ${t.category || "General"}`);
+  return new EmbedBuilder()
     .setColor(COLORS.primary)
-    .setTitle("NS eFootball — Team Database")
-    .setDescription("All registered teams available in the bot.")
+    .setTitle(`${E.cup}  Team Database (${teams.length})`)
+    .setDescription(lines.join("\n"))
     .setTimestamp();
-
-  if (categories.international.length) {
-    const chunks = chunkArray(categories.international, 10);
-    chunks.forEach((chunk, i) => {
-      embed.addFields({ name: i === 0 ? "International Clubs" : "International (cont.)", value: fieldValue(chunk), inline: false });
-    });
-  }
-  if (categories.morocco.length) embed.addFields({ name: "Moroccan Clubs",  value: fieldValue(categories.morocco), inline: false });
-  if (categories.saudi.length)   embed.addFields({ name: "Saudi Clubs",     value: fieldValue(categories.saudi),   inline: false });
-  if (categories.custom.length)  embed.addFields({ name: "Custom Teams",    value: fieldValue(categories.custom),  inline: false });
-
-  embed.setFooter({ text: `${teams.length} teams registered` });
-  return embed;
-}
-
-function chunkArray(arr, size) {
-  const chunks = [];
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
-  return chunks;
 }
 
 function buildTeamManageButtons() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("team_add_predefined").setLabel("Add from List").setStyle(ButtonStyle.Primary).setEmoji("📋"),
-    new ButtonBuilder().setCustomId("team_add_custom").setLabel("Add Custom Team").setStyle(ButtonStyle.Secondary).setEmoji("➕"),
-    new ButtonBuilder().setCustomId("team_add_player").setLabel("Add Player").setStyle(ButtonStyle.Success).setEmoji("👤"),
-    new ButtonBuilder().setCustomId("team_remove").setLabel("Remove Team").setStyle(ButtonStyle.Danger).setEmoji("🗑️"),
-  );
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("team_add_predefined").setLabel("Add Predefined Team").setStyle(ButtonStyle.Primary).setEmoji("⚽"),
+      new ButtonBuilder().setCustomId("team_add_custom").setLabel("Add Custom Team").setStyle(ButtonStyle.Secondary).setEmoji("✏️"),
+      new ButtonBuilder().setCustomId("team_add_player").setLabel("Add Player").setStyle(ButtonStyle.Success).setEmoji("👤"),
+      new ButtonBuilder().setCustomId("team_remove").setLabel("Remove Team").setStyle(ButtonStyle.Danger).setEmoji("🗑️"),
+    ),
+  ];
 }
 
 function buildTeamSelectMenu(placeholder = "Select a team...", customId = "team_select") {

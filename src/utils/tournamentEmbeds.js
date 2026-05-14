@@ -14,7 +14,7 @@ const E_FIRE       = '<a:fire:1472250580583059611>';
 const E_CROWN      = '<:crownn:1501741176296964277>';
 
 // ── Component V2 helpers ───────────────────────────────────────────────────────
-const sep = (spacing = 'small') => ({ type: 14, divider: true, spacing });
+const sep = (spacing = 1) => ({ type: 14, divider: true, spacing });
 const txt = (content)           => ({ type: 10, content });
 
 function container(accentColor, components) {
@@ -76,7 +76,7 @@ function makeResultEmbed(home, homeScore, away, awayScore, roundName, seasonName
     txt(`${E_CUP}  **FULL TIME  —  ${seasonName}  ·  ${roundName.toUpperCase()}**`),
     sep(),
     txt(`**${h}  ${homeScore}  —  ${awayScore}  ${a}**`),
-    sep('large'),
+    sep(2),
     txt(outcomeLine),
     sep(),
     txt(`-# Night Stars eFootball Tournament  •  ${seasonName}`),
