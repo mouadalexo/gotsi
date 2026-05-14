@@ -1,75 +1,78 @@
 'use strict';
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { COLORS } = require('../utils/embeds');
+const { SlashCommandBuilder } = require('discord.js');
+
+const SEP = { type: 14, divider: true, spacing: 1 };
+const txt = c => ({ type: 10, content: c });
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Full guide — how the Night Stars bot works'),
+    .setDescription('Show all bot commands and how to use them'),
 
   async execute(interaction) {
+    const E_CUP  = '<a:cup:1501741159557500971>';
+    const E_HASH = '<a:hashtag:1501741088736678069>';
 
-    const e1 = new EmbedBuilder()
-      .setColor(0x8B0000)
-      .setTitle('🌟  Night Stars eFootball Manager')
-      .setDescription(
-        'Full Discord-based tournament system for **NSEL** and **MCL**.\n' +
-        'Everything runs through the **`/manage`** panel — managers just click buttons.\n\n' +
-        '**How to run a full season:**\n' +
-        '```\n' +
-        '1.  /manage → New Season\n' +
-        '2.  /manage → Register Teams\n' +
-        '3.  /manage → Add Player  (repeat per team)\n' +
-        '4.  /manage → Draw Groups\n' +
-        '5.  /manage → Generate Matches\n' +
-        '6.  /manage → Post Schedule  or  Auto-Schedule\n' +
-        '7.  /manage → Add Result  (after each match played)\n' +
-        '8.  /manage → Start Knockout  (when all group results are in)\n' +
-        '```'
-      )
-      .setFooter({ text: 'Page 1 / 3  —  Quick Start' });
+    const inner = [
+      txt(`# ${E_CUP}  Night Stars eFootball — Help\n> Full command reference for admins, managers and players.`),
+      SEP,
 
-    const e2 = new EmbedBuilder()
-      .setColor(0xAA0000)
-      .setTitle('📋  All Slash Commands')
-      .addFields(
-        {
-          name: '`/manage`  🔒 Manager',
-          value:
-            'All-in-one control panel — **3 rows of buttons:**\n' +
-            '> **Row 1:** New Season · Register Teams · Add Player · Close Season\n' +
-            '> **Row 2:** Draw Groups · Generate Matches · Post Schedule · Auto-Schedule\n' +
-            '> **Row 3:** Add Result · Start Knockout · View Bracket',
-          inline: false,
-        },
-        {
-          name: '`/standings`',
-          value: 'View live group standings table for any active tournament.',
-          inline: true,
-        },
-        {
-          name: '`/seasonlist`',
-          value: 'List all seasons (active + past) with stats.',
-          inline: true,
-        },
-        {
-          name: '`/groupdraw`  🔒',
-          value: 'Manually re-trigger group draw.',
-          inline: true,
-        },
-        {
-          name: '`/deadline`  🔒',
-          value: 'Set a deadline on a match and get a reminder.',
-          inline: true,
-        },
-        {
-          name: '`/help`',
-          value: 'Shows this guide (only visible to you).',
-          inline: true,
-        },
-      )
-      .setFooter({ text: 'Page 2 / 3  —  Commands' });
+      txt(
+        `${E_HASH}  **Admin Commands** — requires Administrator\n` +
+        '`/manage` — Open the manager panel (tournament setup, admins, bot settings)\n' +
+        '`/team` — Manage the master teams list (add, rename, delete)\n' +
+        '`/adminpanel` — Open the admin setup panel (bot-level channel config)'
+      ),
+      SEP,
 
-    await interaction.reply({ embeds: [e1, e2], ephemeral: true });
+      txt(
+        `${E_HASH}  **Manager Commands** — requires Manage Guild or DB manager role\n` +
+        '`/botola` — Tournament hub: select a tournament to open its 3 management panels\n' +
+        '`/managerpanel` — Legacy tournament manager (per-template view)\n' +
+        '`/seasonlist` — Post the full team list for a tournament season\n' +
+        '`/standings` — Post the current standings embed\n' +
+        '`/deadline` — Set or show round deadlines\n' +
+        '`/groupdraw` — Post the group draw embed'
+      ),
+      SEP,
+
+      txt(
+        `${E_HASH}  **Panel System** — via \`/botola\`\n` +
+        '**Panel 1 — Tournament Management**\n' +
+        '> Controls the tournament lifecycle: begin season, add results, advance rounds.\n' +
+        '**Panel 2 — Team Registration**\n' +
+        '> Enroll teams from the master list, assign players, close registration.\n' +
+        '**Panel 3 — Post & Preview**\n' +
+        '> Post schedule, results, standings, group draw and bracket to configured channels.'
+      ),
+      SEP,
+
+      txt(
+        `${E_HASH}  **Tournament Flow**\n` +
+        '1. Admin creates tournament via `/manage → New Tournament`\n' +
+        '2. Set channels via Panel 1 → Set Channels (or `/manage → Set Channels`)\n' +
+        '3. Manager opens panels via `/botola → [tournament name]`\n' +
+        '4. Register teams in Panel 2, then close registration\n' +
+        '5. Click **Begin Season** in Panel 1 — groups are drawn automatically\n' +
+        '6. Add match results via Panel 1 → Add Result\n' +
+        '7. Once all group matches done, click **Advance to Knockout**\n' +
+        '8. Continue adding results and advancing until the champion is crowned\n' +
+        '9. Post embeds at any time via Panel 3'
+      ),
+      SEP,
+
+      txt(
+        `${E_HASH}  **Test Panel**\n` +
+        '`/testpanel` — Post test panels (MCL/NSEL mock data) to verify embed layouts'
+      ),
+      SEP,
+
+      txt('-# Night Stars eFootball  •  /help  •  All rights reserved'),
+    ];
+
+    return interaction.reply({
+      flags: 32768,
+      components: [{ type: 17, accent_color: 0x5865F2, components: inner }],
+    });
   },
 };

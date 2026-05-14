@@ -4,9 +4,12 @@ const { handleTeamInteraction }               = require('../interactions/teamInt
 const { handleTournamentInteraction }         = require('../interactions/tournamentInteractions');
 const { handleResultInteraction }             = require('../interactions/resultInteractions');
 const { handleManageInteraction }             = require('../interactions/manageInteractions');
+const { handleMgr2Interaction }              = require('../interactions/manageInteractionsNew');
 const { handleTestInteraction }               = require('../interactions/testInteractions');
 const { handleAdminInteraction }              = require('../interactions/adminInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
+const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
+const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 
 const TEAM_IDS = [
@@ -39,7 +42,7 @@ module.exports = {
         return handleAdminInteraction(interaction);
       }
 
-      // ── Tournament manager panel ───────────────────────────────────────────
+      // ── Tournament manager panel (legacy tmgr_*) ───────────────────────────
       if (
         id === 'tmgr_back'                       ||
         id.startsWith('tmgr_t_')                 ||
@@ -63,12 +66,39 @@ module.exports = {
         return handleTournamentManagerInteraction(interaction);
       }
 
-      // ── Team interactions ──────────────────────────────────────────────────
-      if (TEAM_IDS.includes(id) || id.startsWith('player_add_modal_')) {
-        return handleTeamInteraction(interaction, client);
+      // ── Team CRUD (/team) ──────────────────────────────────────────────────
+      if (
+        id === 'tc_add'          ||
+        id === 'tc_add_modal'    ||
+        id === 'tc_edit_start'   ||
+        id === 'tc_edit_sel'     ||
+        id === 'tc_del_start'    ||
+        id === 'tc_del_sel'      ||
+        id === 'tc_noop'         ||
+        id.startsWith('tc_refresh_')      ||
+        id.startsWith('tc_page_')         ||
+        id.startsWith('tc_edit_modal_')   ||
+        id.startsWith('tc_del_confirm_')
+      ) {
+        return handleTeamCrudInteraction(interaction);
       }
 
-      // ── Manager panel interactions ─────────────────────────────────────────
+      // ── Botola + Panel 1/2/3 ──────────────────────────────────────────────
+      if (
+        id.startsWith('bot_t_')           ||
+        id.startsWith('p1_')              ||
+        id.startsWith('p2_')              ||
+        id.startsWith('p3_')
+      ) {
+        return handleBotolaInteraction(interaction);
+      }
+
+      // ── New manage panel (mgr2_*) ─────────────────────────────────────────
+      if (id.startsWith('mgr2_')) {
+        return handleMgr2Interaction(interaction);
+      }
+
+      // ── Manager panel (legacy mgr_*) ──────────────────────────────────────
       if (
         id.startsWith('mgr_new_season_')         ||
         id.startsWith('mgr_create_modal_')        ||
@@ -90,6 +120,11 @@ module.exports = {
         id.startsWith('mgr_close_season_')
       ) {
         return handleManageInteraction(interaction, client);
+      }
+
+      // ── Old team interactions ──────────────────────────────────────────────
+      if (TEAM_IDS.includes(id) || id.startsWith('player_add_modal_')) {
+        return handleTeamInteraction(interaction, client);
       }
 
       // ── Result interactions ────────────────────────────────────────────────

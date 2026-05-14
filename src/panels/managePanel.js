@@ -1,147 +1,137 @@
 'use strict';
 const {
-  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ModalBuilder, TextInputBuilder, TextInputStyle,
+  ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { db } = require('../utils/database');
-const { COLORS, E } = require('../utils/embeds');
 
-function getActiveTournament(template) {
-  return db.get('tournaments')
-    .filter(t => (!template || t.template === template) && t.status !== 'finished')
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
-}
+const SEP = { type: 14, divider: true, spacing: 1 };
+const txt = c => ({ type: 10, content: c });
+const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
 
-function buildManagePanelEmbed(template) {
-  const t = getActiveTournament(template);
-  const total = db.get('tournaments').filter(x => !template || x.template === template).length;
-
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle(`${E.cup}  NS eFootball — Manager Panel`)
-    .setTimestamp();
-
-  if (!t) {
-    embed.setDescription(
-      `**No active season.**\nStart a new season with the button below.\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 Past seasons: **${total}**`
-    );
-  } else {
-    const enrolled = db.get('tournament_teams').filter(tt => tt.tournament_id === t.id);
-    const pending  = db.get('matches').filter(m => m.tournament_id === t.id && m.status === 'pending');
-    const played   = db.get('matches').filter(m => m.tournament_id === t.id && m.status === 'played');
-    const statusEmoji = { setup: '⚙️', active: '🟢', finished: '🔒' }[t.status] || '⚙️';
-
-    embed.setDescription(
-      `${statusEmoji} **${t.name}** — Season ${t.season}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 Template: \`${t.template}\`  |  👥 Teams: **${enrolled.length}/${t.team_count}**\n` +
-      `⏱️ Deadline: **${t.round_deadline_hours ? t.round_deadline_hours + 'h per round' : 'not set'}**\n` +
-      `📊 Matches: **${played.length}** played  ·  **${pending.length}** pending\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-    );
-  }
-
-  embed.setFooter({ text: 'Managers only  •  All actions are immediate' });
-  return embed;
-}
-
-function buildManagePanelRows(template) {
-  const tmpl = template || 'ALL';
-  const t = getActiveTournament(template);
-  const has = !!t;
-
-  return [
-    // Row 1 — Tournament lifecycle
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`mgr_new_season_${tmpl}`).setLabel('New Season').setStyle(ButtonStyle.Primary).setEmoji('🆕'),
-      new ButtonBuilder().setCustomId(`mgr_search_teams_${tmpl}`).setLabel('Register Teams').setStyle(ButtonStyle.Secondary).setEmoji('🔍').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_add_player_${tmpl}`).setLabel('Add Player').setStyle(ButtonStyle.Secondary).setEmoji('👤').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_close_season_${tmpl}`).setLabel('Close Season').setStyle(ButtonStyle.Danger).setEmoji('🔒').setDisabled(!has),
-    ),
-    // Row 2 — Group/Match setup
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`mgr_gen_groups_${tmpl}`).setLabel('Draw Groups').setStyle(ButtonStyle.Secondary).setEmoji('🎲').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_gen_matches_${tmpl}`).setLabel('Gen Matches').setStyle(ButtonStyle.Secondary).setEmoji('📅').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_post_schedule_${tmpl}`).setLabel('Post Schedule').setStyle(ButtonStyle.Success).setEmoji('📤').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_auto_schedule_${tmpl}`).setLabel('Auto-Schedule').setStyle(ButtonStyle.Secondary).setEmoji('⏰').setDisabled(!has),
-    ),
-    // Row 3 — Results & knockout
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`mgr_add_result_${tmpl}`).setLabel('Add Result').setStyle(ButtonStyle.Success).setEmoji('📊').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_knockout_${tmpl}`).setLabel('Start Knockout').setStyle(ButtonStyle.Primary).setEmoji('🏆').setDisabled(!has),
-      new ButtonBuilder().setCustomId(`mgr_view_bracket_${tmpl}`).setLabel('View Bracket').setStyle(ButtonStyle.Secondary).setEmoji('📋').setDisabled(!has),
-    ),
-  ];
-}
-
+// ── Kept for backward-compat: used by tournamentManagerInteractions.js ────────
 function buildNewSeasonModal(template) {
+  const seasons = db.get('tournaments').filter(t => t.template === template).length;
   return new ModalBuilder()
-    .setCustomId(`mgr_create_modal_${template}`)
-    .setTitle(`New ${template} Season`)
+    .setCustomId(`mgr_new_season_modal_${template}`)
+    .setTitle(`New Season — ${template}`)
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('tournament_name').setLabel('Tournament Name')
-          .setStyle(TextInputStyle.Short).setPlaceholder(`e.g. ${template} Season 8`).setRequired(true)
+          .setStyle(TextInputStyle.Short).setPlaceholder(`${template} Season ${seasons + 1}`).setRequired(true)
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('team_count').setLabel('Number of Teams (8 / 16 / 32)')
+        new TextInputBuilder().setCustomId('team_count').setLabel('Number of Teams')
           .setStyle(TextInputStyle.Short).setPlaceholder('16').setRequired(true)
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('group_size').setLabel('Teams per Group (4 recommended)')
+        new TextInputBuilder().setCustomId('group_size').setLabel('Teams per Group')
           .setStyle(TextInputStyle.Short).setPlaceholder('4').setRequired(true)
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('deadline_hours').setLabel('Round Deadline in hours (e.g. 48 — optional)')
+        new TextInputBuilder().setCustomId('deadline_hours').setLabel('Round Deadline (hours, optional)')
           .setStyle(TextInputStyle.Short).setPlaceholder('48').setRequired(false)
       ),
     );
 }
 
-function buildTeamSearchModal(tournamentId) {
-  return new ModalBuilder()
-    .setCustomId(`mgr_team_search_modal_${tournamentId}`)
-    .setTitle('Search & Register Team')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('search_query').setLabel('Team name (or part of it)')
-          .setStyle(TextInputStyle.Short).setPlaceholder('e.g. Real, Bayern, Man City, Wydad...').setRequired(true)
-      ),
+// ── V2 Manage Panel ───────────────────────────────────────────────────────────
+function buildManagePanelV2() {
+  const tournaments = db.get('tournaments').sort((a, b) => {
+    if (a.status === 'active' && b.status !== 'active') return -1;
+    if (b.status === 'active' && a.status !== 'active') return 1;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  const admins  = db.get('admins') || [];
+  const botCfg  = db.getConfig('bot_config') || {};
+
+  const E_CUP  = '<a:cup:1501741159557500971>';
+  const inner  = [];
+
+  // Header
+  inner.push(txt(
+    `# ⚙️  NS eFootball — Manager Panel\n` +
+    `> Bot: **${botCfg.name || 'Night Stars Bot'}**  |  ` +
+    `Admins: **${admins.filter(a => a.role === 'admin').length}**  |  ` +
+    `Managers: **${admins.filter(a => a.role === 'manager').length}**`
+  ));
+  inner.push(SEP);
+
+  // Tournament list
+  if (!tournaments.length) {
+    inner.push(txt('No tournaments yet. Click **New Tournament** to create one.'));
+  } else {
+    const statusIcon = { setup: '⚙️', active: '🟢', finished: '🏁' };
+    const lines = tournaments.slice(0, 8).map(t =>
+      `${statusIcon[t.status] || '⚙️'}  **${t.name}**  S${t.season}  \`${t.status}\`` +
+      (t.status === 'active' ? `  —  ${db.get('tournament_teams').filter(tt => tt.tournament_id === t.id).length} teams` : '')
     );
+    inner.push(txt(`**Tournaments**\n${lines.join('\n')}`));
+  }
+  inner.push(SEP);
+
+  // Main action buttons
+  inner.push({ type: 1, components: [
+    btn('New Tournament',   'mgr2_newtournament', 1),
+    btn('Set Channels',     'mgr2_channels_start', 2),
+    btn('Manage Admins',    'mgr2_admins',        2),
+    btn('Bot Settings',     'mgr2_bots',          2),
+    btn('Refresh',          'mgr2_refresh',       2),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('Reset Everything', 'mgr2_reset', 4),
+  ]});
+  inner.push(SEP);
+
+  // Admins list
+  if (admins.length) {
+    const lines = admins.map(a => `\`${a.role.padEnd(7)}\`  <@${a.discord_id}>`);
+    inner.push(txt(`**Registered Admins & Managers**\n${lines.join('\n')}`));
+    inner.push(SEP);
+  }
+
+  inner.push(txt('-# Night Stars  •  /manage  •  Admins only'));
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
-function buildPlayerSearchModal(tournamentId) {
-  return new ModalBuilder()
-    .setCustomId(`mgr_player_search_modal_${tournamentId}`)
-    .setTitle('Search Player')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('member_query').setLabel('Type first letters of username')
-          .setStyle(TextInputStyle.Short).setPlaceholder('e.g. john, xX, star...').setRequired(true)
-      ),
-    );
-}
+// ── Admins sub-panel ──────────────────────────────────────────────────────────
+function buildAdminsSubPanel() {
+  const admins = db.get('admins') || [];
+  const inner  = [];
 
-function buildAutoScheduleModal(tournamentId) {
-  return new ModalBuilder()
-    .setCustomId(`mgr_auto_schedule_modal_${tournamentId}`)
-    .setTitle('Auto-Post Schedule')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('delay_hours').setLabel('Post schedule in how many hours from now?')
-          .setStyle(TextInputStyle.Short).setPlaceholder('e.g. 24').setRequired(true)
-      ),
+  inner.push(txt(
+    `# 👥  Manage Admins & Managers\n` +
+    `> **${admins.length}** user${admins.length !== 1 ? 's' : ''} with elevated access.`
+  ));
+  inner.push(SEP);
+
+  if (!admins.length) {
+    inner.push(txt('No admins or managers configured. Add one below.'));
+  } else {
+    const lines = admins.map((a, i) =>
+      `\`${i + 1}.\`  <@${a.discord_id}>  —  \`${a.role}\``
     );
+    inner.push(txt(lines.join('\n')));
+  }
+  inner.push(SEP);
+
+  const rows = [
+    { type: 1, components: [
+      btn('Add Admin',   'mgr2_admin_add_admin',   1),
+      btn('Add Manager', 'mgr2_admin_add_manager', 2),
+      btn('Remove User', 'mgr2_admin_del_start',   4, admins.length === 0),
+      btn('Back',        'mgr2_refresh',            2),
+    ]},
+  ];
+  for (const r of rows) inner.push(r);
+  inner.push(SEP);
+  inner.push(txt('-# Night Stars  •  /manage  •  Admin management'));
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
 module.exports = {
-  getActiveTournament,
-  buildManagePanelEmbed,
-  buildManagePanelRows,
   buildNewSeasonModal,
-  buildTeamSearchModal,
-  buildPlayerSearchModal,
-  buildAutoScheduleModal,
+  buildManagePanelV2,
+  buildAdminsSubPanel,
 };
