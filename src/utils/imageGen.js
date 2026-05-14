@@ -188,33 +188,6 @@ function drawCrest(ctx, cx, cy, rw, rh, team, isWinner) {
 }
 
 // ─── Async logo draw: real badge from URL, falls back to drawCrest ────────────
-async function drawTeamLogoAsync(ctx, cx, cy, rw, rh, team, isWinner) {
-  if (team && team.logo_url) {
-    try {
-      const img = await loadImage(team.logo_url);
-      ctx.save();
-      if (isWinner) {
-        const glow = ctx.createRadialGradient(cx, cy, rw * 0.2, cx, cy, rw * 2.0);
-        glow.addColorStop(0, "rgba(255,215,0,0.50)");
-        glow.addColorStop(1, "rgba(255,215,0,0)");
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(cx, cy, rw * 2.0, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.shadowColor = "rgba(0,0,0,0.75)";
-      ctx.shadowBlur = 14;
-      ctx.shadowOffsetY = 5;
-      const scale = Math.min((rw * 2) / img.width, (rh * 2) / img.height);
-      const dw = img.width * scale, dh = img.height * scale;
-      ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
-      ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-      ctx.restore();
-      return;
-    } catch (_) {}
-  }
-  drawCrest(ctx, cx, cy, rw, rh, team, isWinner);
-}
-
-// ─── UCL decoration (kept for Knockout/GroupDraw) ─────────────────────────────
 function drawUCLDecoration(ctx, W, H) {
   const BAND = 140;
   const leftLines = [
@@ -286,83 +259,172 @@ function drawPortraitHeader(ctx, W, titleText, subtitleText, titleY = 148, subY 
 }
 
 // ─── 1. Schedule image — dark red portrait 1080px ────────────────────────────
+// ─── fitText: auto-size font to fit within maxWidth ───────────────────────────
+function fitText(ctx, text, maxWidth, maxSize, minSize = 10, weight = 'bold') {
+  for (let sz = maxSize; sz >= minSize; sz -= 1) {
+    ctx.font = `${weight} ${sz}px "DejaVu Sans", Arial, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) return sz;
+  }
+  return minSize;
+}
+
+// ─── drawTeamLogoAsync: real logo clipped inside shield, fallback crest ───────
+async function drawTeamLogoAsync(ctx, cx, cy, rw, rh, team, isWinner) {
+  if (team && team.logo_url) {
+    try {
+      const img = await loadImage(team.logo_url);
+      ctx.save();
+      if (isWinner) {
+        const glow = ctx.createRadialGradient(cx, cy, rw * 0.2, cx, cy, rw * 2.0);
+        glow.addColorStop(0, 'rgba(255,215,0,0.55)');
+        glow.addColorStop(1, 'rgba(255,215,0,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(cx, cy, rw * 2.0, 0, Math.PI * 2); ctx.fill();
+      }
+      // Draw shield background
+      crestPath(ctx, cx, cy, rw, rh);
+      ctx.fillStyle = '#111'; ctx.fill();
+      // Clip logo inside shield
+      crestPath(ctx, cx, cy, rw, rh); ctx.clip();
+      ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 8;
+      const scale = Math.min((rw * 1.85) / img.width, (rh * 1.85) / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+      ctx.restore();
+      // Shield border
+      crestPath(ctx, cx, cy, rw, rh);
+      ctx.strokeStyle = isWinner ? '#FFD700' : 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = Math.max(2, rw * 0.06); ctx.stroke();
+      return;
+    } catch (_) {}
+  }
+  drawCrest(ctx, cx, cy, rw, rh, team, isWinner);
+}
+
+// ─── 1. Schedule image ────────────────────────────────────────────────────────
 async function generateScheduleImage(roundNum, totalRounds, matchesByGroup, teams, tournament) {
-  const getTeam = id => (Array.isArray(teams) ? teams.find(t => t.id === id) : teams[id]) || { name: "TBD", short_name: "TBD", emoji: "X" };
+  const getTeam = id => (Array.isArray(teams) ? teams.find(t => t.id === id) : teams[id]) || { name: 'TBD', short_name: 'TBD' };
   const allMatches = [];
   for (const [, ms] of Object.entries(matchesByGroup).sort()) for (const m of ms) allMatches.push(m);
 
-  const W     = 1080;
+  const W = 1080;
   const HDR_H = 274;
-  const FOOT_H = 80;
-  const BAND   = 210;
-  const cardX  = BAND + 8, cardW = W - (BAND + 8) * 2;
+  const FOOT_H = 72;
+  const BAND = 210;
   const n = allMatches.length || 1;
-  const ROW_H = n <= 3 ? 130 : n <= 5 ? 112 : n <= 8 ? 96 : 82;
-  const CRW = Math.round(ROW_H * 0.32), CRH = Math.round(ROW_H * 0.38);
-  const H = HDR_H + n * ROW_H + FOOT_H + 20;
+
+  // Row height auto-adapts: taller rows for fewer matches, shorter for many
+  const ROW_H = n <= 2 ? 160 : n <= 4 ? 138 : n <= 6 ? 118 : n <= 8 ? 100 : 88;
+  const LOGO_R = Math.round(ROW_H * 0.30); // logo radius (used as rw)
+  const LOGO_RH = Math.round(ROW_H * 0.36);
+  const H = HDR_H + n * ROW_H + FOOT_H + 16;
+
+  // Dark inner panel — sits flush inside the stripe bands
+  const panelX = BAND + 8, panelW = W - (BAND + 8) * 2;
+  const panelY = HDR_H - 10;
+  const panelH = n * ROW_H + 20;
 
   const canvas = createCanvas(W, H);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext('2d');
   drawPortraitBg(ctx, W, H);
-  drawPortraitHeader(ctx, W, "SCHEDULE",
-    "ROUND " + roundNum + " OF " + totalRounds + "  —  " + tournament.name.toUpperCase());
+  drawPortraitHeader(ctx, W, 'SCHEDULE',
+    'ROUND ' + roundNum + ' OF ' + totalRounds + '  —  ' + tournament.name.toUpperCase());
 
-  rr(ctx, cardX, HDR_H - 8, cardW, n * ROW_H + 16, 18, C.card);
+  // Dark red inner panel
+  rr(ctx, panelX, panelY, panelW, panelH, 18, 'rgba(12,0,3,0.92)');
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(panelX + 18, panelY);
+  ctx.arcTo(panelX + panelW, panelY, panelX + panelW, panelY + panelH, 18);
+  ctx.arcTo(panelX + panelW, panelY + panelH, panelX, panelY + panelH, 18);
+  ctx.arcTo(panelX, panelY + panelH, panelX, panelY, 18);
+  ctx.arcTo(panelX, panelY, panelX + panelW, panelY, 18);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(160,30,30,0.55)';
+  ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+
   const MID_X = W / 2;
+  const VS_BOX_W = 72;
+  // Each team side: logo center distance from MID_X
+  const LOGO_OFF = Math.round(panelW * 0.28); // distance from center to logo center
 
   for (let i = 0; i < allMatches.length; i++) {
     const m    = allMatches[i];
     const home = getTeam(m.home_team_id);
     const away = getTeam(m.away_team_id);
-    const rowY = HDR_H + i * ROW_H;
+    const rowY = panelY + i * ROW_H;
     const midY = rowY + ROW_H / 2;
 
-    if (i % 2 === 1) { ctx.fillStyle = C.cardAlt; ctx.fillRect(cardX + 1, rowY, cardW - 2, ROW_H); }
-
-    if (m.group_name) {
-      ctx.fillStyle = "rgba(255,255,255,0.28)";
-      ctx.font = "bold 11px 'DejaVu Sans', Arial, sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText("GRP " + m.group_name, cardX + 14, rowY + 16);
+    // Alternating row tint
+    if (i % 2 === 1) {
+      ctx.fillStyle = 'rgba(40,0,8,0.55)';
+      ctx.fillRect(panelX + 2, rowY, panelW - 4, ROW_H);
     }
 
-    const homeCX = MID_X - 148;
-    await drawTeamLogoAsync(ctx, homeCX, midY, CRW, CRH, home, false);
-    ctx.fillStyle = "#FFFFFF";
-    const hLen = (home.name || "").length;
-    ctx.font = "bold " + (hLen > 13 ? 16 : hLen > 9 ? 19 : 22) + "px 'DejaVu Sans', Arial, sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText((home.name || "TBD").toUpperCase().slice(0, 15), homeCX - CRW - 10, midY + 7);
+    // Group label
+    if (m.group_name) {
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
+      ctx.font = "bold 10px 'DejaVu Sans', Arial, sans-serif";
+      ctx.textAlign = 'left';
+      ctx.fillText('GRP ' + m.group_name, panelX + 12, rowY + 14);
+    }
 
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold " + Math.round(ROW_H * 0.26) + "px 'DejaVu Sans', Arial, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("VS", MID_X, midY + 10);
+    const homeCX = MID_X - LOGO_OFF;
+    const awayCX = MID_X + LOGO_OFF;
 
-    const awayCX = MID_X + 148;
-    await drawTeamLogoAsync(ctx, awayCX, midY, CRW, CRH, away, false);
-    ctx.fillStyle = "#FFFFFF";
-    const aLen = (away.name || "").length;
-    ctx.font = "bold " + (aLen > 13 ? 16 : aLen > 9 ? 19 : 22) + "px 'DejaVu Sans', Arial, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText((away.name || "TBD").toUpperCase().slice(0, 15), awayCX + CRW + 10, midY + 7);
+    // Draw logos
+    await drawTeamLogoAsync(ctx, homeCX, midY, LOGO_R, LOGO_RH, home, false);
+    await drawTeamLogoAsync(ctx, awayCX, midY, LOGO_R, LOGO_RH, away, false);
 
+    // Home name — right-aligned between panel left and logo left edge, inside panel
+    const homeNameRight = homeCX - LOGO_R - 10;
+    const homeNameLeft  = panelX + 10;
+    const homeMaxW = homeNameRight - homeNameLeft;
+    const homeName = (home.name || 'TBD').toUpperCase();
+    const homeFS = fitText(ctx, homeName, homeMaxW, ROW_H <= 100 ? 17 : 22, 11);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold ${homeFS}px "DejaVu Sans", Arial, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.fillText(homeName, homeNameRight, midY + homeFS * 0.36);
+
+    // VS
+    const vsFS = Math.round(ROW_H * 0.24);
+    ctx.fillStyle = 'rgba(255,255,255,0.90)';
+    ctx.font = `bold ${vsFS}px "DejaVu Sans", Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('VS', MID_X, midY + vsFS * 0.38);
+
+    // Away name — left-aligned between logo right edge and panel right, inside panel
+    const awayNameLeft  = awayCX + LOGO_R + 10;
+    const awayNameRight = panelX + panelW - 10;
+    const awayMaxW = awayNameRight - awayNameLeft;
+    const awayName = (away.name || 'TBD').toUpperCase();
+    const awayFS = fitText(ctx, awayName, awayMaxW, ROW_H <= 100 ? 17 : 22, 11);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold ${awayFS}px "DejaVu Sans", Arial, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText(awayName, awayNameLeft, midY + awayFS * 0.36);
+
+    // Row divider
     if (i < allMatches.length - 1) {
-      ctx.strokeStyle = C.div; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(cardX + 22, rowY + ROW_H); ctx.lineTo(cardX + cardW - 22, rowY + ROW_H); ctx.stroke();
+      ctx.strokeStyle = 'rgba(160,30,30,0.28)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(panelX + 20, rowY + ROW_H); ctx.lineTo(panelX + panelW - 20, rowY + ROW_H); ctx.stroke();
     }
   }
 
-  ctx.fillStyle = "#CCCCCC";
-  ctx.font = "15px 'DejaVu Sans', Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("Night Stars  —  " + tournament.name, W / 2, HDR_H + n * ROW_H + 46);
-  ctx.fillStyle = "#8B0000";
+  // Footer
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = "14px 'DejaVu Sans', Arial, sans-serif";
+  ctx.textAlign = 'center';
+  ctx.fillText('Night Stars  —  ' + tournament.name, W / 2, panelY + panelH + 40);
+  ctx.fillStyle = '#8B0000';
   ctx.fillRect(0, H - 8, W, 8);
-  return canvas.toBuffer("image/png");
+  return canvas.toBuffer('image/png');
 }
 
-// ─── 2. Result image — dark red portrait 1080×1350 ───────────────────────────
+// ─── 2. Result image ──────────────────────────────────────────────────────────
 async function generateResultImage(match, homeTeam, awayTeam, tournament) {
   const hs = match.home_score, as_ = match.away_score;
   const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
@@ -373,138 +435,307 @@ async function generateResultImage(match, homeTeam, awayTeam, tournament) {
 
   drawPortraitBg(ctx, W, H);
 
-  // Title
+  // ── Header (outside panel) ──────────────────────────────────────────────────
   ctx.textAlign = 'center';
   ctx.fillStyle = C.title;
   ctx.font = 'bold italic 108px "DejaVu Sans", Arial, sans-serif';
   ctx.fillText('RESULTS', W / 2, 152);
 
-  // Subtitle — stage/round/tournament
   const sl = match.stage === 'group'
     ? `GROUP ${match.group_name}  —  ROUND ${match.round}  —  ${tournament.name.toUpperCase()}`
     : `${(match.stage || '').toUpperCase()}  —  ${tournament.name.toUpperCase()}`;
   ctx.fillStyle = C.sub;
   ctx.font = 'bold 22px "DejaVu Sans", Arial, sans-serif';
   ctx.fillText(sl, W / 2, 206);
-
-  // Divider
-  ctx.strokeStyle = 'rgba(200,50,50,0.45)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(200,50,50,0.45)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(180, 232); ctx.lineTo(W - 180, 232); ctx.stroke();
 
-  // FULL TIME label
-  ctx.fillStyle = C.textMid;
-  ctx.font = 'bold 22px "DejaVu Sans", Arial, sans-serif';
+  // ── Dark red inner panel ────────────────────────────────────────────────────
+  const PX = 55, PY = 248, PW = W - PX * 2;
+  const PH = 960;  // panel height — content fills this
+  rr(ctx, PX, PY, PW, PH, 22, 'rgba(12,0,3,0.93)');
+  ctx.strokeStyle = 'rgba(160,30,30,0.60)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(PX + 22, PY);
+  ctx.arcTo(PX + PW, PY, PX + PW, PY + PH, 22);
+  ctx.arcTo(PX + PW, PY + PH, PX, PY + PH, 22);
+  ctx.arcTo(PX, PY + PH, PX, PY, 22);
+  ctx.arcTo(PX, PY, PX + PW, PY, 22);
+  ctx.closePath(); ctx.stroke();
+
+  // FULL TIME label inside panel
+  ctx.fillStyle = 'rgba(200,200,200,0.70)';
+  ctx.font = 'bold 20px "DejaVu Sans", Arial, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('FULL TIME', W / 2, 296);
+  ctx.fillText('FULL TIME', W / 2, PY + 42);
 
-  // ─── Main match display ───────────────────────────────────────────────────
-  const MATCH_CY = 610;
-  const CRW = 105, CRH = 126;
+  // ── Crests & team names — fully inside panel ────────────────────────────────
+  const CREST_Y = PY + 260;  // vertical center of crests
+  const CRW = 108, CRH = 128;
   const MID_X = W / 2;
-  const HOME_CX = 272;
-  const AWAY_CX = W - 272;
-  const BAND = 210;
+  // Home on left half, away on right half — each crest centered in its half
+  const HOME_CX = PX + PW / 4;   // e.g. 55 + 242 = 297
+  const AWAY_CX = PX + (PW * 3 / 4);  // e.g. 55 + 727 = 782
 
-  // Winner badge above home
+  // Winner glow above crest
   if (homeWon) {
     ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 16px "DejaVu Sans", Arial, sans-serif';
+    ctx.font = 'bold 15px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('★  WINNER  ★', HOME_CX, MATCH_CY - CRH - 30);
+    ctx.fillText('★  WINNER  ★', HOME_CX, CREST_Y - CRH - 24);
   }
-  await drawTeamLogoAsync(ctx, HOME_CX, MATCH_CY, CRW, CRH, homeTeam, homeWon);
-
-  // Home name — right-aligned, left of crest
-  ctx.fillStyle = homeWon ? C.title : C.textSub;
-  const homeLen = (homeTeam.name || '').length;
-  ctx.font = `bold ${homeLen > 12 ? 19 : homeLen > 9 ? 23 : 28}px "DejaVu Sans", Arial, sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.fillText((homeTeam.name || 'Home').toUpperCase(), HOME_CX - CRW - 14, MATCH_CY + 10);
-
-  // Winner badge above away
   if (awayWon) {
     ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 16px "DejaVu Sans", Arial, sans-serif';
+    ctx.font = 'bold 15px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('★  WINNER  ★', AWAY_CX, MATCH_CY - CRH - 30);
+    ctx.fillText('★  WINNER  ★', AWAY_CX, CREST_Y - CRH - 24);
   }
-  await drawTeamLogoAsync(ctx, AWAY_CX, MATCH_CY, CRW, CRH, awayTeam, awayWon);
 
-  // Away name — left-aligned, right of crest
-  ctx.fillStyle = awayWon ? C.title : C.textSub;
-  const awayLen = (awayTeam.name || '').length;
-  ctx.font = `bold ${awayLen > 12 ? 19 : awayLen > 9 ? 23 : 28}px "DejaVu Sans", Arial, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.fillText((awayTeam.name || 'Away').toUpperCase(), AWAY_CX + CRW + 14, MATCH_CY + 10);
+  await drawTeamLogoAsync(ctx, HOME_CX, CREST_Y, CRW, CRH, homeTeam, homeWon);
+  await drawTeamLogoAsync(ctx, AWAY_CX, CREST_Y, CRW, CRH, awayTeam, awayWon);
 
-  // Score box — dynamic font size so long scores (10-10) don't overflow
-  const scoreStr = `${hs} – ${as_}`;
-  const scoreFontSize = scoreStr.length <= 5 ? 104 : scoreStr.length <= 7 ? 86 : 72;
-  const boxW = 280, boxH = Math.max(140, scoreFontSize + 36);
-  rr(ctx, MID_X - boxW/2, MATCH_CY - boxH/2 + 24, boxW, boxH, 20, 'rgba(100,0,0,0.55)');
-  ctx.fillStyle = C.score;
-  ctx.font = `bold ${scoreFontSize}px "DejaVu Sans", Arial, sans-serif`;
+  // Team names below crests — centered in each half, inside panel
+  const NAME_Y = CREST_Y + CRH + 36;
+  const halfW = PW / 2 - 20;  // max name width per side
+
+  const homeName = (homeTeam.name || 'HOME').toUpperCase();
+  const homeFS = fitText(ctx, homeName, halfW, 34, 16);
+  ctx.fillStyle = homeWon ? '#FFFFFF' : 'rgba(210,210,210,0.85)';
+  ctx.font = `bold ${homeFS}px "DejaVu Sans", Arial, sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(scoreStr, MID_X, MATCH_CY + scoreFontSize * 0.35 + 24);
+  ctx.fillText(homeName, HOME_CX, NAME_Y);
 
-  if (draw) {
-    ctx.fillStyle = C.sub;
-    ctx.font = 'bold 17px "DejaVu Sans", Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('D R A W', MID_X, MATCH_CY + 82);
-  }
+  const awayName = (awayTeam.name || 'AWAY').toUpperCase();
+  const awayFS = fitText(ctx, awayName, halfW, 34, 16);
+  ctx.fillStyle = awayWon ? '#FFFFFF' : 'rgba(210,210,210,0.85)';
+  ctx.font = `bold ${awayFS}px "DejaVu Sans", Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(awayName, AWAY_CX, NAME_Y);
 
-  // ─── Outcome section ───────────────────────────────────────────────────────
-  const outcomeY = MATCH_CY + CRH + 74;
+  // ── Score box — centered between crests ──────────────────────────────────
+  const scoreStr = `${hs}  –  ${as_}`;
+  const scoreFS = scoreStr.length <= 7 ? 88 : 70;
+  const boxW = 260, boxH = scoreFS + 44;
+  const boxX = MID_X - boxW / 2, boxY = CREST_Y - boxH / 2;
+  rr(ctx, boxX, boxY, boxW, boxH, 18, 'rgba(100,0,0,0.65)');
+  ctx.strokeStyle = 'rgba(200,50,50,0.50)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(boxX + 18, boxY);
+  ctx.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, 18);
+  ctx.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, 18);
+  ctx.arcTo(boxX, boxY + boxH, boxX, boxY, 18);
+  ctx.arcTo(boxX, boxY, boxX + boxW, boxY, 18);
+  ctx.closePath(); ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(200,50,50,0.30)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(180, outcomeY); ctx.lineTo(W - 180, outcomeY); ctx.stroke();
+  ctx.fillStyle = C.score;
+  ctx.font = `bold ${scoreFS}px "DejaVu Sans", Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(scoreStr, MID_X, boxY + boxH * 0.68);
+
+  // ── Outcome section inside panel ─────────────────────────────────────────
+  const divY = NAME_Y + 50;
+  ctx.strokeStyle = 'rgba(200,50,50,0.28)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PX + 40, divY); ctx.lineTo(PX + PW - 40, divY); ctx.stroke();
 
   if (!draw) {
     const winnerName = homeWon ? homeTeam.name : awayTeam.name;
     ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 26px "DejaVu Sans", Arial, sans-serif';
+    ctx.font = 'bold 28px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`★  ${winnerName.toUpperCase()}  WINS  ★`, MID_X, outcomeY + 46);
+    ctx.fillText(`★  ${winnerName.toUpperCase()}  WINS  ★`, MID_X, divY + 52);
   } else {
     ctx.fillStyle = C.draw;
-    ctx.font = 'bold 26px "DejaVu Sans", Arial, sans-serif';
+    ctx.font = 'bold 28px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('MATCH DRAWN', MID_X, outcomeY + 46);
+    ctx.fillText('MATCH DRAWN', MID_X, divY + 52);
   }
 
-  // Stage info pill
-  const pillY = outcomeY + 90;
-  rr(ctx, MID_X - 270, pillY, 540, 56, 12, 'rgba(100,0,0,0.35)');
+  // Stage pill
+  const pillY = divY + 84;
+  rr(ctx, MID_X - 260, pillY, 520, 52, 12, 'rgba(100,0,0,0.35)');
   ctx.fillStyle = C.textSub;
-  ctx.font = '20px "DejaVu Sans", Arial, sans-serif';
+  ctx.font = '19px "DejaVu Sans", Arial, sans-serif';
   ctx.textAlign = 'center';
   const stageLabel = match.stage === 'group'
     ? `Group Stage  —  Round ${match.round}`
     : (match.stage || 'Knockout Stage');
-  ctx.fillText(stageLabel, MID_X, pillY + 36);
-
-  // Second divider
-  ctx.strokeStyle = 'rgba(200,50,50,0.22)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(180, pillY + 80); ctx.lineTo(W - 180, pillY + 80); ctx.stroke();
+  ctx.fillText(stageLabel, MID_X, pillY + 34);
 
   // Footer
   ctx.fillStyle = C.textMid;
   ctx.font = '17px "DejaVu Sans", Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(`${tournament.name}  —  Night Stars`, MID_X, H - 48);
-
-  // Bottom accent bar
   ctx.fillStyle = '#8B0000';
   ctx.fillRect(0, H - 10, W, 10);
 
   return canvas.toBuffer('image/png');
 }
 
-// ─── 3. Knockout bracket (unchanged style) ────────────────────────────────────
+// ─── 3 → 5. Knockout / Roster (unchanged wrappers) ───────────────────────────
+// ─── 5. Standings image ───────────────────────────────────────────────────────
+function generateStandingsImage(tournament, groupedStandings) {
+  const groupEntries = Object.entries(groupedStandings).sort();
+  const numGroups = groupEntries.length;
+
+  const W = 1080;
+  const BAND = 170;
+  const PAD  = 20;
+  const GRP_GAP = 18;
+
+  // Auto columns: 1 col for ≤2 groups, 2 cols otherwise
+  const PER_ROW = numGroups <= 2 ? 1 : 2;
+  const GRP_W = PER_ROW === 1
+    ? W - BAND * 2 - PAD * 2          // single wide card
+    : Math.floor((W - BAND * 2 - PAD * 2 - GRP_GAP) / 2);
+
+  const HDR_H  = 274;
+  const GRP_HDR = 62;
+  const COL_HDR = 34;
+  const ROW_H   = 72;
+  const FOOT_H  = 72;
+
+  const maxTeams = Math.max(...groupEntries.map(([, g]) => g.length));
+  const numRows  = Math.ceil(numGroups / PER_ROW);
+  const grpH     = GRP_HDR + COL_HDR + maxTeams * ROW_H + 16;
+  const H        = HDR_H + numRows * (grpH + GRP_GAP) + FOOT_H + PAD;
+
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  drawPortraitBg(ctx, W, H);
+  drawPortraitHeader(ctx, W, 'STANDINGS',
+    tournament.name.toUpperCase() + '  —  GROUP STAGE');
+
+  ctx.fillStyle = C.textMid;
+  ctx.font = '15px "DejaVu Sans", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Top 2 from each group advance to Knockout Stage', W / 2, 252);
+
+  const startX = BAND + PAD;
+
+  // Stat columns: offsets from gx, right-aligned within GRP_W
+  const SX = {
+    P:   GRP_W - 218,
+    W:   GRP_W - 180,
+    D:   GRP_W - 142,
+    L:   GRP_W - 104,
+    GD:  GRP_W - 60,
+    PTS: GRP_W - 14,
+  };
+  // Name column: from dot end (gx+52) to first stat (gx + SX.P - 6)
+  const NAME_MAX_X = SX.P - 10;  // relative to gx
+
+  let rowIdx = 0, colIdx = 0;
+  for (const [groupName, gTeams] of groupEntries) {
+    const gx = startX + colIdx * (GRP_W + GRP_GAP);
+    const gy = HDR_H + rowIdx * (grpH + GRP_GAP) + PAD;
+
+    // ── Group card ──────────────────────────────────────────────────────────
+    rr(ctx, gx, gy, GRP_W, grpH, 16, 'rgba(12,0,3,0.92)');
+    ctx.strokeStyle = 'rgba(160,30,30,0.50)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(gx + 16, gy);
+    ctx.arcTo(gx + GRP_W, gy, gx + GRP_W, gy + grpH, 16);
+    ctx.arcTo(gx + GRP_W, gy + grpH, gx, gy + grpH, 16);
+    ctx.arcTo(gx, gy + grpH, gx, gy, 16);
+    ctx.arcTo(gx, gy, gx + GRP_W, gy, 16);
+    ctx.closePath(); ctx.stroke();
+
+    // Group header bar
+    rr(ctx, gx, gy, GRP_W, GRP_HDR, 16, C.cardAlt);
+    ctx.fillStyle = C.cardAlt;
+    ctx.fillRect(gx, gy + GRP_HDR - 16, GRP_W, 16);
+    // Red left accent
+    ctx.fillStyle = '#8B0000';
+    ctx.fillRect(gx, gy, 4, GRP_HDR);
+
+    ctx.fillStyle = C.title;
+    ctx.font = 'bold 22px "DejaVu Sans", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`GROUP ${groupName}`, gx + GRP_W / 2, gy + GRP_HDR / 2 + 8);
+
+    // Column headers
+    const hY = gy + GRP_HDR + COL_HDR - 8;
+    ctx.fillStyle = C.textMid;
+    ctx.font = 'bold 11px "DejaVu Sans", Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('TEAM', gx + 52, hY);
+    for (const [k, ox] of Object.entries(SX)) {
+      ctx.textAlign = 'center';
+      ctx.fillText(k, gx + ox, hY);
+    }
+    ctx.strokeStyle = C.div; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gx + 2, hY + 6); ctx.lineTo(gx + GRP_W - 2, hY + 6); ctx.stroke();
+
+    gTeams.forEach((team, i) => {
+      const qualified = i < 2;
+      const ry = gy + GRP_HDR + COL_HDR + i * ROW_H;
+
+      // Row bg
+      ctx.fillStyle = qualified ? 'rgba(139,0,0,0.22)' : 'transparent';
+      ctx.fillRect(gx + 2, ry, GRP_W - 4, ROW_H - 1);
+
+      // Left bar
+      ctx.fillStyle = qualified ? C.win : C.loss;
+      ctx.fillRect(gx + 2, ry, 3, ROW_H - 1);
+
+      // Rank
+      ctx.fillStyle = qualified ? C.win : C.textMid;
+      ctx.font = 'bold 14px "DejaVu Sans", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(i + 1), gx + 14, ry + ROW_H / 2 + 5);
+
+      // Dot
+      dot(ctx, gx + 30, ry + ROW_H / 2, 13, team.name);
+
+      // Team name — auto-sized to fit available width
+      const nameAreaW = NAME_MAX_X - 54;  // from gx+54 to gx+NAME_MAX_X
+      const fullName  = (team.name || 'TBD').toUpperCase();
+      const nameFS    = fitText(ctx, fullName, nameAreaW, qualified ? 15 : 14, 9, qualified ? 'bold' : '');
+      ctx.fillStyle   = qualified ? C.title : C.textSub;
+      ctx.font        = `${qualified ? 'bold ' : ''}${nameFS}px "DejaVu Sans", Arial, sans-serif`;
+      ctx.textAlign   = 'left';
+      ctx.fillText(fullName, gx + 52, ry + ROW_H / 2 + 5);
+
+      // Stats
+      const gd  = (team.goals_for || 0) - (team.goals_against || 0);
+      const mp  = (team.wins || 0) + (team.draws || 0) + (team.losses || 0);
+      const stats = {
+        P:   mp,
+        W:   team.wins   || 0,
+        D:   team.draws  || 0,
+        L:   team.losses || 0,
+        GD:  (gd >= 0 ? '+' : '') + gd,
+        PTS: team.points || 0,
+      };
+      for (const [k, ox] of Object.entries(SX)) {
+        ctx.fillStyle = k === 'PTS' ? (qualified ? C.win : C.title) : C.textSub;
+        ctx.font      = k === 'PTS' ? 'bold 15px "DejaVu Sans", Arial, sans-serif' : '12px "DejaVu Sans", Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(stats[k]), gx + ox, ry + ROW_H / 2 + 5);
+      }
+
+      if (i < gTeams.length - 1) {
+        ctx.strokeStyle = C.div; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(gx + 8, ry + ROW_H - 1); ctx.lineTo(gx + GRP_W - 8, ry + ROW_H - 1); ctx.stroke();
+      }
+    });
+
+    colIdx++;
+    if (colIdx >= PER_ROW) { colIdx = 0; rowIdx++; }
+  }
+
+  ctx.fillStyle = C.textMid;
+  ctx.font = '15px "DejaVu Sans", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Night Stars  —  ' + tournament.name, W / 2, H - 36);
+  ctx.fillStyle = '#8B0000';
+  ctx.fillRect(0, H - 10, W, 10);
+
+  return canvas.toBuffer('image/png');
+}
+
 function generateKnockoutBracket(tournament, matches, teams) {
   const getTeam = id => teams.find(t => t.id === id) || { name: 'TBD', short_name: '???' };
   const roundMap = {};
