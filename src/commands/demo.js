@@ -2,7 +2,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const { db } = require('../utils/database');
 const { COLORS, E } = require('../utils/embeds');
-const { buildTeamListEmbed, buildTeamManageButtons } = require('../panels/teamListPanel');
+const { buildRosterEmbed, buildTeamListEmbed, buildTeamManageButtons } = require('../panels/teamListPanel');
 const { buildTournamentListEmbed, buildTournamentButtons, TEMPLATES } = require('../panels/tournamentPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
 const { makeScheduleEmbed, makeResultEmbed, makeStandingsEmbed } = require('../utils/tournamentEmbeds');
@@ -168,7 +168,7 @@ module.exports = {
       // ── Step 3: post team list ────────────────────────────────────────────
       await step(3, TOTAL, 'Posting team list...');
       const teamListCh = await getTargetChannel(interaction.guild, template, 'teamList') || interaction.channel;
-      await teamListCh.send({ embeds: [buildTeamListEmbed()], components: [buildTeamManageButtons()] });
+      await teamListCh.send({ embeds: [buildRosterEmbed(tournament.id)] });
 
       // ── Step 4: post schedule embeds ─────────────────────────────────────
       await step(4, TOTAL, 'Posting schedule embeds...');
