@@ -1,4 +1,4 @@
-use strict;
+'use strict';
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { db } = require("../utils/database");
 
