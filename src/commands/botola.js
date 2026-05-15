@@ -7,11 +7,13 @@ const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
 function buildBotolaListPanel() {
-  const tournaments = db.get('tournaments').sort((a, b) => {
-    if (a.status === 'active' && b.status !== 'active') return -1;
-    if (b.status === 'active' && a.status !== 'active') return 1;
-    return new Date(b.created_at) - new Date(a.created_at);
-  });
+  const tournaments = db.get('tournaments')
+    .filter(t => !/demo/i.test(t.name) && !/demo/i.test(t.template || ''))
+    .sort((a, b) => {
+      if (a.status === 'active' && b.status !== 'active') return -1;
+      if (b.status === 'active' && a.status !== 'active') return 1;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
 
   const E_CUP = '<a:cup:1501741159557500971>';
   const inner = [];
