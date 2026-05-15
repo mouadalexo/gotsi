@@ -193,7 +193,7 @@ async function handleMgr2Interaction(interaction) {
     const deadline = parseInt(interaction.fields.getTextInputValue('deadline')) || null;
     const [wp, dp, lp] = ptsRaw.split(',').map(x => parseInt(x.trim())).map(n => isNaN(n) ? 0 : n);
 
-    const season = db.get('tournaments').filter(t => t.template === pending.template).length + 1;
+    const season = Math.max(0, ...db.get("tournaments").filter(x => x.template === pending.template).map(x => x.season)) + 1;
     const t = db.insert('tournaments', {
       name: pending.name, template: pending.template, season,
       team_count: pending.team_count, teams_per_group: pending.teams_per_group,
