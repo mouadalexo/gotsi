@@ -3,60 +3,42 @@ const { db } = require('../utils/database');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
-const btn = (label, id, style, emoji, disabled = false) => ({
-  type: 2, style, label, custom_id: id, disabled,
-  ...(emoji ? { emoji: { name: emoji } } : {}),
-});
+const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
 
-function buildTeamCrudPanel(page = 0) {
-  const all   = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
-  const PER   = 20;
-  const total = all.length;
-  const pages = Math.max(1, Math.ceil(total / PER));
-  const slice = all.slice(page * PER, (page + 1) * PER);
+const E_CUP  = '<a:cup:1501741159557500971>';
+const E_HASH = '<a:hashtag:1501741088736678069>';
+const E_ARR  = '<a:arrow:1501741110798585927>';
 
-  const E_CUP = '<a:cup:1501741159557500971>';
+function buildTeamCrudPanel() {
+  const teams = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
+  const total = teams.length;
   const inner = [];
 
-  inner.push(txt(`# ${E_CUP}  Team Database\n> **${total}** teams registered in the master list.`));
+  inner.push(txt(`# ${E_CUP}  Teams List\n> **${total}** team${total !== 1 ? 's' : ''} in the master list`));
   inner.push(SEP);
 
-  if (!slice.length) {
-    inner.push(txt('No teams yet. Use **Add Team** to get started.'));
+  if (!total) {
+    inner.push(txt('No teams yet. Click **Add Team** to add the first one.'));
   } else {
-    const lines = slice.map((t, i) => {
-      const num = String(page * PER + i + 1).padStart(2, ' ');
-      const cat = t.category ? ` \`${t.category}\`` : '';
-      return `\`${num}.\`  **${t.name}**${cat}  \`ID:${t.id}\``;
-    });
-    for (let i = 0; i < lines.length; i += 10) {
-      inner.push(txt(lines.slice(i, i + 10).join('\n')));
-      if (i + 10 < lines.length) inner.push(SEP);
+    // show in chunks of 15, each as one text block
+    for (let i = 0; i < teams.length; i += 15) {
+      const lines = teams.slice(i, i + 15).map((t, j) => {
+        const num = String(i + j + 1).padStart(2, ' ');
+        return `${E_ARR}  \`${num}.\`  **${t.name}**`;
+      });
+      inner.push(txt(lines.join('\n')));
+      if (i + 15 < teams.length) inner.push(SEP);
     }
   }
 
   inner.push(SEP);
-  inner.push({
-    type: 1, components: [
-      btn('➕ Add Team',     'tc_add',           1, '➕'),
-      btn('✏ Edit Team',    'tc_edit_start',     2, null, total === 0),
-      btn('🗑 Delete Team',  'tc_del_start',      4, null, total === 0),
-      btn('🔄 Refresh',     `tc_refresh_${page}`, 2, '🔄'),
-    ],
-  });
-
-  if (pages > 1) {
-    inner.push({
-      type: 1, components: [
-        btn('◀ Prev',              `tc_page_${Math.max(0, page - 1)}`,       2, null, page === 0),
-        btn(`Page ${page+1}/${pages}`, 'tc_noop',                            2, null, true),
-        btn('Next ▶',              `tc_page_${Math.min(pages - 1, page + 1)}`, 2, null, page >= pages - 1),
-      ],
-    });
-  }
-
+  inner.push({ type: 1, components: [
+    btn('Add Team',    'tc_add',       1),
+    btn('Delete Team', 'tc_del_start', 4, total === 0),
+    btn('Refresh',     'tc_refresh',   2),
+  ]});
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  /team  •  Admin only'));
+  inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
