@@ -689,21 +689,15 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'refresh') return interaction.update(buildPanel2(t));
 
     if (action === 'addteam') {
-      return interaction.showModal(
-        new ModalBuilder().setCustomId(`p2_${tid}_search_modal`).setTitle('Search Team')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('query').setLabel('Type team name to search')
-                .setStyle(TextInputStyle.Short).setPlaceholder('e.g. Real, Raja, Bayern...').setRequired(false)
-            ),
-          )
-      );
-    }
-
-    if (action === 'search_modal') {
-      const query  = interaction.fields.getTextInputValue('query').trim();
-      const panel  = buildTeamSearchResults(tid, query);
-      return interaction.reply({ ...panel, ephemeral: true });
+      const E_ARR2 = '<a:arrow:1501741110798585927>';
+      return interaction.reply({
+        flags: 32768,
+        components: [{ type: 17, accent_color: 0x57F287, components: [
+          txt(`**${E_ARR2}  Type \`/addteam\` in chat**\nSearch for a team by name with live filtering — just like searching for a member or role in Discord.\n\nSelect the tournament, then start typing the team name to see instant results.`),
+          { type: 1, components: [{ type: 2, style: 2, label: 'Close', custom_id: `p2_${tid}_refresh` }] },
+        ]}],
+        ephemeral: true,
+      });
     }
 
     if (action === 'team_sel') {

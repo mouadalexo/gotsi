@@ -30,6 +30,41 @@ module.exports = {
         return;
       }
 
+      // ── Autocomplete ───────────────────────────────────────────────────────
+      if (interaction.isAutocomplete()) {
+        const command = client.commands.get(interaction.commandName);
+        if (command?.autocomplete) await command.autocomplete(interaction);
+        return;
+      }
+
+      // ── /addteam player modal ─────────────────────────────────────────────
+      if (interaction.isModalSubmit() && interaction.customId.startsWith('addteam_player_')) {
+        const { db }          = require('./src/utils/database');
+        const { buildPanel2 } = require('./src/panels/panel2');
+        const [, , tidStr, teamIdStr] = interaction.customId.split('_');
+        const tid    = parseInt(tidStr);
+        const teamId = parseInt(teamIdStr);
+        const rawId  = interaction.fields.getTextInputValue('discord_id').trim().replace(/\D/g, '');
+        if (rawId) {
+          const exists = db.findOne('players', p => p.discord_id === rawId && p.team_id === teamId);
+          if (!exists) db.insert('players', { discord_id: rawId, team_id: teamId, tournament_id: tid });
+        }
+        // Refresh Panel 2 if reference exists
+        const t = db.findById('tournaments', tid);
+        if (t?.panel2_ref) {
+          try {
+            const ch  = await client.channels.fetch(t.panel2_ref.channelId);
+            const msg = await ch.messages.fetch(t.panel2_ref.messageId);
+            await msg.edit(buildPanel2(t));
+          } catch {}
+        }
+        const team = db.findById('teams', teamId);
+        return interaction.reply({
+          content: `✅ **${team?.name || 'Team'}** enrolled${rawId ? ` — player <@${rawId}> assigned` : ''}`,
+          ephemeral: true,
+        });
+      }
+
       const id = interaction.customId || '';
 
       // ── Test panel ─────────────────────────────────────────────────────────
