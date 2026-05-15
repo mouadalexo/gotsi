@@ -243,28 +243,41 @@ function buildResultPreviewEphemeral(matchId) {
     );
 }
 
-// ── Add team to tournament ephemeral flow ─────────────────────────────────────
-function buildAddTeamSelectEphemeral(tid) {
-  const enrolled = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
-  const available= db.get('teams').filter(t => !enrolled.includes(t.id))
-                     .sort((a, b) => a.name.localeCompare(b.name));
-  if (!available.length) return null;
+// ── Add team — search-filtered select ────────────────────────────────────────
+function buildTeamSearchResults(tid, query) {
+  const enrolled  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
+  const q         = (query || '').toLowerCase().trim();
+  const available = db.get('teams')
+    .filter(t => !enrolled.includes(t.id) && (!q || t.name.toLowerCase().includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!available.length) return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0x57F287, components: [
+      txt(q ? `No teams found matching **"${query}"** — try a different name.` : 'All teams are already enrolled.'),
+      SEP,
+      { type: 1, components: [
+        { type: 2, style: 2, label: 'Search Again', custom_id: `p2_${tid}_addteam` },
+        { type: 2, style: 2, label: 'Cancel',       custom_id: `p2_${tid}_refresh`  },
+      ]},
+    ]}],
+  };
+
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: 0x57F287, components: [
-      txt('**➕ Add Team — Select from master list**'),
+      txt(`**${available.length}** team${available.length !== 1 ? 's' : ''} found${q ? ` for **"${query}"**` : ''} — select one to register`),
       SEP,
       { type: 1, components: [{
         type: 3, custom_id: `p2_${tid}_team_sel`,
         placeholder: 'Select team to register...',
-        options: available.slice(0, 25).map(t => ({
-          label: t.name.slice(0, 100),
-          value: String(t.id),
-          description: t.category || 'No category',
-        })),
+        options: available.slice(0, 25).map(t => ({ label: t.name.slice(0, 100), value: String(t.id) })),
       }]},
       SEP,
-      { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p2_${tid}_refresh` }]},
+      { type: 1, components: [
+        { type: 2, style: 2, label: 'Search Again', custom_id: `p2_${tid}_addteam` },
+        { type: 2, style: 2, label: 'Cancel',       custom_id: `p2_${tid}_refresh`  },
+      ]},
     ]}],
   };
 }
@@ -625,8 +638,20 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'refresh') return interaction.update(buildPanel2(t));
 
     if (action === 'addteam') {
-      const panel = buildAddTeamSelectEphemeral(tid);
-      if (!panel) return interaction.reply({ content: '❌ All teams are already enrolled.', ephemeral: true });
+      return interaction.showModal(
+        new ModalBuilder().setCustomId(`p2_${tid}_search_modal`).setTitle('Search Team')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('query').setLabel('Type team name to search')
+                .setStyle(TextInputStyle.Short).setPlaceholder('e.g. Real, Raja, Bayern...').setRequired(false)
+            ),
+          )
+      );
+    }
+
+    if (action === 'search_modal') {
+      const query  = interaction.fields.getTextInputValue('query').trim();
+      const panel  = buildTeamSearchResults(tid, query);
       return interaction.reply({ ...panel, ephemeral: true });
     }
 
