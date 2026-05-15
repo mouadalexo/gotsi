@@ -3,9 +3,8 @@
  * One-time cleanup — run from gotsi project root:
  *   node scripts/cleanDemo.js
  *
- * Removes any tournament (and its related matches/tournament_teams/winners)
- * whose name contains "demo" (case-insensitive), so they no longer appear
- * in /manage or /botola panels.
+ * Removes any tournament whose name contains "demo", "saison", or "test"
+ * (case-insensitive) so they no longer appear in /manage or /botola panels.
  */
 
 const path = require('path');
@@ -24,18 +23,19 @@ if (fs.existsSync(envPath)) {
 
 const { db } = require('../src/utils/database');
 
-const demoTournaments = db.get('tournaments').filter(t =>
-  t.name.toLowerCase().includes('demo') ||
-  (t.template || '').toLowerCase().includes('demo')
+const JUNK = /demo|saison|test/i;
+
+const junkTournaments = db.get('tournaments').filter(t =>
+  JUNK.test(t.name) || JUNK.test(t.template || '')
 );
 
-if (!demoTournaments.length) {
-  console.log('No demo tournaments found — nothing to clean.');
+if (!junkTournaments.length) {
+  console.log('No junk tournaments found — nothing to clean.');
   process.exit(0);
 }
 
-console.log(`Found ${demoTournaments.length} demo tournament(s):`);
-for (const t of demoTournaments) {
+console.log(`Found ${junkTournaments.length} junk tournament(s):`);
+for (const t of junkTournaments) {
   console.log(`  → [${t.id}] ${t.name} (${t.template} S${t.season})`);
 
   db.deleteWhere('tournament_teams', tt => tt.tournament_id === t.id);
