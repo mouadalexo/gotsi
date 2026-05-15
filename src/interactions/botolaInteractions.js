@@ -350,10 +350,6 @@ async function handleBotolaInteraction(interaction) {
       if (ttCount < 2) {
         return interaction.followUp({ content: '❌ Need at least 2 teams enrolled.', ephemeral: true });
       }
-      // Close registration if open
-      if (t.registration_open !== false) {
-        db.update('tournaments', tid, { registration_open: false });
-      }
       // Draw groups if not done
       const hasGroups = db.get('tournament_teams').some(tt => tt.tournament_id === tid && tt.group_name);
       if (!hasGroups) runGroupDraw(tid);
