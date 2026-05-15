@@ -629,7 +629,7 @@ async function handleBotolaInteraction(interaction) {
     // New Edition (when finished)
     if (action === 'newedition') {
       await interaction.deferReply({ ephemeral: true });
-      const newSeason = db.get('tournaments').filter(x => x.template === t.template).length + 1;
+      const newSeason = Math.max(0, ...db.get("tournaments").filter(x => x.template === t.template).map(x => x.season)) + 1;
       const nt = db.insert('tournaments', {
         name: t.name, template: t.template, season: newSeason,
         team_count: t.team_count, teams_per_group: t.teams_per_group,
