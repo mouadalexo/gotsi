@@ -1,38 +1,37 @@
 'use strict';
-const { buildAdminPanel, buildChannelConfigModal } = require('../panels/adminPanel');
-const { requireManager } = require('../utils/permissions');
+const { buildAdminPanel, buildTournamentChannelModal } = require('../panels/adminPanel');
 const { db } = require('../utils/database');
 
 async function handleAdminInteraction(interaction) {
   const id = interaction.customId;
 
-  // ── Refresh ───────────────────────────────────────────────────────────────
+  // ── Refresh ────────────────────────────────────────────────────────────────
   if (id === 'adm_refresh') {
     return interaction.update(buildAdminPanel());
   }
 
-  // ── Set channels buttons ──────────────────────────────────────────────────
-  if (id === 'adm_set_MCL' || id === 'adm_set_NSEL') {
-    const template = id.split('_')[2];
-    return interaction.showModal(buildChannelConfigModal(template));
+  // ── Set Tournament Channels buttons ────────────────────────────────────────
+  if (id === 'adm_tch_NSEL' || id === 'adm_tch_MCL') {
+    const template = id.replace('adm_tch_', '');
+    return interaction.showModal(buildTournamentChannelModal(template));
   }
 
-  // ── Channel config modal submit ───────────────────────────────────────────
-  if (id.startsWith('adm_channels_modal_')) {
-    const template   = id.replace('adm_channels_modal_', '');
-    const teamsList  = interaction.fields.getTextInputValue('teamsList').trim();
-    const results    = interaction.fields.getTextInputValue('results').trim();
-    const matchSched = interaction.fields.getTextInputValue('matchSchedule').trim();
-    const groupDraw  = interaction.fields.getTextInputValue('groupDraw').trim();
+  // ── Tournament channel modal submit ────────────────────────────────────────
+  if (id.startsWith('adm_tch_modal_')) {
+    const template  = id.replace('adm_tch_modal_', '');
+    const schedule  = interaction.fields.getTextInputValue('schedule').trim()  || null;
+    const results   = interaction.fields.getTextInputValue('results').trim()   || null;
+    const standings = interaction.fields.getTextInputValue('standings').trim() || null;
 
-    const config = db.get('config') || {};
-    if (!config.channels) config.channels = {};
-    config.channels[template] = { teamsList, results, matchSchedule: matchSched, groupDraw };
-    db.setConfig('channels', config.channels);
+    const t = db.get('tournaments').find(t2 => t2.template === template);
+    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
 
-    // Refresh the stored admin panel message
+    const existing = t.channels || {};
+    db.update('tournaments', t.id, {
+      channels: { ...existing, schedule, results, standings },
+    });
+
     await refreshAdminPanel(interaction.client);
-
     return interaction.reply({ content: `✅ ${template} channels saved.`, ephemeral: true });
   }
 }

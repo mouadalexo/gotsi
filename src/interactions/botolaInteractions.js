@@ -401,50 +401,6 @@ async function handleBotolaInteraction(interaction) {
       return interaction.reply({ content: '✅ Tournament settings updated.', ephemeral: true });
     }
 
-    // Set Channels modal
-    if (action === 'setchannels') {
-      const ch = t.channels || {};
-      return interaction.showModal(
-        new ModalBuilder().setCustomId(`p1_${tid}_channels_modal`).setTitle('Set Tournament Channels')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('management').setLabel('Management Channel ID')
-                .setStyle(TextInputStyle.Short).setValue(ch.management || '').setRequired(false)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('registration').setLabel('Registration Channel ID')
-                .setStyle(TextInputStyle.Short).setValue(ch.registration || '').setRequired(false)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('results').setLabel('Results Channel ID')
-                .setStyle(TextInputStyle.Short).setValue(ch.results || '').setRequired(false)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('schedule').setLabel('Schedule Channel ID')
-                .setStyle(TextInputStyle.Short).setValue(ch.schedule || '').setRequired(false)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('standings').setLabel('Standings Channel ID')
-                .setStyle(TextInputStyle.Short).setValue(ch.standings || '').setRequired(false)
-            ),
-          )
-      );
-    }
-
-    if (action === 'channels_modal') {
-      const mgmt = interaction.fields.getTextInputValue('management').trim();
-      const reg  = interaction.fields.getTextInputValue('registration').trim();
-      const res  = interaction.fields.getTextInputValue('results').trim();
-      const sch  = interaction.fields.getTextInputValue('schedule').trim();
-      const std  = interaction.fields.getTextInputValue('standings').trim();
-      db.update('tournaments', tid, { channels: {
-        management: mgmt || null, registration: reg || null,
-        results: res || null, schedule: sch || null, standings: std || null,
-      }});
-      await refreshAll(cli, tid);
-      return interaction.reply({ content: '✅ Channels saved.', ephemeral: true });
-    }
-
     // Add Result — show picker
     if (action === 'addresult') {
       const stage    = getStage(t);
@@ -740,76 +696,91 @@ async function handleBotolaInteraction(interaction) {
 
     const ch = t.channels || {};
 
-    // ── Post Schedule ───────────────────────────────────────────────────────
+    // ── Post Schedule — round selector ─────────────────────────────────────
     if (action === 'schedule') {
-      const matches = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-      const teams   = db.get('teams');
-      const getTeam = id => teams.find(tt => tt.id === id) || { name: 'Unknown' };
-      const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      const getGrp  = id => ttRows.find(tt => tt.team_id === id)?.group_name || '?';
-      const items   = matches.map(m => ({
-        home: getTeam(m.home_team_id).name,
-        away: getTeam(m.away_team_id).name,
-        group: getGrp(m.home_team_id),
-        round: m.round, leg: m.leg,
-        status: m.status, score: m.status === 'played' ? `${m.home_score}-${m.away_score}` : null,
-      }));
-      const embed = makeScheduleEmbed ? makeScheduleEmbed(items, t) : null;
-      const payload = embed ? { embeds: [embed] } : { content: `Schedule for **${t.name}**: ${matches.length} matches` };
-      const confirmPanel = {
-        flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [
-          txt(`**📅 Schedule Preview**\nPost schedule to <#${ch.schedule || 'not set'}>?`),
-          SEP,
-          { type: 1, components: [
-            { type: 2, style: 1, label: 'Confirm Post', custom_id: `p3_${tid}_schedule_confirm` },
-            { type: 2, style: 2, label: 'Cancel',        custom_id: `p3_${tid}_refresh` },
-          ]},
-        ]}],
-      };
-      await interaction.reply({ ...confirmPanel, ephemeral: true });
-      return;
+      const allGM = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      const rounds = [...new Set(allGM.map(m => m.round))].sort((a, b) => a - b);
+      if (!rounds.length) return interaction.reply({ content: '❌ No matches generated yet.', ephemeral: true });
+      const total = rounds.length;
+      const roundBtns = [];
+      for (let i = 0; i < rounds.length; i += 5)
+        roundBtns.push({ type: 1, components: rounds.slice(i, i + 5).map(r => ({ type: 2, style: 2, label: `Round ${r}/${total}`, custom_id: `p3_${tid}_schedule_r${r}` })) });
+      return interaction.reply({ flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: [
+        txt(`**📅 Post Schedule — Select Round**\nPosting to <#${ch.schedule || 'not set'}>`),
+        SEP, ...roundBtns,
+        { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p3_${tid}_refresh` }] },
+      ] }], ephemeral: true });
     }
 
-    if (action === 'schedule_confirm') {
+    // Post Schedule for a specific round
+    if (action.startsWith('schedule_r') && !isNaN(parseInt(action.slice(10)))) {
       if (!ch.schedule) return interaction.reply({ content: '❌ No schedule channel configured.', ephemeral: true });
-      const matches = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      const round   = parseInt(action.slice(10));
+      const allGM   = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      const total   = [...new Set(allGM.map(m => m.round))].length;
+      const matches = allGM.filter(m => m.round === round);
       const teams   = db.get('teams');
-      const getTeam = id => teams.find(tt => tt.id === id) || { name: 'Unknown' };
       const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      const getTeam = id => teams.find(t2 => t2.id === id) || { name: 'Unknown' };
       const getGrp  = id => ttRows.find(tt => tt.team_id === id)?.group_name || '?';
-      const items   = matches.map(m => ({
-        home: getTeam(m.home_team_id).name, away: getTeam(m.away_team_id).name,
-        group: getGrp(m.home_team_id), round: m.round, leg: m.leg, status: m.status,
-      }));
-      const embed = makeScheduleEmbed ? makeScheduleEmbed(items, t) : null;
-      const payload = embed ? { embeds: [embed] } : { content: `**${t.name} — Schedule**\n${matches.length} matches generated.` };
-      await postToChannel(cli, ch.schedule, payload);
-      return interaction.reply({ content: `✅ Schedule posted to <#${ch.schedule}>.`, ephemeral: true });
+      const groups  = {};
+      for (const m of matches) { const g = getGrp(m.home_team_id); (groups[g] = groups[g] || []).push(m); }
+      const inner = [txt(`# 📅 Schedule — Round ${round}/${total}\n**${t.name} — Season ${t.season}**`), SEP];
+      for (const [g, gm] of Object.entries(groups).sort()) {
+        inner.push(txt(`**GROUP ${g}**\n${gm.map(m => `⚽  **${getTeam(m.home_team_id).name}**  vs  **${getTeam(m.away_team_id).name}**`).join('\n')}`));
+        inner.push(SEP);
+      }
+      inner.push(txt(`-# Night Stars  •  ${t.template}  •  Group Stage  •  Round ${round}`));
+      await postToChannel(cli, ch.schedule, { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] });
+      return interaction.reply({ content: `✅ Round ${round} schedule posted to <#${ch.schedule}>.`, ephemeral: true });
     }
 
-    // ── Post Results ────────────────────────────────────────────────────────
+    // ── Post Results — round selector ─────────────────────────────────────────
     if (action === 'results') {
-      const embed = buildAllResultsEmbed ? buildAllResultsEmbed(tid) : null;
-      const confirmPanel = {
-        flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [
-          txt(`**📊 Results Preview**\nPost results to <#${ch.results || 'not set'}>?`),
-          SEP,
-          { type: 1, components: [
-            { type: 2, style: 1, label: 'Confirm Post', custom_id: `p3_${tid}_results_confirm` },
-            { type: 2, style: 2, label: 'Cancel',        custom_id: `p3_${tid}_refresh` },
-          ]},
-        ]}],
-      };
-      await interaction.reply({ ...confirmPanel, ephemeral: true });
-      if (embed) await interaction.followUp({ embeds: [embed], ephemeral: true });
-      return;
+      const allGM = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      const played = [...new Set(allGM.filter(m => m.status === 'played').map(m => m.round))].sort((a, b) => a - b);
+      if (!played.length) return interaction.reply({ content: '❌ No played matches yet.', ephemeral: true });
+      const total = [...new Set(allGM.map(m => m.round))].length;
+      const roundBtns = [];
+      for (let i = 0; i < played.length; i += 5)
+        roundBtns.push({ type: 1, components: played.slice(i, i + 5).map(r => ({ type: 2, style: 2, label: `Round ${r}/${total}`, custom_id: `p3_${tid}_results_r${r}` })) });
+      return interaction.reply({ flags: 32768, components: [{ type: 17, accent_color: 0xCC0000, components: [
+        txt(`**📊 Post Results — Select Round**\nPosting to <#${ch.results || 'not set'}>`),
+        SEP, ...roundBtns,
+        { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p3_${tid}_refresh` }] },
+      ] }], ephemeral: true });
     }
 
-    if (action === 'results_confirm') {
+    // Post Results for a specific round
+    if (action.startsWith('results_r') && !isNaN(parseInt(action.slice(9)))) {
       if (!ch.results) return interaction.reply({ content: '❌ No results channel configured.', ephemeral: true });
-      const embed = buildAllResultsEmbed ? buildAllResultsEmbed(tid) : null;
-      if (embed) await postToChannel(cli, ch.results, { embeds: [embed] });
-      return interaction.reply({ content: `✅ Results posted to <#${ch.results}>.`, ephemeral: true });
+      const round   = parseInt(action.slice(9));
+      const allGM   = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      const total   = [...new Set(allGM.map(m => m.round))].length;
+      const matches = allGM.filter(m => m.round === round && m.status === 'played');
+      if (!matches.length) return interaction.reply({ content: `❌ No played matches in Round ${round} yet.`, ephemeral: true });
+      const teams  = db.get('teams');
+      const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      const getTeam = id => teams.find(t2 => t2.id === id) || { name: 'Unknown' };
+      const getGrp  = id => ttRows.find(tt => tt.team_id === id)?.group_name || '?';
+      const groups  = {};
+      for (const m of matches) { const g = getGrp(m.home_team_id); (groups[g] = groups[g] || []).push(m); }
+      const ECROWN = '<a:crown:1501741170668077127>';
+      const EFIRE  = '<a:fire:1472250580583059611>';
+      const inner  = [txt(`# 📊 Results of Round ${round}/${total}\n**${t.name} — Season ${t.season}**`), SEP];
+      for (const [g, gm] of Object.entries(groups).sort()) {
+        inner.push(txt(`**GROUP ${g}**\n${gm.map(m => {
+          const home = getTeam(m.home_team_id), away = getTeam(m.away_team_id);
+          const icon = m.home_score === m.away_score ? '🤝' : EFIRE;
+          const hs   = m.home_score > m.away_score ? `${ECROWN} **${home.name}**` : `**${home.name}**`;
+          const as_  = m.away_score > m.home_score ? `**${away.name}** ${ECROWN}` : `**${away.name}**`;
+          return `${icon}  ${hs}  \`${m.home_score} — ${m.away_score}\`  ${as_}`;
+        }).join('\n')}`));
+        inner.push(SEP);
+      }
+      inner.push(txt(`-# Night Stars  •  ${t.template}  •  Group Stage  •  Round ${round}`));
+      await postToChannel(cli, ch.results, { flags: 32768, components: [{ type: 17, accent_color: 0xCC0000, components: inner }] });
+      return interaction.reply({ content: `✅ Round ${round} results posted to <#${ch.results}>.`, ephemeral: true });
     }
 
     // ── Post Standings ──────────────────────────────────────────────────────

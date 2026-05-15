@@ -48,10 +48,9 @@ function buildPanel1(tournament) {
     ));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('Begin Season',  `p1_${tid}_begin`,       1, null),
-      btn('Settings',      `p1_${tid}_settings`,    2, null),
-      btn('Set Channels',  `p1_${tid}_setchannels`, 2, null),
-      btn('Refresh',       `p1_${tid}_refresh`,     2, null),
+      btn('Begin Season',  `p1_${tid}_begin`,     1, null),
+      btn('Settings',      `p1_${tid}_settings`,  2, null),
+      btn('Refresh',       `p1_${tid}_refresh`,   2, null),
     ]});
 
   } else if (stage === 'group') {
@@ -72,7 +71,6 @@ function buildPanel1(tournament) {
       btn('Add Result',          `p1_${tid}_addresult`, 1, null, pendingGroup === 0),
       btn('Advance to Knockout', `p1_${tid}_advance`,   3, null, !allGroupDone),
       btn('Settings',            `p1_${tid}_settings`,  2, null),
-      btn('Set Channels',        `p1_${tid}_setchannels`, 2, null),
       btn('Refresh',             `p1_${tid}_refresh`,   2, null),
     ]});
 
@@ -99,7 +97,6 @@ function buildPanel1(tournament) {
       btn('Add Result',   `p1_${tid}_addresult`, 1, null, curPending === 0),
       btn('Next Round',   `p1_${tid}_advance`,   3, null, !allKODone),
       btn('Settings',     `p1_${tid}_settings`,  2, null),
-      btn('Set Channels', `p1_${tid}_setchannels`, 2, null),
       btn('Refresh',      `p1_${tid}_refresh`,   2, null),
     ]});
 

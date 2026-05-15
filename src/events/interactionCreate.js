@@ -17,7 +17,7 @@ const TEAM_IDS = [
   'custom_team_modal', 'team_add_player', 'team_select', 'team_remove', 'team_remove_select',
 ];
 
-const TEST_IDS = ['test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw'];
+const TEST_IDS = ['test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw'];
 
 module.exports = {
   name: 'interactionCreate',
@@ -38,7 +38,7 @@ module.exports = {
       }
 
       // ── Admin panel ────────────────────────────────────────────────────────
-      if (id === 'adm_refresh' || id.startsWith('adm_set_') || id.startsWith('adm_channels_modal_')) {
+      if (id === 'adm_refresh' || id.startsWith('adm_tch_')) {
         return handleAdminInteraction(interaction);
       }
 
