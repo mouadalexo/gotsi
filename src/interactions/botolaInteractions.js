@@ -621,7 +621,58 @@ async function handleBotolaInteraction(interaction) {
     }
     updateStandings(match.tournament_id, matchId, hs, as_);
     await refreshAll(cli, match.tournament_id);
-    return interaction.reply({ content: `✅ Result saved: **${hs} — ${as_}**`, ephemeral: true });
+
+    // Auto-post full round results when every match in the round is done
+    const tid      = match.tournament_id;
+    const round    = match.round;
+    const allGM    = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+    const roundAll = allGM.filter(m => m.round === round);
+    const allDone  = roundAll.length > 0 && roundAll.every(m => m.status === 'played');
+
+    if (allDone) {
+      const tourney = getT(tid);
+      const ch      = tourney?.channels || {};
+      if (ch.results) {
+        const total    = [...new Set(allGM.map(m => m.round))].length;
+        const played   = allGM.filter(m => m.round === round && m.status === 'played');
+        const teams2   = db.get('teams');
+        const ttRows   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+        const getTeam2 = id => teams2.find(t2 => t2.id === id) || { name: 'Unknown' };
+        const getGrp2  = id => ttRows.find(tt => tt.team_id === id)?.group_name || '?';
+        const ECROWN2  = '<a:crown:1501741170668077127>';
+        const EFIRE2   = '<a:fire:1472250580583059611>';
+        const groups2  = {};
+        for (const m of played) {
+          const g = getGrp2(m.home_team_id);
+          (groups2[g] = groups2[g] || []).push(m);
+        }
+        const inner2 = [
+          txt(`# 📊 Results — Round ${round}/${total}\n**${tourney.name} — Season ${tourney.season}**`),
+          SEP,
+        ];
+        for (const [g, gm] of Object.entries(groups2).sort()) {
+          inner2.push(txt(`**GROUP ${g}**\n${gm.map(m => {
+            const home = getTeam2(m.home_team_id), away = getTeam2(m.away_team_id);
+            const icon = m.home_score === m.away_score ? '🤝' : EFIRE2;
+            const hs2  = m.home_score > m.away_score ? `${ECROWN2} **${home.name}**` : `**${home.name}**`;
+            const as2  = m.away_score > m.home_score ? `**${away.name}** ${ECROWN2}` : `**${away.name}**`;
+            return `${icon}  ${hs2}  \`${m.home_score} — ${m.away_score}\`  ${as2}`;
+          }).join('\n')}`));
+          inner2.push(SEP);
+        }
+        inner2.push(txt(`-# Night Stars  •  ${tourney.template}  •  Group Stage  •  Round ${round}`));
+        await postToChannel(cli, ch.results, {
+          flags: 32768,
+          components: [{ type: 17, accent_color: 0xCC0000, components: inner2 }],
+        });
+      }
+    }
+
+    const remaining = roundAll.filter(m => m.status === 'pending').length;
+    const doneMsg   = allDone
+      ? ` — Round ${round} complete ✅ Results posted!`
+      : ` (${remaining} match${remaining !== 1 ? 'es' : ''} left in Round ${round})`;
+    return interaction.reply({ content: `✅ Result saved: **${hs} — ${as_}**${doneMsg}`, ephemeral: true });
   }
 
   // ════════════════════════════════════════════════════════════════════════════
