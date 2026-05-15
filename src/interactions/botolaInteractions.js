@@ -762,6 +762,40 @@ async function handleBotolaInteraction(interaction) {
 
     const ch = t.channels || {};
 
+    // ── Post Teams List ────────────────────────────────────────────────────
+    if (action === 'teamslist') {
+      if (!ch.management) return interaction.reply({ content: '❌ Management channel not set.', ephemeral: true });
+      const ttRows2  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      if (!ttRows2.length) return interaction.reply({ content: '❌ No teams enrolled yet.', ephemeral: true });
+      const teams2   = db.get('teams');
+      const players2 = db.get('players').filter(p => p.tournament_id === tid);
+      const isDuo    = /MCL/i.test(t.template || t.name || '');
+      const E_ARR2   = '<a:arrow:1501741110798585927>';
+      const E_CUP2   = '<a:cup:1501741159557500971>';
+      const lines    = ttRows2.map(tt => {
+        const team    = teams2.find(tm => tm.id === tt.team_id) || { name: 'Unknown' };
+        const tPlayers = players2.filter(p => p.team_id === tt.team_id);
+        let playerLine;
+        if (isDuo) {
+          const p1 = tPlayers[0]?.discord_id ? `<@${tPlayers[0].discord_id}>` : '@';
+          const p2 = tPlayers[1]?.discord_id ? `<@${tPlayers[1].discord_id}>` : '@';
+          playerLine = `${p1} / ${p2}`;
+        } else {
+          playerLine = tPlayers[0]?.discord_id ? `<@${tPlayers[0].discord_id}>` : '@';
+        }
+        return `${E_ARR2}  **${team.name}**\n${playerLine}`;
+      });
+      const inner2 = [
+        txt(`# ${E_CUP2}  Teams List  —  ${t.name}\nSeason ${t.season}  •  ${ttRows2.length} team${ttRows2.length !== 1 ? 's' : ''} enrolled`),
+        SEP,
+        txt(lines.join('\n')),
+        SEP,
+        txt(`-# Night Stars  •  ${t.template || t.name}  •  Season ${t.season}`),
+      ];
+      await postToChannel(cli, ch.management, { flags: 32768, components: [{ type: 17, accent_color: 0x57F287, components: inner2 }] });
+      return interaction.reply({ content: `✅ Teams list posted to <#${ch.management}>.`, ephemeral: true });
+    }
+
     // ── Post Schedule — round selector ─────────────────────────────────────
     if (action === 'schedule') {
       const allGM = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');

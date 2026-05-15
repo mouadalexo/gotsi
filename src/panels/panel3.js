@@ -38,14 +38,17 @@ function buildPanel3(tournament) {
   inner.push(SEP);
 
   inner.push({ type: 1, components: [
-    btn('Post Schedule',  `p3_${tid}_schedule`,  1, !hasMatches),
-    btn('Post Results',   `p3_${tid}_results`,   1, !hasResults),
-    btn('Post Standings', `p3_${tid}_standings`, 1, stage === 'setup'),
+    btn('Post Teams List', `p3_${tid}_teamslist`, 1, ttRows.length === 0),
+    btn('Post Schedule',   `p3_${tid}_schedule`,  1, !hasMatches),
+    btn('Post Results',    `p3_${tid}_results`,   1, !hasResults),
   ]});
   inner.push({ type: 1, components: [
+    btn('Post Standings',  `p3_${tid}_standings`, 1, stage === 'setup'),
     btn('Post Group Draw', `p3_${tid}_groupdraw`, 2, !hasGroups),
     btn('Post Bracket',    `p3_${tid}_bracket`,   2, !hasKO),
-    btn('Refresh',         `p3_${tid}_refresh`,   2),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('Refresh', `p3_${tid}_refresh`, 2),
   ]});
 
   inner.push(SEP);

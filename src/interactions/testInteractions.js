@@ -47,14 +47,11 @@ function buildTestMenuPayload() {
 
 // ── Teams List ────────────────────────────────────────────────────────────────
 function buildTestTeamsList() {
-  const teams   = getTestTeams();
-  const players = getTestPlayers();
-  const inner   = [txt(`# ${E_CUP}  Teams List  —  Test Season\n8 teams  •  randomly picked`), SEP];
+  const teams = getTestTeams();
+  const inner = [txt(`# ${E_CUP}  Teams List  —  Test Season\n8 teams  •  randomly picked`), SEP];
 
-  teams.forEach((team, i) => {
-    const p1 = players[i * 2 % players.length];
-    const p2 = players[(i * 2 + 1) % players.length];
-    inner.push(txt(`${E_ARR}  **${team.name}**\n<@${p1?.discord_id || '000'}> / <@${p2?.discord_id || '000'}>`));
+  teams.forEach(team => {
+    inner.push(txt(`${E_ARR}  **${team.name}**\n@`));
     inner.push(SEP);
   });
 
