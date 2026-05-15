@@ -6,9 +6,11 @@ const { isManager } = require('../utils/permissions');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
+const JUNK = /demo|saison|test/i;
+
 function buildBotolaListPanel() {
   const tournaments = db.get('tournaments')
-    .filter(t => !/demo/i.test(t.name) && !/demo/i.test(t.template || ''))
+    .filter(t => !JUNK.test(t.name) && !JUNK.test(t.template || ''))
     .sort((a, b) => {
       if (a.status === 'active' && b.status !== 'active') return -1;
       if (b.status === 'active' && a.status !== 'active') return 1;
