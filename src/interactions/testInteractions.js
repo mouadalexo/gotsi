@@ -1,35 +1,30 @@
 'use strict';
 const { db } = require('../utils/database');
+const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+const { buildGroupStandingsEmbed } = require('../panels/standingsPanel');
+const { buildAllResultsEmbed } = require('../panels/resultsPanel');
 
-const SEP   = { type: 14, divider: true, spacing: 1 };
-const txt   = c  => ({ type: 10, content: c });
-const box   = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
+const SEP  = { type: 14, divider: true, spacing: 1 };
+const txt  = c => ({ type: 10, content: c });
+const box  = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
 
 const E_CUP  = '<a:cup:1501741159557500971>';
 const E_HASH = '<a:hashtag:1501741088736678069>';
 const E_ARR  = '<a:arrow:1501741110798585927>';
-const E_FIRE = '<a:fire:1472250580583059611>';
-const E_CROWN= '<:crownn:1501741176296964277>';
 
-const BACK_BTN = { type: 1, components: [{ type: 2, style: 2, label: 'Back to Menu', custom_id: 'test_back' }] };
+const BACK_BTN = { type: 1, components: [{ type: 2, style: 2, label: '← Back to Menu', custom_id: 'test_back' }] };
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+function findTestTournament() {
+  const ts = db.get('tournaments');
+  return ts.find(t => t.status === 'active') || ts.find(t => t.status === 'setup') || ts[0] || null;
 }
-function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-function getTestTeams() { return shuffle(db.get('teams')).slice(0, 8); }
-function getTestPlayers() { return shuffle(db.get('players')).slice(0, 8); }
-function splitGroups(teams) { return { A: teams.slice(0, 4), B: teams.slice(4, 8) }; }
 
 // ── Main menu ─────────────────────────────────────────────────────────────────
 function buildTestMenuPayload() {
+  const t = findTestTournament();
+  const label = t ? `${t.name}  •  S${t.season}` : 'No tournament';
   return box(0x2b2d31, [
-    txt(`# ${E_CUP}  Test Panel\nClick a button to preview — updates in this message, no new posts.`),
+    txt(`# ${E_CUP}  Test Panel\nPreviews use the **same format** as live posts.\nUsing: **${label}**`),
     SEP,
     { type: 1, components: [
       { type: 2, style: 1, label: 'Teams List',     custom_id: 'test_teams_list' },
@@ -41,126 +36,95 @@ function buildTestMenuPayload() {
       { type: 2, style: 2, label: 'Group Draw', custom_id: 'test_groupdraw' },
     ]},
     SEP,
-    txt('-# Night Stars  •  Test Mode — data is randomly generated'),
+    txt('-# Night Stars  •  Test Mode — uses live tournament data'),
   ]);
 }
 
-// ── Teams List ────────────────────────────────────────────────────────────────
+// ── Teams List — uses the real builder ────────────────────────────────────────
 function buildTestTeamsList() {
-  const teams = getTestTeams();
-  const inner = [txt(`# ${E_CUP}  Teams List  —  Test Season\n8 teams  •  randomly picked`), SEP];
-
-  teams.forEach(team => {
-    inner.push(txt(`${E_ARR}  **${team.name}**\n@`));
-    inner.push(SEP);
-  });
-
-  inner.push(txt('-# Night Stars  •  Test Mode'));
-  inner.push(BACK_BTN);
-  return box(0x2b2d31, inner);
+  const t = findTestTournament();
+  if (!t) return box(0x2b2d31, [txt('❌ No tournament found.'), SEP, BACK_BTN]);
+  const embed = buildTeamsListEmbed(t.id);
+  // Inject back button into the container components
+  const container = embed.components[0];
+  container.components.push(BACK_BTN);
+  return embed;
 }
 
-// ── Standings ─────────────────────────────────────────────────────────────────
+// ── Standings — uses the real builder ────────────────────────────────────────
 function buildTestStandings() {
-  const teams  = getTestTeams();
-  const groups = splitGroups(teams);
-  const inner  = [txt(`# ${E_CUP}  Standings  —  Test Season`), SEP];
-
-  for (const [g, gTeams] of Object.entries(groups)) {
-    const rows = gTeams.map(t => {
-      const w = randInt(0, 3), d = randInt(0, 2), l = randInt(0, 3);
-      const gf = randInt(0, 12), ga = randInt(0, 10);
-      return { name: t.name, pts: w * 3 + d, gd: gf - ga, mp: w + d + l };
-    }).sort((a, b) => b.pts - a.pts || b.gd - a.gd);
-
-    const header = '`#   Team                MP   GD   PTS`';
-    const lines  = rows.map((r, i) => {
-      const num  = String(i + 1).padEnd(2);
-      const name = r.name.padEnd(18).slice(0, 18);
-      const mp   = String(r.mp).padStart(2);
-      const gd   = (r.gd >= 0 ? '+' : '') + r.gd;
-      const pts  = String(r.pts).padStart(3);
-      return `\`${num}  ${name}  ${mp}  ${gd.padStart(4)}  ${pts}\``;
-    });
-    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${header}\n${lines.join('\n')}`));
-    inner.push(SEP);
-  }
-
-  inner.push(txt('-# Night Stars  •  Test Mode'));
-  inner.push(BACK_BTN);
-  return box(0xCC0000, inner);
+  const t = findTestTournament();
+  if (!t) return box(0x2b2d31, [txt('❌ No tournament found.'), SEP, BACK_BTN]);
+  const embed = buildGroupStandingsEmbed(t.id);
+  if (!embed) return box(0x2b2d31, [txt('❌ No standings data yet.'), SEP, BACK_BTN]);
+  embed.components[0].components.push(BACK_BTN);
+  return embed;
 }
 
-// ── Match Schedule ────────────────────────────────────────────────────────────
+// ── Match Schedule — uses the same format as p3 schedule post ─────────────────
 function buildTestSchedule() {
-  const teams  = getTestTeams();
-  const groups = splitGroups(teams);
-  const inner  = [txt(`# ${E_CUP}  Match Schedule  —  Test Season`), SEP];
-
-  for (const [g, gTeams] of Object.entries(groups)) {
-    const fixtures = [
-      [gTeams[0], gTeams[3]], [gTeams[1], gTeams[2]],
-      [gTeams[0], gTeams[2]], [gTeams[1], gTeams[3]],
-      [gTeams[0], gTeams[1]], [gTeams[2], gTeams[3]],
-    ];
-    const rounds = [
-      ['Round 1/3', fixtures.slice(0, 2)],
-      ['Round 2/3', fixtures.slice(2, 4)],
-      ['Round 3/3', fixtures.slice(4, 6)],
-    ];
-    inner.push(txt(`${E_HASH}  **GROUP ${g}**`));
-    for (const [rLabel, pairs] of rounds) {
-      const lines = pairs.map(([h, a]) => `${E_ARR}  **${h.name}**  vs  **${a.name}**`);
-      inner.push(txt(`**${rLabel}**\n${lines.join('\n')}`));
-    }
+  const t = findTestTournament();
+  if (!t) return box(0x2b2d31, [txt('❌ No tournament found.'), SEP, BACK_BTN]);
+  const tid = t.id;
+  const allGM = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+  if (!allGM.length) return box(0x5865F2, [
+    txt(`# 📅  Schedule  —  ${t.name}\n*No matches generated yet.*`), SEP, BACK_BTN,
+  ]);
+  const teams  = db.get('teams');
+  const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+  const getTeam = id => teams.find(t2 => t2.id === id) || { name: 'Unknown' };
+  const getGrp  = id => ttRows.find(tt => tt.team_id === id)?.group_name || '?';
+  const rounds  = [...new Set(allGM.map(m => m.round))].sort((a, b) => a - b);
+  const total   = rounds.length;
+  // Show round 1 as the example
+  const round  = rounds[0];
+  const matches = allGM.filter(m => m.round === round);
+  const groups  = {};
+  for (const m of matches) { const g = getGrp(m.home_team_id); (groups[g] = groups[g] || []).push(m); }
+  const inner = [txt(`# 📅  Schedule  —  Round ${round}/${total}\n**${t.name}  •  Season ${t.season}**`), SEP];
+  for (const [g, gm] of Object.entries(groups).sort()) {
+    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${gm.map(m => `${E_ARR}  **${getTeam(m.home_team_id).name}**  vs  **${getTeam(m.away_team_id).name}**`).join('\n')}`));
     inner.push(SEP);
   }
-
-  inner.push(txt('-# Night Stars  •  Test Mode'));
+  inner.push(txt(`-# Night Stars  •  ${t.template}  •  Group Stage  •  Round ${round}`));
   inner.push(BACK_BTN);
   return box(0x5865F2, inner);
 }
 
-// ── Results ───────────────────────────────────────────────────────────────────
+// ── Results — uses the real builder ───────────────────────────────────────────
 function buildTestResults() {
-  const teams  = getTestTeams();
-  const groups = splitGroups(teams);
-  const inner  = [txt(`# ${E_CUP}  Results of Round 1/3  —  Test Season`), SEP];
-
-  for (const [g, gTeams] of Object.entries(groups)) {
-    const fixtures = [[gTeams[0], gTeams[3]], [gTeams[1], gTeams[2]]];
-    const lines = fixtures.map(([h, a]) => {
-      const hs = randInt(0, 5), as_ = randInt(0, 5);
-      const draw = hs === as_;
-      const icon    = draw ? `${E_ARR}` : E_FIRE;
-      const homeStr = hs > as_  ? `${E_CROWN} **${h.name}**` : `**${h.name}**`;
-      const awayStr = as_ > hs  ? `**${a.name}** ${E_CROWN}` : `**${a.name}**`;
-      return `${icon}  ${homeStr}  \`${hs} — ${as_}\`  ${awayStr}`;
-    });
-    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${lines.join('\n')}`));
-    inner.push(SEP);
-  }
-
-  inner.push(txt('-# Night Stars  •  Test Mode'));
-  inner.push(BACK_BTN);
-  return box(0xCC0000, inner);
+  const t = findTestTournament();
+  if (!t) return box(0x2b2d31, [txt('❌ No tournament found.'), SEP, BACK_BTN]);
+  const embed = buildAllResultsEmbed(t.id);
+  if (!embed) return box(0x2b2d31, [txt('❌ No results data yet.'), SEP, BACK_BTN]);
+  embed.components[0].components.push(BACK_BTN);
+  return embed;
 }
 
-// ── Group Draw ────────────────────────────────────────────────────────────────
+// ── Group Draw — uses the same format as p3 groupdraw_confirm ─────────────────
 function buildTestGroupDraw() {
-  const teams  = getTestTeams();
-  const groups = splitGroups(teams);
-  const inner  = [txt(`# ${E_CUP}  Group Draw  —  Test Season`), SEP];
-
-  for (const [g, gTeams] of Object.entries(groups)) {
-    const lines = gTeams.map(t => `${E_ARR}  **${t.name}**`);
-    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${lines.join('\n')}`));
+  const t = findTestTournament();
+  if (!t) return box(0x2b2d31, [txt('❌ No tournament found.'), SEP, BACK_BTN]);
+  const tid = t.id;
+  const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid && tt.group_name);
+  if (!ttRows.length) return box(0xFEE75C, [
+    txt(`# 🎲  Group Draw  —  ${t.name}\n*No groups drawn yet.*`), SEP, BACK_BTN,
+  ]);
+  const teams = db.get('teams');
+  const groups = {};
+  for (const tt of ttRows) {
+    const g = tt.group_name;
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(teams.find(t2 => t2.id === tt.team_id)?.name || 'Unknown');
+  }
+  const inner = [txt(`# 🎲  Group Draw  —  ${t.name}  S${t.season}`), SEP];
+  for (const [g, names] of Object.entries(groups).sort()) {
+    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${names.map(n => `${E_ARR}  **${n}**`).join('\n')}`));
     inner.push(SEP);
   }
-
-  inner.push(txt('-# Night Stars  •  Test Mode'));
+  inner.push(txt('-# Night Stars  •  Group Draw'));
   inner.push(BACK_BTN);
-  return box(0xFFD700, inner);
+  return box(0xFEE75C, inner);
 }
 
 // ── Main handler — all updates in place, zero new messages ───────────────────

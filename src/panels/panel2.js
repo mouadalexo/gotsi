@@ -6,80 +6,66 @@ const txt = c => ({ type: 10, content: c });
 const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
 
 function buildPanel2(tournament) {
-  const t      = tournament;
-  const tid    = t.id;
-  const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-  const teams  = db.get('teams');
-  const players= db.get('players');
-  const regOpen= t.registration_open !== false;
+  const t       = tournament;
+  const tid     = t.id;
+  const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+  const teams   = db.get('teams');
+  const players = db.get('players');
+  const needed  = Math.min(t.players_per_team || 1, 4);
+  const hasTeams = ttRows.length > 0;
 
-  const E_CUP = '<a:cup:1501741159557500971>';
+  const E_CUP  = '<a:cup:1501741159557500971>';
+  const E_CH   = '<a:channelutility:1501741046734786600>';
+  const E_ARR  = '<a:arrow:1501741110798585927>';
+  const E_SARR = '<a:smallarrow:1472222559645863936>';
+
   const inner = [];
 
   inner.push(txt(
-    `# ${E_CUP}  Team Registration  —  ${regOpen ? '🟢 OPEN' : '🔴 CLOSED'}\n` +
-    `> **${ttRows.length}** team${ttRows.length !== 1 ? 's' : ''} registered` +
-    (t.team_count ? ` / ${t.team_count} spots` : '')
+    `# ${E_CUP}  ${t.name}  \u2014  Team List\n` +
+    `${E_CH}  The **${ttRows.length}** registered teams for **${t.template || t.name}**` +
+    (t.season ? ` **S${t.season}**` : '') +
+    (t.team_count ? `  \u2014  *${ttRows.length}/${t.team_count} spots*` : '')
   ));
   inner.push(SEP);
 
   if (!ttRows.length) {
-    inner.push(txt('No teams registered yet. Use **Add Team** to start.'));
+    inner.push(txt('> No teams registered yet. Use **Add Team** to start.'));
     inner.push(SEP);
   } else {
-    const hasGroups = ttRows.some(tt => tt.group_name);
-
-    if (hasGroups) {
-      const groupMap = {};
-      for (const tt of ttRows) {
-        const g = tt.group_name || '?';
-        if (!groupMap[g]) groupMap[g] = [];
-        groupMap[g].push(tt);
+    const needsPad = ttRows.length >= 10;
+    ttRows.forEach((tt, idx) => {
+      const team      = teams.find(t2 => t2.id === tt.team_id) || { name: 'Unknown' };
+      const tPlayers  = players.filter(p => p.team_id === tt.team_id);
+      const num       = String(idx + 1);
+      const spacing   = needsPad ? (num.length === 1 ? '    ' : '   ') : '   ';
+      let playerLines = '';
+      if (needed === 1) {
+        const p = tPlayers[0]?.discord_id ? `<@${tPlayers[0].discord_id}>` : '`No player assigned`';
+        playerLines = `\n\u3000 Player   ${E_SARR}   ${p}`;
+      } else {
+        for (let i = 0; i < needed; i++) {
+          const p = tPlayers[i]?.discord_id ? `<@${tPlayers[i].discord_id}>` : '`No player assigned`';
+          playerLines += `\n\u3000 Player ${i + 1}   ${E_SARR}   ${p}`;
+        }
       }
-      for (const [g, gTeams] of Object.entries(groupMap).sort()) {
-        const lines = gTeams.map(tt => {
-          const team       = teams.find(t2 => t2.id === tt.team_id) || { name: 'Unknown' };
-          const teamPlayers= players.filter(p => p.team_id === tt.team_id);
-          const playerStr  = teamPlayers.length
-            ? teamPlayers.map(p => `<@${p.discord_id}>`).join(', ')
-            : '`No players`';
-          return `**${team.name}**  —  ${playerStr}`;
-        });
-        inner.push(txt(`**Group ${g}**\n${lines.join('\n')}`));
-        inner.push(SEP);
-      }
-    } else {
-      const lines = ttRows.map(tt => {
-        const team       = teams.find(t2 => t2.id === tt.team_id) || { name: 'Unknown' };
-        const teamPlayers= players.filter(p => p.team_id === tt.team_id);
-        const playerStr  = teamPlayers.length
-          ? teamPlayers.map(p => `<@${p.discord_id}>`).join(', ')
-          : '`No players`';
-        return `**${team.name}**  —  ${playerStr}`;
-      });
-      for (let i = 0; i < lines.length; i += 8) {
-        inner.push(txt(lines.slice(i, i + 8).join('\n')));
-        inner.push(SEP);
-      }
-    }
+      inner.push(txt(`**${num}${spacing}Team name   ${E_ARR}   ${team.name}**${playerLines}`));
+      inner.push(SEP);
+    });
   }
 
-  if (regOpen) {
-    inner.push({ type: 1, components: [
-      btn('Add Team',           `p2_${tid}_addteam`,  1),
-      btn('Close Registration', `p2_${tid}_closereg`, 4, ttRows.length < 2),
-      btn('Refresh',            `p2_${tid}_refresh`,  2),
-    ]});
-  } else {
-    inner.push({ type: 1, components: [
-      btn('Refresh', `p2_${tid}_refresh`, 2),
-    ]});
-  }
+  inner.push({ type: 1, components: [
+    btn('Add Team',    `p2_${tid}_addteam`,    1),
+    btn('Edit Team',   `p2_${tid}_editteam`,   2, !hasTeams),
+    btn('Remove Team', `p2_${tid}_removeteam`, 4, !hasTeams),
+    btn('Clear Teams', `p2_${tid}_clearteams`, 4, !hasTeams),
+    btn('Refresh',     `p2_${tid}_refresh`,    2),
+  ]});
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  •  Panel 2: Team Registration  •  ${t.template || t.name}`));
+  inner.push(txt(`-# Night Stars  \u2022  Panel 2: Team Registration  \u2022  ${t.template || t.name}`));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x57F287, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x2B2D31, components: inner }] };
 }
 
 module.exports = { buildPanel2 };
