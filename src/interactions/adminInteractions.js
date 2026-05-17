@@ -1,49 +1,37 @@
 'use strict';
-const { buildAdminPanel, buildTournamentChannelModal } = require('../panels/adminPanel');
+const { buildAdminPanel, buildChannelPickerPanel } = require('../panels/adminPanel');
 const { db } = require('../utils/database');
 
 async function handleAdminInteraction(interaction) {
   const id = interaction.customId;
 
-  // ── Refresh ────────────────────────────────────────────────────────────────
-  if (id === 'adm_refresh') {
+  if (id === 'adm_refresh' || id === 'adm_done') {
     return interaction.update(buildAdminPanel());
   }
 
-  // ── Set Tournament Channels buttons ────────────────────────────────────────
   if (id === 'adm_tch_NSEL' || id === 'adm_tch_MCL') {
     const template = id.replace('adm_tch_', '');
-    return interaction.showModal(buildTournamentChannelModal(template));
+    return interaction.reply({ ...buildChannelPickerPanel(template), ephemeral: true });
   }
 
-  // ── Tournament channel modal submit ────────────────────────────────────────
-  if (id.startsWith('adm_tch_modal_')) {
-    const template  = id.replace('adm_tch_modal_', '');
-    const schedule  = interaction.fields.getTextInputValue('schedule').trim()  || null;
-    const results   = interaction.fields.getTextInputValue('results').trim()   || null;
-    const standings = interaction.fields.getTextInputValue('standings').trim() || null;
+  // adm_ch_{TEMPLATE}_{key}  — ChannelSelectMenu saved immediately on change
+  if (id.startsWith('adm_ch_')) {
+    const parts     = id.split('_');     // ['adm','ch','NSEL','management']
+    const template  = parts[2];
+    const key       = parts[3];
+    const channelId = interaction.values[0] || null;
 
-    const t = db.get('tournaments').find(t2 => t2.template === template);
+    const t = db.get('tournaments')
+      .filter(t2 => t2.template === template)
+      .sort((a, b) => b.season - a.season)[0];
     if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
 
-    const existing = t.channels || {};
     db.update('tournaments', t.id, {
-      channels: { ...existing, schedule, results, standings },
+      channels: { ...(t.channels || {}), [key]: channelId },
     });
 
-    await refreshAdminPanel(interaction.client);
-    return interaction.reply({ content: `✅ ${template} channels saved.`, ephemeral: true });
+    return interaction.update(buildChannelPickerPanel(template));
   }
-}
-
-async function refreshAdminPanel(client) {
-  try {
-    const ref = db.getConfig('adminpanel_ref');
-    if (!ref) return;
-    const ch  = await client.channels.fetch(ref.channelId).catch(() => null);
-    const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
-    if (msg) await msg.edit(buildAdminPanel()).catch(() => {});
-  } catch {}
 }
 
 module.exports = { handleAdminInteraction };

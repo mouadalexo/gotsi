@@ -5,8 +5,8 @@ const { isManager } = require('../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('manage')
-    .setDescription('Manager panel — tournament lifecycle & bot settings')
+    .setName('admin')
+    .setDescription('Admin panel — tournament lifecycle & bot settings')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {

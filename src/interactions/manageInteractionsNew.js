@@ -262,50 +262,44 @@ async function handleMgr2Interaction(interaction) {
   }
 
   if (id === 'mgr2_channels_sel') {
-    const tid = parseInt(interaction.values[0]);
-    const t   = db.findById('tournaments', tid);
+    const tid  = parseInt(interaction.values[0]);
+    const t    = db.findById('tournaments', tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
-    const ch  = t.channels || {};
-    return interaction.showModal(
-      new ModalBuilder().setCustomId(`mgr2_channels_modal_${tid}`).setTitle(`Channels: ${t.name.slice(0, 30)}`)
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('management').setLabel('Management Channel ID')
-              .setStyle(TextInputStyle.Short).setValue(ch.management || '').setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('registration').setLabel('Registration Channel ID')
-              .setStyle(TextInputStyle.Short).setValue(ch.registration || '').setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('results').setLabel('Results Channel ID')
-              .setStyle(TextInputStyle.Short).setValue(ch.results || '').setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('schedule').setLabel('Schedule Channel ID')
-              .setStyle(TextInputStyle.Short).setValue(ch.schedule || '').setRequired(false)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('standings').setLabel('Standings Channel ID')
-              .setStyle(TextInputStyle.Short).setValue(ch.standings || '').setRequired(false)
-          ),
-        )
-    );
+    const ch   = t.channels || {};
+    const SEP2 = { type: 14, divider: true, spacing: 1 };
+    const chSel = (label, key) => ({
+      type: 1,
+      components: [{
+        type: 8, custom_id: `mgr2_ch_${tid}_${key}`,
+        placeholder: ch[key] ? `${label} (currently set)` : `${label} — select channel`,
+        channel_types: [0, 5], min_values: 0, max_values: 1,
+        ...(ch[key] ? { default_values: [{ id: ch[key], type: 'channel' }] } : {}),
+      }],
+    });
+    return interaction.reply({
+      flags: 32768, ephemeral: true,
+      components: [{ type: 17, accent_color: 0x5865F2, components: [
+        { type: 10, content: `**📺 Set Channels — ${t.name}**\nSelect a channel for each category. Changes save instantly.` },
+        SEP2,
+        chSel('Management', 'management'),
+        chSel('Results & Standings', 'results'),
+        chSel('Schedule', 'schedule'),
+        chSel('Teams List', 'teamsList'),
+      ]}],
+    });
   }
 
-  if (id.startsWith('mgr2_channels_modal_')) {
-    const tid = parseInt(id.replace('mgr2_channels_modal_', ''));
-    const mgmt= interaction.fields.getTextInputValue('management').trim();
-    const reg = interaction.fields.getTextInputValue('registration').trim();
-    const res = interaction.fields.getTextInputValue('results').trim();
-    const sch = interaction.fields.getTextInputValue('schedule').trim();
-    const std = interaction.fields.getTextInputValue('standings').trim();
-    db.update('tournaments', tid, { channels: {
-      management: mgmt || null, registration: reg || null,
-      results: res || null, schedule: sch || null, standings: std || null,
-    }});
-    await interaction.update(buildManagePanelV2());
-    return interaction.followUp({ content: '✅ Channels saved.', ephemeral: true });
+  if (id.startsWith('mgr2_ch_')) {
+    const parts2 = id.replace('mgr2_ch_', '').split('_');
+    const tid2   = parseInt(parts2[0]);
+    const key2   = parts2.slice(1).join('_');
+    const t2     = db.findById('tournaments', tid2);
+    if (!t2) return interaction.reply({ content: '❌ Tournament not found.', flags: 64 });
+    const val    = (interaction.values && interaction.values[0]) || null;
+    const updCh  = { ...(t2.channels || {}), [key2]: val };
+    if (key2 === 'results') updCh.standings = val;
+    db.update('tournaments', tid2, { channels: updCh });
+    return interaction.reply({ content: `✅ **${key2}** → ${val ? `<#${val}>` : 'cleared'}.`, flags: 64 });
   }
 
   // ── Reset ────────────────────────────────────────────────────────────────

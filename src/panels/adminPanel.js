@@ -1,5 +1,4 @@
 'use strict';
-const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { db } = require('../utils/database');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
@@ -13,21 +12,27 @@ function chLine(t, key) {
   return id ? `<#${id}>` : '`not set`';
 }
 
+function latestTournament(template) {
+  return db.get('tournaments')
+    .filter(t => t.template === template)
+    .sort((a, b) => b.season - a.season)[0] || null;
+}
+
 function buildAdminPanel() {
-  const nsel = db.get('tournaments').find(t => t.template === 'NSEL');
-  const mcl  = db.get('tournaments').find(t => t.template === 'MCL');
+  const nsel = latestTournament('NSEL');
+  const mcl  = latestTournament('MCL');
 
   const inner = [
-    txt(`# ${E_CUP}  Admin Setup\nTournament channels — admin only.`),
+    txt(`# ${E_CUP}  Admin Setup\nConfigure tournament channels — admin only.`),
     SEP,
   ];
 
   if (nsel) {
     inner.push(txt(
       `${E_HASH}  **NSEL — Season ${nsel.season}**\n` +
-      `Schedule → ${chLine(nsel,'schedule')}\n` +
-      `Results → ${chLine(nsel,'results')}\n` +
-      `Standings → ${chLine(nsel,'standings')}`
+      `Management  →  ${chLine(nsel, 'management')}\n` +
+      `Schedule    →  ${chLine(nsel, 'schedule')}\n` +
+      `Results     →  ${chLine(nsel, 'results')}`
     ));
     inner.push(SEP);
   }
@@ -35,10 +40,15 @@ function buildAdminPanel() {
   if (mcl) {
     inner.push(txt(
       `${E_HASH}  **MCL — Season ${mcl.season}**\n` +
-      `Schedule → ${chLine(mcl,'schedule')}\n` +
-      `Results → ${chLine(mcl,'results')}\n` +
-      `Standings → ${chLine(mcl,'standings')}`
+      `Management  →  ${chLine(mcl, 'management')}\n` +
+      `Schedule    →  ${chLine(mcl, 'schedule')}\n` +
+      `Results     →  ${chLine(mcl, 'results')}`
     ));
+    inner.push(SEP);
+  }
+
+  if (!nsel && !mcl) {
+    inner.push(txt('No NSEL or MCL tournaments found. Create one first.'));
     inner.push(SEP);
   }
 
@@ -54,26 +64,53 @@ function buildAdminPanel() {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 
-function buildTournamentChannelModal(template) {
-  const t  = db.get('tournaments').find(t2 => t2.template === template);
+function buildChannelPickerPanel(template) {
+  const t  = latestTournament(template);
   const ch = t?.channels || {};
-  return new ModalBuilder()
-    .setCustomId(`adm_tch_modal_${template}`)
-    .setTitle(`Set ${template} Channels`)
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('schedule').setLabel('Schedule Channel ID')
-          .setStyle(TextInputStyle.Short).setValue(ch.schedule || '').setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('results').setLabel('Results Channel ID')
-          .setStyle(TextInputStyle.Short).setValue(ch.results || '').setRequired(false)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('standings').setLabel('Standings Channel ID')
-          .setStyle(TextInputStyle.Short).setValue(ch.standings || '').setRequired(false)
-      ),
-    );
+
+  const makeDefault = id => id ? [{ id, type: 'channel' }] : [];
+
+  const inner = [
+    txt(`# ⚙️  Set ${template} Channels\n> Select each channel — each selection saves immediately.`),
+    SEP,
+    txt(
+      `**Management**  →  ${ch.management ? `<#${ch.management}>` : '`not set`'}\n` +
+      `**Schedule**    →  ${ch.schedule   ? `<#${ch.schedule}>`   : '`not set`'}\n` +
+      `**Results**     →  ${ch.results    ? `<#${ch.results}>`    : '`not set`'}`
+    ),
+    SEP,
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_management`,
+        placeholder: '📋  Management channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.management ? { default_values: makeDefault(ch.management) } : {}),
+      }],
+    },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_schedule`,
+        placeholder: '📅  Schedule channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.schedule ? { default_values: makeDefault(ch.schedule) } : {}),
+      }],
+    },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_results`,
+        placeholder: '📊  Results channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.results ? { default_values: makeDefault(ch.results) } : {}),
+      }],
+    },
+    SEP,
+    { type: 1, components: [{ type: 2, style: 2, label: '✓ Done', custom_id: 'adm_done' }] },
+  ];
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 
-module.exports = { buildAdminPanel, buildTournamentChannelModal };
+module.exports = { buildAdminPanel, buildChannelPickerPanel };

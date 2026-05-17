@@ -43,6 +43,7 @@ function load() {
           // Winners history fields
           if (t.winner_role_id        === undefined) t.winner_role_id        = null;
           if (t.winners_history_ref   === undefined) t.winners_history_ref   = null;
+          if (t.teams_list_ref        === undefined) t.teams_list_ref        = null;
         }
       } catch (_) { _db = JSON.parse(JSON.stringify(DEFAULT_DB)); }
     } else { _db = JSON.parse(JSON.stringify(DEFAULT_DB)); }

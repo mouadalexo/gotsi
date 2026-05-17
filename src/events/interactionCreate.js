@@ -10,6 +10,7 @@ const { handleAdminInteraction }              = require('../interactions/adminIn
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
 const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
+const { handleEnrollInteraction }             = require('../interactions/enrollInteractions');
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 
 const TEAM_IDS = [
@@ -39,8 +40,8 @@ module.exports = {
 
       // ── /addteam player modal ─────────────────────────────────────────────
       if (interaction.isModalSubmit() && interaction.customId.startsWith('addteam_player_')) {
-        const { db }          = require('./src/utils/database');
-        const { buildPanel2 } = require('./src/panels/panel2');
+        const { db }          = require('../utils/database');
+        const { buildPanel2 } = require('../panels/panel2');
         const [, , tidStr, teamIdStr] = interaction.customId.split('_');
         const tid    = parseInt(tidStr);
         const teamId = parseInt(teamIdStr);
@@ -73,7 +74,7 @@ module.exports = {
       }
 
       // ── Admin panel ────────────────────────────────────────────────────────
-      if (id === 'adm_refresh' || id.startsWith('adm_tch_')) {
+      if (id === 'adm_refresh' || id === 'adm_done' || id.startsWith('adm_tch_') || id.startsWith('adm_ch_')) {
         return handleAdminInteraction(interaction);
       }
 
@@ -103,19 +104,43 @@ module.exports = {
 
       // ── Team CRUD (/team) ──────────────────────────────────────────────────
       if (
-        id === 'tc_add'          ||
-        id === 'tc_add_modal'    ||
-        id === 'tc_edit_start'   ||
-        id === 'tc_edit_sel'     ||
-        id === 'tc_del_start'    ||
-        id === 'tc_del_sel'      ||
-        id === 'tc_noop'         ||
+        id === 'tc_add'              ||
+        id === 'tc_add_modal'        ||
+        id === 'tc_edit_start'       ||
+        id === 'tc_edit_sel'         ||
+        id === 'tc_del_start'        ||
+        id === 'tc_del_sel'          ||
+        id === 'tc_del_fuzzy_modal'  ||
+        id === 'tc_del_fuzzy_sel'    ||
+        id === 'tc_noop'             ||
+        id === 'tc_refresh'          ||
+        id === 'tc_enroll'           ||
+        id === 'tc_search'           ||
+        id === 'tc_search_modal'     ||
         id.startsWith('tc_refresh_')      ||
         id.startsWith('tc_page_')         ||
         id.startsWith('tc_edit_modal_')   ||
         id.startsWith('tc_del_confirm_')
       ) {
         return handleTeamCrudInteraction(interaction);
+      }
+
+      // ── Enroll flow (enr_*) ─────────────────────────────────────────────
+      if (
+        id === 'enr_tmt_sel'            ||
+        id === 'enr_back_step1'         ||
+        id.startsWith('enr_team_sel_')        ||
+        id.startsWith('enr_team_type_')       ||
+        id.startsWith('enr_team_fuzzy_modal_')||
+        id.startsWith('enr_team_fuzzy_sel_')  ||
+        id.startsWith('enr_player_sel_')      ||
+        id.startsWith('enr_edit_team_')       ||
+        id.startsWith('enr_edit_team_modal_') ||
+        id.startsWith('enr_remove_team_')     ||
+        id.startsWith('enr_skip_')            ||
+        id.startsWith('enr_back_step2_')
+      ) {
+        return handleEnrollInteraction(interaction, client);
       }
 
       // ── Botola + Panel 1/2/3 ──────────────────────────────────────────────

@@ -6,7 +6,6 @@ const txt = c => ({ type: 10, content: c });
 const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
 
 const E_CUP  = '<a:cup:1501741159557500971>';
-const E_HASH = '<a:hashtag:1501741088736678069>';
 const E_ARR  = '<a:arrow:1501741110798585927>';
 
 function buildTeamCrudPanel() {
@@ -20,7 +19,6 @@ function buildTeamCrudPanel() {
   if (!total) {
     inner.push(txt('No teams yet. Click **Add Team** to add the first one.'));
   } else {
-    // show in chunks of 15, each as one text block
     for (let i = 0; i < teams.length; i += 15) {
       const lines = teams.slice(i, i + 15).map((t, j) => {
         const num = String(i + j + 1).padStart(2, ' ');
@@ -34,8 +32,12 @@ function buildTeamCrudPanel() {
   inner.push(SEP);
   inner.push({ type: 1, components: [
     btn('Add Team',    'tc_add',       1),
+    btn('Enroll',      'tc_enroll',    1),
     btn('Delete Team', 'tc_del_start', 4, total === 0),
-    btn('Refresh',     'tc_refresh',   2),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('Search',  'tc_search',  2),
+    btn('Refresh', 'tc_refresh', 2),
   ]});
   inner.push(SEP);
   inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));

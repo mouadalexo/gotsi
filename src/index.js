@@ -33,4 +33,15 @@ for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
 
 initDB();
 seedDefaultData();
+// ── Global error guards — prevent crashes from unhandled Discord API errors ──
+process.on('unhandledRejection', (err) => {
+  console.error('[UnhandledRejection]', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[UncaughtException]', err?.message || err);
+});
+client.on('error', (err) => {
+  console.error('[ClientError]', err?.message || err);
+});
+
 client.login(process.env.DISCORD_TOKEN);
