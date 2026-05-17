@@ -3,7 +3,7 @@ const {
   ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { db }          = require('../utils/database');
-const { isManager }   = require('../utils/permissions');
+const { isBotolaManager } = require('../utils/permissions');
 const { buildPanel1, getStage } = require('../panels/panel1');
 const { buildPanel2 } = require('../panels/panel2');
 const { buildPanel3 } = require('../panels/panel3');
@@ -331,7 +331,7 @@ async function handleBotolaInteraction(interaction) {
 
   // ── /botola — tournament clicked ──────────────────────────────────────────
   if (id.startsWith('bot_t_')) {
-    if (!isManager(interaction.member)) return noPermission(interaction);
+    if (!isBotolaManager(interaction.member)) return noPermission(interaction);
     const tid = parseInt(id.replace('bot_t_', ''));
     const t   = getT(tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
@@ -385,7 +385,7 @@ async function handleBotolaInteraction(interaction) {
     const t      = getT(tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
 
-    if (!isManager(interaction.member)) return noPermission(interaction);
+    if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
     // Refresh
     if (action === 'refresh') return interaction.update(buildPanel1(t));
@@ -754,7 +754,7 @@ async function handleBotolaInteraction(interaction) {
     const t      = getT(tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
 
-    if (!isManager(interaction.member)) return noPermission(interaction);
+    if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
     if (action === 'refresh') return interaction.update(buildPanel2(t));
 
@@ -1010,7 +1010,7 @@ async function handleBotolaInteraction(interaction) {
     const t      = getT(tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
 
-    if (!isManager(interaction.member)) return noPermission(interaction);
+    if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
     if (action === 'refresh') return interaction.update(buildPanel3(t));
 

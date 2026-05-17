@@ -1,7 +1,7 @@
 'use strict';
 const { SlashCommandBuilder } = require('discord.js');
 const { db } = require('../utils/database');
-const { isManager } = require('../utils/permissions');
+const { isBotolaManager } = require('../utils/permissions');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -19,7 +19,7 @@ function buildBotolaListPanel() {
 
   const E_CUP = '<a:cup:1501741159557500971>';
   const inner = [];
-  inner.push(txt(`# ${E_CUP}  Botola — Tournament Hub\n> Select a tournament to open its management panels.`));
+  inner.push(txt(`# ${E_CUP}  Botola \u2014 Tournament Hub\n> Select a tournament to open its management panels.`));
   inner.push(SEP);
 
   if (!tournaments.length) {
@@ -50,7 +50,7 @@ function buildBotolaListPanel() {
   }
 
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  \u2022  /botola  \u2022  Managers & Admins'));
+  inner.push(txt('-# Night Stars  \u2022  /botola  \u2022  Managers only'));
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
@@ -58,15 +58,10 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('botola')
     .setDescription('Tournament hub \u2014 open management panels for a tournament'),
-    // No setDefaultMemberPermissions — Discord-level gate removed.
-    // Access is controlled by isManager() below, which covers:
-    //   • Discord Admins / ManageGuild permission
-    //   • Any role with "manager", "admin", or "tournament" in the name
-    //   • Everyone added via the /admin bot panel
 
   async execute(interaction) {
-    if (!isManager(interaction.member)) {
-      return interaction.reply({ content: '\u274c Managers only.', ephemeral: true });
+    if (!isBotolaManager(interaction.member)) {
+      return interaction.reply({ content: '\u274c You need the **Manager** role to use this command.', ephemeral: true });
     }
     await interaction.reply({ ...buildBotolaListPanel(), ephemeral: true });
   },
