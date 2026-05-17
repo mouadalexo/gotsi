@@ -55,11 +55,11 @@ function buildPanel2(tournament) {
   }
 
   inner.push({ type: 1, components: [
-    btn('Add Team',    `p2_${tid}_addteam`,    1),
-    btn('Edit Team',   `p2_${tid}_editteam`,   2, !hasTeams),
-    btn('Remove Team', `p2_${tid}_removeteam`, 4, !hasTeams),
-    btn('Clear Teams', `p2_${tid}_clearteams`, 4, !hasTeams),
-    btn('Refresh',     `p2_${tid}_refresh`,    2),
+    btn('Add Team',       `p2_${tid}_addteam`,    1),
+    btn('Remove Team',    `p2_${tid}_removeteam`, 4, !hasTeams),
+    btn('Clear Teams',    `p2_${tid}_clearteams`, 4, !hasTeams),
+    btn('Post Team List', `p2_${tid}_postlist`,   2),
+    btn('Refresh',        `p2_${tid}_refresh`,    2),
   ]});
 
   inner.push(SEP);

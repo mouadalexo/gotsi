@@ -821,58 +821,69 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'team_sel') {
       const teamId = parseInt(interaction.values[0]);
       const team   = db.findById('teams', teamId);
-      if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
-      // Don't enroll yet — wait until player is confirmed
-      const SEP_U = { type: 14, divider: true, spacing: 1 };
+      if (!team) return interaction.reply({ content: '\u274c Team not found.', ephemeral: true });
+      const isMCL  = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const SEP_U  = { type: 14, divider: true, spacing: 1 };
+      const rows   = isMCL
+        ? [
+            { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
+            { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
+          ]
+        : [
+            { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Select a player...', min_values: 0, max_values: 1 }] },
+          ];
       return interaction.update({
         flags: 32768,
         components: [{ type: 17, accent_color: 0x5865F2, components: [
-          { type: 10, content: `**Assign Player — ${team.name}**\nSelect the Discord user for this team to complete enrollment. A player is required.` },
+          { type: 10, content: `**Assign ${isMCL ? '2 Players' : 'Player'} \u2014 ${team.name}**\nSelect the Discord user${isMCL ? 's' : ''} for this team.` },
           SEP_U,
-          { type: 1, components: [{
-            type: 5, custom_id: `p2_${tid}_player_user_${teamId}`,
-            placeholder: 'Select a player...', min_values: 1, max_values: 1,
-          }]},
+          ...rows,
           SEP_U,
-          { type: 1, components: [
-            { type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` },
-          ]},
+          { type: 1, components: [{ type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
         ]}],
       });
     }
 
     if (action.startsWith('player_user_')) {
-      const teamId = parseInt(action.replace('player_user_', ''));
+      const rest   = action.replace('player_user_', '');
+      const parts  = rest.split('_');
+      const teamId = parseInt(parts[0]);
+      const slot   = parts[1] !== undefined ? parseInt(parts[1]) : 0;
       const userId = interaction.values && interaction.values[0];
       if (!userId) return interaction.update(buildPanel2(getT(tid)));
-      // Block: same player already on another team in this tournament
-      const dupePlayer = db.findOne('players', p => p.discord_id === userId && p.tournament_id === tid);
+      // Block: same player already on a DIFFERENT team in this tournament
+      const dupePlayer = db.findOne('players', p => p.discord_id === userId && p.tournament_id === tid && p.team_id !== teamId);
       if (dupePlayer) {
-        const dupTeam = db.findById('teams', dupePlayer.team_id);
-        const SEP_U = { type: 14, divider: true, spacing: 1 };
+        const dupTeam  = db.findById('teams', dupePlayer.team_id);
+        const isMCL2   = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+        const SEP_U    = { type: 14, divider: true, spacing: 1 };
+        const errRows  = isMCL2
+          ? [
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
+            ]
+          : [
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Choose a different player...', min_values: 0, max_values: 1 }] },
+            ];
         return interaction.update({
           flags: 32768,
           components: [{ type: 17, accent_color: 0xED4245, components: [
-            { type: 10, content: `❌ <@${userId}> is already assigned to **${dupTeam?.name || 'another team'}** in this tournament.\nEach player can only be on one team. Please choose a different player.` },
+            { type: 10, content: `\u274c <@${userId}> is already on **${dupTeam?.name || 'another team'}** in this tournament. Choose a different player.` },
             SEP_U,
-            { type: 1, components: [{
-              type: 5, custom_id: `p2_${tid}_player_user_${teamId}`,
-              placeholder: 'Choose a different player...', min_values: 1, max_values: 1,
-            }]},
+            ...errRows,
             SEP_U,
-            { type: 1, components: [
-              { type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` },
-            ]},
+            { type: 1, components: [{ type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
           ]}],
         });
       }
-      // Enroll team + add player
+      // Save player by slot (replace existing for that slot if any)
+      const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
+      if (existingSlot) db.delete('players', existingSlot.id);
       const alreadyEnrolled = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === teamId);
       if (!alreadyEnrolled) {
         db.insert('tournament_teams', { tournament_id: tid, team_id: teamId, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
       }
-      const playerExists = db.findOne('players', p => p.discord_id === userId && p.team_id === teamId && p.tournament_id === tid);
-      if (!playerExists) db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid });
+      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
       await interaction.deferUpdate();
       return refreshPanel(cli, getT(tid), 2);
     }
@@ -888,66 +899,46 @@ async function handleBotolaInteraction(interaction) {
       return refreshPanel(cli, freshT, 2);
     }
 
-    if (action === 'editteam') {
-      const ttRows2 = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      if (!ttRows2.length) return interaction.reply({ content: '\u274c No teams enrolled yet.', ephemeral: true });
-      const opts = ttRows2.map(tt => {
-        const tm = db.findById('teams', tt.team_id) || { name: 'Unknown', id: tt.team_id };
-        return { label: tm.name.slice(0, 100), value: String(tm.id) };
-      });
-      return interaction.reply({
-        flags: 32768,
-        components: [{ type: 17, accent_color: 0x5865F2, components: [
-          { type: 10, content: '**\u270f\ufe0f  Edit Team \u2014 Select a team to rename**' },
-          { type: 14, divider: true, spacing: 1 },
-          { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_sel`, placeholder: 'Select a team...', options: opts.slice(0, 25) }] },
-          { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
-        ]}],
-        ephemeral: true,
-      });
-    }
 
-    if (action === 'editteam_sel') {
-      const teamId = parseInt(interaction.values[0]);
-      const team   = db.findById('teams', teamId);
-      if (!team) return interaction.reply({ content: '\u274c Team not found.', ephemeral: true });
-      const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-      return interaction.showModal(
-        new ModalBuilder()
-          .setCustomId(`p2_${tid}_editteam_modal_${teamId}`)
-          .setTitle('Rename Team')
-          .addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('team_name').setLabel('New team name')
-              .setStyle(TextInputStyle.Short).setValue(team.name).setRequired(true)
-          ))
-      );
-    }
-
-    if (action.startsWith('editteam_modal_')) {
-      const teamId  = parseInt(action.replace('editteam_modal_', ''));
-      const newName = interaction.fields.getTextInputValue('team_name').trim();
-      if (!newName) return interaction.reply({ content: '\u274c Name cannot be empty.', ephemeral: true });
-      db.update('teams', teamId, { name: newName });
-      const freshT = getT(tid);
-      return interaction.update(buildPanel2(freshT));
+    if (action === 'postlist') {
+      const template = t.template;
+      if (!template) return interaction.update(buildPanel2(t));
+      try {
+        const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+        const ref = db.getConfig('teams_list_ref_' + template);
+        if (ref) {
+          try {
+            const ch2  = await cli.channels.fetch(ref.channelId);
+            const msg2 = await ch2.messages.fetch(ref.messageId);
+            await msg2.edit(buildTeamsListEmbed(tid));
+            return interaction.update(buildPanel2(getT(tid)));
+          } catch { /* ref stale — fall through to repost */ }
+        }
+        const targetId = (t.channels || {}).teamsList || (t.channels || {}).management;
+        if (!targetId) return interaction.update(buildPanel2(t));
+        const targetCh = await cli.channels.fetch(targetId).catch(() => null);
+        if (!targetCh) return interaction.update(buildPanel2(t));
+        const posted = await targetCh.send(buildTeamsListEmbed(tid));
+        db.setConfig('teams_list_ref_' + template, { channelId: targetCh.id, messageId: posted.id });
+        return interaction.update(buildPanel2(getT(tid)));
+      } catch { return interaction.update(buildPanel2(t)); }
     }
 
     if (action === 'removeteam') {
       const ttRows2 = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      if (!ttRows2.length) return interaction.reply({ content: '\u274c No teams enrolled yet.', ephemeral: true });
+      if (!ttRows2.length) return interaction.update(buildPanel2(t));
       const opts = ttRows2.map(tt => {
         const tm = db.findById('teams', tt.team_id) || { name: 'Unknown', id: tt.team_id };
         return { label: tm.name.slice(0, 100), value: String(tm.id) };
       });
-      return interaction.reply({
+      return interaction.update({
         flags: 32768,
         components: [{ type: 17, accent_color: 0xED4245, components: [
           { type: 10, content: '**\ud83d\uddd1\ufe0f  Remove Team \u2014 Select a team to unenroll**' },
-          { type: 14, divider: true, spacing: 1 },
+          SEP,
           { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_removeteam_sel`, placeholder: 'Select a team to remove...', options: opts.slice(0, 25) }] },
           { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
         ]}],
-        ephemeral: true,
       });
     }
 
