@@ -34,16 +34,70 @@ function buildTeamCrudPanel(opts = {}) {
 
   inner.push(SEP);
   inner.push({ type: 1, components: [
-    btn('Add Team',    'tc_add',       1),
-    btn('Enroll',      'tc_enroll',    1),
-    btn('Delete Team', 'tc_del_start', 4, total === 0),
+    btn('Add Team',       'tc_add',       1),
+    btn('Enroll',         'tc_enroll',    1),
+    btn('Delete Team',    'tc_del_start', 4, total === 0),
   ]});
   inner.push({ type: 1, components: [
-    btn('Search',  'tc_search',  2),
-    btn('Refresh', 'tc_refresh', 2),
+    btn('Post Team List', 'tc_post_list', 2),
+    btn('Search',         'tc_search',    2),
+    btn('Refresh',        'tc_refresh',   2),
   ]});
   inner.push(SEP);
   inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
+}
+
+// ── Post Team List picker ─────────────────────────────────────────────────────
+// Shows NSEL and MCL as options (one permanent list per tournament type,
+// shared across all seasons — the same message gets edited forever).
+function buildPostListPickerPanel(opts = {}) {
+  const { error } = opts;
+  const TEMPLATES = ['NSEL', 'MCL'];
+
+  const options = TEMPLATES
+    .filter(tmpl => {
+      // Only show templates that have at least one tournament
+      return db.get('tournaments').some(t => t.template === tmpl);
+    })
+    .map(tmpl => {
+      const ref = db.getConfig('teams_list_ref_' + tmpl);
+      return {
+        label: tmpl + ' \u2014 Team List',
+        description: (ref
+          ? '\u26a0\ufe0f Already posted \u2014 will repost and update ref'
+          : 'Post the permanent list in this channel'
+        ).slice(0, 100),
+        value: tmpl,
+      };
+    });
+
+  const inner = [];
+  inner.push(txt(
+    '## \ud83d\udccc  Post Permanent Team List\n' +
+    '> Select the tournament type.\n' +
+    '> The bot posts **one permanent message** in this channel that auto-updates\n' +
+    '> on every enroll/remove — across all seasons.'
+  ));
+  if (error) inner.push(txt('> \u26a0\ufe0f  ' + error));
+  inner.push(SEP);
+
+  if (!options.length) {
+    inner.push(txt('No tournaments found. Create one first.'));
+    inner.push(SEP);
+    inner.push({ type: 1, components: [btn('\u2190 Back', 'tc_refresh', 2)] });
+    return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
+  }
+
+  inner.push({ type: 1, components: [{
+    type: 3,
+    custom_id: 'tc_post_list_sel',
+    placeholder: 'Select tournament type...',
+    options,
+  }]});
+  inner.push(SEP);
+  inner.push({ type: 1, components: [btn('\u2190 Back', 'tc_refresh', 2)] });
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
@@ -64,4 +118,4 @@ function buildSearchResultsPanel(query, teams) {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 
-module.exports = { buildTeamCrudPanel, buildSearchResultsPanel };
+module.exports = { buildTeamCrudPanel, buildPostListPickerPanel, buildSearchResultsPanel };

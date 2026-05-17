@@ -8,10 +8,14 @@ const {
 } = require('../panels/enrollPanel');
 
 // ── Update all live list panels on any enroll/remove/player change ────────────
+// Uses config-level refs (one permanent message per template, across all seasons).
+// If admin reposts, the new message ref overwrites the old one — bot always
+// follows the latest ref stored in config.
 async function updateLivePanels(client, tid) {
   const t = db.findById('tournaments', tid);
   if (!t) return;
-  // Admin management panel (panel2_ref)
+
+  // Admin management panel (panel2_ref — still stored per tournament)
   if (t.panel2_ref) {
     try {
       const { buildPanel2 } = require('../panels/panel2');
@@ -20,14 +24,18 @@ async function updateLivePanels(client, tid) {
       await msg.edit(buildPanel2(t));
     } catch {}
   }
-  // Public team list panel (teams_list_ref)
-  if (t.teams_list_ref) {
-    try {
-      const { buildTeamsListEmbed } = require('../panels/teamListPanel');
-      const ch  = await client.channels.fetch(t.teams_list_ref.channelId);
-      const msg = await ch.messages.fetch(t.teams_list_ref.messageId);
-      await msg.edit(buildTeamsListEmbed(tid));
-    } catch {}
+
+  // Permanent public team list (stored globally in config per template)
+  if (t.template) {
+    const ref = db.getConfig('teams_list_ref_' + t.template);
+    if (ref) {
+      try {
+        const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+        const ch  = await client.channels.fetch(ref.channelId);
+        const msg = await ch.messages.fetch(ref.messageId);
+        await msg.edit(buildTeamsListEmbed(tid));
+      } catch {}
+    }
   }
 }
 
@@ -124,12 +132,12 @@ async function handleEnrollInteraction(interaction, client) {
 
     const ok = enrollTeam(tid, team.id);
     if (!ok) {
-      return interaction.update(buildEnrollStep2(tid, { error: '**' + team.name + '** is already enrolled in **' + t.name + '**.' }));
+      return interaction.update(buildEnrollStep2(tid, {
+        error: '**' + team.name + '** is already enrolled in **' + t.name + '**.',
+      }));
     }
 
-    // Update live panels in background
     updateLivePanels(client, tid).catch(() => {});
-
     return interaction.update(buildEnrollStep3(tid, team.id));
   }
 
@@ -143,7 +151,7 @@ async function handleEnrollInteraction(interaction, client) {
     const userId = interaction.values[0];
 
     if (userId) {
-      // FIX: find by slot field, not array index (prevents user mismatch bug)
+      // Find by slot field — not array index (prevents user mismatch bug)
       const existingForSlot = db.get('players').find(
         p => p.team_id === teamId && p.tournament_id === tid && p.slot === slot
       );
@@ -151,9 +159,7 @@ async function handleEnrollInteraction(interaction, client) {
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
     }
 
-    // Update live panels in background
     updateLivePanels(client, tid).catch(() => {});
-
     // Stay on Step 3 so admin can assign both players (critical for MCL duo teams)
     return interaction.update(buildEnrollStep3(tid, teamId));
   }
@@ -170,9 +176,7 @@ async function handleEnrollInteraction(interaction, client) {
     db.deleteWhere('players', p => p.team_id === teamId && p.tournament_id === tid);
     if (team && team.temporary) db.delete('teams', teamId);
 
-    // Update live panels in background
     updateLivePanels(client, tid).catch(() => {});
-
     return interaction.update(buildEnrollStep2(tid));
   }
 }

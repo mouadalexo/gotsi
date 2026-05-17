@@ -2,8 +2,7 @@
 const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { db } = require('../utils/database');
 const { fuzzyTeamSearch } = require('../utils/fuzzyTeam');
-const { set: tmpSet, get: tmpGet } = require('../utils/tempState');
-const { buildTeamCrudPanel, buildSearchResultsPanel } = require('../panels/teamCrudPanel');
+const { buildTeamCrudPanel, buildPostListPickerPanel, buildSearchResultsPanel } = require('../panels/teamCrudPanel');
 const { buildEnrollStep1 } = require('../panels/enrollPanel');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
@@ -79,6 +78,44 @@ async function handleTeamCrudInteraction(interaction) {
     return interaction.update(buildEnrollStep1());
   }
 
+  // ── Post Team List ────────────────────────────────────────────────────────
+  if (id === 'tc_post_list') {
+    return interaction.update(buildPostListPickerPanel());
+  }
+
+  // tc_post_list_sel: template selected (e.g. "NSEL" or "MCL")
+  if (id === 'tc_post_list_sel') {
+    const template = interaction.values[0];
+
+    // Find the latest active tournament for this template to use as data source
+    const tournament = db.get('tournaments')
+      .filter(t => t.template === template)
+      .sort((a, b) => (b.season || 0) - (a.season || 0))[0];
+
+    if (!tournament) {
+      return interaction.update(buildPostListPickerPanel({ error: 'No tournament found for ' + template + '.' }));
+    }
+
+    try {
+      const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+
+      // Post the permanent list to this channel as a standalone message
+      const posted = await interaction.channel.send(buildTeamsListEmbed(tournament.id));
+
+      // Store ref globally in config (not per-tournament — persists across seasons)
+      db.setConfig('teams_list_ref_' + template, {
+        channelId: interaction.channel.id,
+        messageId: posted.id,
+      });
+
+      return interaction.update(buildTeamCrudPanel({
+        info: '**' + template + '** team list posted in <#' + interaction.channel.id + '>. It will auto-update on every change, across all seasons.',
+      }));
+    } catch (err) {
+      return interaction.update(buildPostListPickerPanel({ error: 'Failed to post: ' + err.message }));
+    }
+  }
+
   // ── Search ────────────────────────────────────────────────────────────────
   if (id === 'tc_search') {
     return interaction.showModal(
@@ -99,7 +136,7 @@ async function handleTeamCrudInteraction(interaction) {
     return interaction.update(buildSearchResultsPanel(query, teams));
   }
 
-  // ── Delete \u2014 open type-name modal ─────────────────────────────────────────
+  // ── Delete — open type-name modal ─────────────────────────────────────────
   if (id === 'tc_del_start') {
     const teams = db.get('teams');
     if (!teams.length) return interaction.update(buildTeamCrudPanel({ error: 'No teams to delete.' }));
@@ -114,7 +151,7 @@ async function handleTeamCrudInteraction(interaction) {
     );
   }
 
-  // ── Delete \u2014 fuzzy search modal submitted ─────────────────────────────────
+  // ── Delete — fuzzy search modal submitted ─────────────────────────────────
   if (id === 'tc_del_fuzzy_modal') {
     const typedText = interaction.fields.getTextInputValue('team_name').trim();
     const allTeams  = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
@@ -125,7 +162,7 @@ async function handleTeamCrudInteraction(interaction) {
     return interaction.update(buildDelFuzzyPanel(typedText, matches));
   }
 
-  // ── Delete \u2014 team selected from fuzzy results ─────────────────────────────
+  // ── Delete — team selected from fuzzy results ─────────────────────────────
   if (id === 'tc_del_fuzzy_sel') {
     const teamId = parseInt(interaction.values[0]);
     const team   = db.findById('teams', teamId);

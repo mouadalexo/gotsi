@@ -1,5 +1,5 @@
 'use strict';
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { db } = require('../utils/database');
 const { isManager } = require('../utils/permissions');
 
@@ -23,11 +23,11 @@ function buildBotolaListPanel() {
   inner.push(SEP);
 
   if (!tournaments.length) {
-    inner.push(txt('No tournaments yet. Create one via `/manage → New Tournament`.'));
+    inner.push(txt('No tournaments yet. Create one via `/manage \u2192 New Tournament`.'));
   } else {
-    const statusIcon = { setup: '⚙️', active: '🟢', finished: '🏁' };
+    const statusIcon = { setup: '\u2699\ufe0f', active: '\ud83d\udfe2', finished: '\ud83c\udfc1' };
     const lines = tournaments.map(t =>
-      `${statusIcon[t.status] || '⚙️'}  **${t.name}**  —  S${t.season}  \`${t.status}\``
+      `${statusIcon[t.status] || '\u2699\ufe0f'}  **${t.name}**  \u2014  S${t.season}  \`${t.status}\``
     );
     inner.push(txt(lines.join('\n')));
     inner.push(SEP);
@@ -50,19 +50,23 @@ function buildBotolaListPanel() {
   }
 
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  /botola  •  Managers & Admins'));
+  inner.push(txt('-# Night Stars  \u2022  /botola  \u2022  Managers & Admins'));
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('botola')
-    .setDescription('Tournament hub — open management panels for a tournament')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    .setDescription('Tournament hub \u2014 open management panels for a tournament'),
+    // No setDefaultMemberPermissions — Discord-level gate removed.
+    // Access is controlled by isManager() below, which covers:
+    //   • Discord Admins / ManageGuild permission
+    //   • Any role with "manager", "admin", or "tournament" in the name
+    //   • Everyone added via the /admin bot panel
 
   async execute(interaction) {
     if (!isManager(interaction.member)) {
-      return interaction.reply({ content: '❌ Managers only.', ephemeral: true });
+      return interaction.reply({ content: '\u274c Managers only.', ephemeral: true });
     }
     await interaction.reply({ ...buildBotolaListPanel(), ephemeral: true });
   },
