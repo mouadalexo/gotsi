@@ -8,12 +8,15 @@ const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, cu
 const E_CUP  = '<a:cup:1501741159557500971>';
 const E_ARR  = '<a:arrow:1501741110798585927>';
 
-function buildTeamCrudPanel() {
+function buildTeamCrudPanel(opts = {}) {
+  const { error, info } = opts;
   const teams = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
   const total = teams.length;
   const inner = [];
 
   inner.push(txt(`# ${E_CUP}  Teams List\n> **${total}** team${total !== 1 ? 's' : ''} in the master list`));
+  if (error) inner.push(txt('> \u274c  ' + error));
+  if (info)  inner.push(txt('> \u2705  ' + info));
   inner.push(SEP);
 
   if (!total) {
@@ -45,4 +48,20 @@ function buildTeamCrudPanel() {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 
-module.exports = { buildTeamCrudPanel };
+function buildSearchResultsPanel(query, teams) {
+  const inner = [];
+  inner.push(txt(`# ${E_CUP}  Search Results\n> **${teams.length}** team${teams.length !== 1 ? 's' : ''} matching **"${query}"**`));
+  inner.push(SEP);
+  if (teams.length) {
+    const lines = teams.map((t, i) => `${E_ARR}  \`${String(i + 1).padStart(2, ' ')}.\`  **${t.name}**`);
+    inner.push(txt(lines.join('\n')));
+  } else {
+    inner.push(txt('No teams found matching that query.'));
+  }
+  inner.push(SEP);
+  inner.push({ type: 1, components: [btn('\u2190 Back', 'tc_refresh', 2)] });
+  inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
+}
+
+module.exports = { buildTeamCrudPanel, buildSearchResultsPanel };

@@ -3,7 +3,7 @@ const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = req
 const { db } = require('../utils/database');
 const { fuzzyTeamSearch } = require('../utils/fuzzyTeam');
 const { set: tmpSet, get: tmpGet } = require('../utils/tempState');
-const { buildTeamCrudPanel } = require('../panels/teamCrudPanel');
+const { buildTeamCrudPanel, buildSearchResultsPanel } = require('../panels/teamCrudPanel');
 const { buildEnrollStep1 } = require('../panels/enrollPanel');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
@@ -19,7 +19,7 @@ function buildDelFuzzyPanel(typedText, matches) {
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: 0xED4245, components: [
-      txt('**' + E_CUP + '  Delete Team — best matches for "' + typedText + '"**\n> Select the team you want to delete.'),
+      txt('**' + E_CUP + '  Delete Team \u2014 best matches for "' + typedText + '"**\n> Select the team you want to delete.'),
       SEP,
       { type: 1, components: [{
         type: 3, custom_id: 'tc_del_fuzzy_sel',
@@ -67,12 +67,11 @@ async function handleTeamCrudInteraction(interaction) {
 
   if (id === 'tc_add_modal') {
     const name = interaction.fields.getTextInputValue('name').trim();
-    if (!name) return interaction.reply({ content: '\u274c Team name cannot be empty.', ephemeral: true });
+    if (!name) return interaction.update(buildTeamCrudPanel({ error: 'Team name cannot be empty.' }));
     const exists = db.get('teams').find(t => t.name.toLowerCase() === name.toLowerCase());
-    if (exists) return interaction.reply({ content: '\u274c **' + name + '** already exists.', ephemeral: true });
+    if (exists) return interaction.update(buildTeamCrudPanel({ error: '**' + name + '** already exists in the list.' }));
     db.insert('teams', { name });
-    await interaction.update(buildTeamCrudPanel());
-    return interaction.followUp({ content: '\u2705 **' + name + '** added to the list.', ephemeral: true });
+    return interaction.update(buildTeamCrudPanel({ info: '**' + name + '** added to the list.' }));
   }
 
   // ── Enroll ────────────────────────────────────────────────────────────────
@@ -97,22 +96,15 @@ async function handleTeamCrudInteraction(interaction) {
     const query = interaction.fields.getTextInputValue('query').trim();
     const allTeams = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
     const teams = fuzzyTeamSearch(query, allTeams, 25);
-    if (!teams.length) {
-      return interaction.reply({ content: '\ud83d\udd0d No teams found matching **"' + query + '"**.', ephemeral: true });
-    }
-    const lines = teams.map((t, i) => '\`' + String(i + 1).padStart(2, ' ') + '.\`  **' + t.name + '**');
-    return interaction.reply({
-      content: '\ud83d\udd0d **' + teams.length + '** team' + (teams.length !== 1 ? 's' : '') + ' matching **"' + query + '"**:\n' + lines.join('\n'),
-      ephemeral: true,
-    });
+    return interaction.update(buildSearchResultsPanel(query, teams));
   }
 
-  // ── Delete — open type-name modal ─────────────────────────────────────────
+  // ── Delete \u2014 open type-name modal ─────────────────────────────────────────
   if (id === 'tc_del_start') {
     const teams = db.get('teams');
-    if (!teams.length) return interaction.reply({ content: '\u274c No teams to delete.', ephemeral: true });
+    if (!teams.length) return interaction.update(buildTeamCrudPanel({ error: 'No teams to delete.' }));
     return interaction.showModal(
-      new ModalBuilder().setCustomId('tc_del_fuzzy_modal').setTitle('Delete Team — Type Name')
+      new ModalBuilder().setCustomId('tc_del_fuzzy_modal').setTitle('Delete Team \u2014 Type Name')
         .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('team_name').setLabel('Type the team name to search')
@@ -122,23 +114,22 @@ async function handleTeamCrudInteraction(interaction) {
     );
   }
 
-  // ── Delete — fuzzy search modal submitted ─────────────────────────────────
+  // ── Delete \u2014 fuzzy search modal submitted ─────────────────────────────────
   if (id === 'tc_del_fuzzy_modal') {
     const typedText = interaction.fields.getTextInputValue('team_name').trim();
     const allTeams  = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
     const matches   = fuzzyTeamSearch(typedText, allTeams, 10);
-    tmpSet('tc_del_typed_' + interaction.user.id, typedText);
     if (!matches.length) {
-      return interaction.reply({ content: '\ud83d\udd0d No teams found matching **"' + typedText + '"**.', ephemeral: true });
+      return interaction.update(buildTeamCrudPanel({ error: 'No teams found matching "' + typedText + '".' }));
     }
     return interaction.update(buildDelFuzzyPanel(typedText, matches));
   }
 
-  // ── Delete — team selected from fuzzy results ─────────────────────────────
+  // ── Delete \u2014 team selected from fuzzy results ─────────────────────────────
   if (id === 'tc_del_fuzzy_sel') {
     const teamId = parseInt(interaction.values[0]);
     const team   = db.findById('teams', teamId);
-    if (!team) return interaction.reply({ content: '\u274c Team not found.', ephemeral: true });
+    if (!team) return interaction.update(buildTeamCrudPanel({ error: 'Team not found.' }));
     return interaction.update(buildDelConfirmPanel(teamId, team.name));
   }
 
@@ -148,8 +139,7 @@ async function handleTeamCrudInteraction(interaction) {
     const team   = db.findById('teams', teamId);
     const name   = team?.name || 'Unknown';
     db.delete('teams', teamId);
-    await interaction.update(buildTeamCrudPanel());
-    return interaction.followUp({ content: '\u2705 **' + name + '** removed from the list.', ephemeral: true });
+    return interaction.update(buildTeamCrudPanel({ info: '**' + name + '** removed from the list.' }));
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
