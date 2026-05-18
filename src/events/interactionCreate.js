@@ -130,6 +130,7 @@ module.exports = {
         id === 'enr_tmt_sel'            ||
         id === 'enr_back_step1'         ||
         id.startsWith('enr_team_sel_')        ||
+        id.startsWith('enr_team_direct_sel_')  ||
         id.startsWith('enr_team_type_')       ||
         id.startsWith('enr_team_fuzzy_modal_')||
         id.startsWith('enr_team_fuzzy_sel_')  ||
