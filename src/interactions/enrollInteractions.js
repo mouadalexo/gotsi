@@ -62,7 +62,27 @@ async function handleEnrollInteraction(interaction, client) {
     return interaction.update(buildEnrollStep2(tid));
   }
 
-  // ── Step 2: open modal to type team name ──────────────────────────────────
+  // ── Step 2: direct team selection from dropdown ─────────────────────────────
+  if (id.startsWith('enr_team_direct_sel_')) {
+    const tid = parseInt(id.replace('enr_team_direct_sel_', ''));
+    const teamId = parseInt(interaction.values[0]);
+    const t = db.findById('tournaments', tid);
+    const team = db.findById('teams', teamId);
+    if (!t || !team) return interaction.update(buildEnrollStep2(tid, { error: 'Team not found.' }));
+
+    const alreadyEnrolled = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === team.id);
+    if (alreadyEnrolled) {
+      return interaction.update(buildEnrollStep2(tid, {
+        error: '**' + team.name + '** is already enrolled in **' + t.name + '**.',
+      }));
+    }
+
+    const requiredPlayers = t.players_per_team || 1;
+    tmpSet('enr_draft_' + interaction.user.id + '_' + tid, { teamId: team.id, players: {}, required: requiredPlayers }, 600_000);
+    return interaction.update(buildEnrollStep3(tid, team.id, { isDraft: true, draftPlayers: {}, required: requiredPlayers }));
+  }
+
+    // ── Step 2: open modal to type team name ──────────────────────────────────
   if (id.startsWith('enr_team_type_')) {
     const tid = parseInt(id.replace('enr_team_type_', ''));
     return interaction.showModal(
@@ -75,7 +95,7 @@ async function handleEnrollInteraction(interaction, client) {
               .setCustomId('team_name')
               .setLabel('Type team name')
               .setStyle(TextInputStyle.Short)
-              .setPlaceholder('e.g. Real Madrid, Raja, Bayern...')
+              .setPlaceholder('Type team name to search...')
               .setRequired(true)
               .setMinLength(2)
           )

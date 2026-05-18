@@ -40,12 +40,44 @@ function buildEnrollStep2(tid, opts = {}) {
   const tournament = db.findById('tournaments', tid);
   if (!tournament) return buildEnrollStep1({ error: 'Tournament not found.' });
 
+  // Get already-enrolled team IDs for this tournament
+  const enrolledIds = db.get('tournament_teams')
+    .filter(tt => tt.tournament_id === tid)
+    .map(tt => tt.team_id);
+
+  // All non-enrolled teams, sorted by usage (most appearances in tournament_teams first)
+  const allTournamentTeams = db.get('tournament_teams');
+  const usageCount = {};
+  for (const tt of allTournamentTeams) {
+    usageCount[tt.team_id] = (usageCount[tt.team_id] || 0) + 1;
+  }
+  const availableTeams = db.get('teams')
+    .filter(tm => !enrolledIds.includes(tm.id) && !tm.temporary)
+    .sort((a, b) => (usageCount[b.id] || 0) - (usageCount[a.id] || 0) || a.name.localeCompare(b.name));
+
   const inner = [];
-  inner.push(txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Type the team name for **' + tournament.name + '**\n> Bot will search the master list and show the closest matches.'));
+  inner.push(txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Choose a team or search by name for **' + tournament.name + '**'));
   if (error) inner.push(txt('> \u26a0\ufe0f  ' + error));
   inner.push(SEP);
+
+  // Dropdown: up to 25 teams sorted by most used
+  if (availableTeams.length > 0) {
+    inner.push({ type: 1, components: [{
+      type: 3,
+      custom_id: 'enr_team_direct_sel_' + tid,
+      placeholder: '\ud83c\udfc6  Choose a team from the list...',
+      options: availableTeams.slice(0, 25).map(tm => ({
+        label: tm.name.slice(0, 100),
+        description: (usageCount[tm.id] ? 'Used ' + usageCount[tm.id] + 'x' : 'Never enrolled').slice(0, 100),
+        value: String(tm.id),
+      })),
+    }]});
+    inner.push(SEP);
+  }
+
+  // Always show the type/search button
   inner.push({ type: 1, components: [
-    { type: 2, style: 1, label: '\ud83d\udd0d  Type Team Name', custom_id: 'enr_team_type_' + tid },
+    { type: 2, style: 1, label: '\ud83d\udd0d  Search by Name', custom_id: 'enr_team_type_' + tid },
     { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step1' },
   ]});
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
