@@ -281,9 +281,11 @@ function buildTeamSearchResults(tid, query) {
   const { fuzzyTeamSearch } = require('../utils/fuzzyTeam');
   const enrolled  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
   const available = db.get('teams').filter(t => !enrolled.includes(t.id));
+  const usageCount = {};
+  for (const tt of db.get('tournament_teams')) usageCount[tt.team_id] = (usageCount[tt.team_id] || 0) + 1;
   const results   = query
-    ? fuzzyTeamSearch(query, available, 10)
-    : available.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 10);
+    ? fuzzyTeamSearch(query, available, 25)
+    : available.sort((a, b) => (usageCount[b.id] || 0) - (usageCount[a.id] || 0) || a.name.localeCompare(b.name)).slice(0, 25);
 
   if (!results.length) return {
     flags: 32768,
@@ -291,7 +293,7 @@ function buildTeamSearchResults(tid, query) {
       txt(query ? `No teams found matching **"${query}"** — try a different name.` : 'All teams are already enrolled.'),
       SEP,
       { type: 1, components: [
-        { type: 2, style: 2, label: 'Search Again', custom_id: `p2_${tid}_addteam` },
+        { type: 2, style: 1, label: '🔍️  Search by Name', custom_id: `p2_${tid}_addteam_search` },
         { type: 2, style: 2, label: 'Cancel',       custom_id: `p2_${tid}_refresh`  },
       ]},
     ]}],
@@ -309,7 +311,7 @@ function buildTeamSearchResults(tid, query) {
       }]},
       SEP,
       { type: 1, components: [
-        { type: 2, style: 2, label: 'Search Again', custom_id: `p2_${tid}_addteam` },
+        { type: 2, style: 1, label: '🔍️  Search by Name', custom_id: `p2_${tid}_addteam_search` },
         { type: 2, style: 2, label: 'Cancel',       custom_id: `p2_${tid}_refresh`  },
       ]},
     ]}],
@@ -356,15 +358,13 @@ async function handleBotolaInteraction(interaction) {
     const mgmtCh = await cli.channels.fetch(ch.management).catch(() => null);
     if (!mgmtCh) return interaction.editReply({ content: '❌ Management channel not found.' });
 
-    // Delete old panels if they exist
-    for (const ref of [t.panel1_ref, t.panel2_ref, t.panel3_ref]) {
-      if (!ref?.channelId || !ref?.messageId) continue;
-      try {
-        const oldCh  = await cli.channels.fetch(ref.channelId);
-        const oldMsg = await oldCh.messages.fetch(ref.messageId);
-        await oldMsg.delete();
-      } catch {}
-    }
+    // Delete ALL previous bot messages in the management channel
+    try {
+      const fetchedMsgs = await mgmtCh.messages.fetch({ limit: 50 });
+      const botMsgs = fetchedMsgs.filter(m => m.author.id === cli.user.id);
+      for (const [, msg] of botMsgs) await msg.delete().catch(() => {});
+    } catch {}
+    db.update('tournaments', tid, { panel1_ref: null, panel2_ref: null, panel3_ref: null });
 
     const msg1 = await mgmtCh.send(buildPanel1(t)).catch(() => null);
     if (msg1) db.update('tournaments', tid, { panel1_ref: { channelId: mgmtCh.id, messageId: msg1.id } });
@@ -771,18 +771,24 @@ async function handleBotolaInteraction(interaction) {
       if (!available2.length) {
         return interaction.reply({ content: '\u26a0\ufe0f All teams are already enrolled in this tournament.', ephemeral: true });
       }
+      // Skip modal — show dropdown of all teams sorted by most used
+      return interaction.update(buildTeamSearchResults(tid, ''));
+    }
+
+    if (action === 'addteam_search') {
+      // "Search by Name" button — open modal for typed search
       const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
       return interaction.showModal(
         new ModalBuilder()
           .setCustomId(`p2_${tid}_addteam_modal`)
-          .setTitle('Add Team — Type Name')
+          .setTitle('Search Team by Name')
           .addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
                 .setCustomId('team_search')
                 .setLabel('Type team name')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('e.g. Real Madrid, Raja, Bayern...')
+                .setPlaceholder('Team name...')
                 .setRequired(true)
                 .setMinLength(2)
             )
