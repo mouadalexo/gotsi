@@ -326,6 +326,13 @@ async function postToChannel(client, channelId, payload) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 async function handleBotolaInteraction(interaction) {
+  // Auto-delete all ephemeral replies so botola messages are temporary
+  const _origReply = interaction.reply.bind(interaction);
+  interaction.reply = async (opts) => {
+    const r = await _origReply(opts);
+    if (opts && opts.ephemeral) setTimeout(() => interaction.deleteReply().catch(() => {}), 6_000);
+    return r;
+  };
   const id  = interaction.customId;
   const cli = interaction.client;
 
@@ -819,12 +826,16 @@ async function handleBotolaInteraction(interaction) {
     }
 
     if (action === 'team_sel') {
-      const teamId = parseInt(interaction.values[0]);
-      const team   = db.findById('teams', teamId);
+      const teamId    = parseInt(interaction.values[0]);
+      const team      = db.findById('teams', teamId);
       if (!team) return interaction.reply({ content: '\u274c Team not found.', ephemeral: true });
-      const isMCL  = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
-      const SEP_U  = { type: 14, divider: true, spacing: 1 };
-      const rows   = isMCL
+      const isMCL     = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const reqPlayers = t.players_per_team || (isMCL ? 2 : 1);
+      const SEP_U     = { type: 14, divider: true, spacing: 1 };
+      // Start draft — team is NOT enrolled until Add is clicked
+      const { set: _tmpSet } = require('../utils/tempState');
+      _tmpSet('p2_draft_' + tid + '_' + teamId, { players: {}, required: reqPlayers }, 600000);
+      const rows = isMCL
         ? [
             { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
             { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -835,55 +846,157 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update({
         flags: 32768,
         components: [{ type: 17, accent_color: 0x5865F2, components: [
-          { type: 10, content: `**Assign ${isMCL ? '2 Players' : 'Player'} \u2014 ${team.name}**\nSelect the Discord user${isMCL ? 's' : ''} for this team.` },
+          { type: 10, content: `**Assign ${isMCL ? '2 Players' : 'Player'} \u2014 ${team.name}**\nSelect the Discord user${isMCL ? 's' : ''} for this team, then click **\u2705 Add**.` },
           SEP_U,
           ...rows,
           SEP_U,
-          { type: 1, components: [{ type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
+          { type: 1, components: [
+            { type: 2, style: 1, label: '\u2705 Add', custom_id: `p2_${tid}_add_confirm_${teamId}`, disabled: true },
+            { type: 2, style: 4, label: '\u274c Cancel', custom_id: `p2_${tid}_refresh` },
+          ]},
         ]}],
       });
     }
 
     if (action.startsWith('player_user_')) {
-      const rest   = action.replace('player_user_', '');
-      const parts  = rest.split('_');
-      const teamId = parseInt(parts[0]);
-      const slot   = parts[1] !== undefined ? parseInt(parts[1]) : 0;
-      const userId = interaction.values && interaction.values[0];
-      if (!userId) return interaction.update(buildPanel2(getT(tid)));
-      // Block: same player already on a DIFFERENT team in this tournament
-      const dupePlayer = db.findOne('players', p => p.discord_id === userId && p.tournament_id === tid && p.team_id !== teamId);
-      if (dupePlayer) {
-        const dupTeam  = db.findById('teams', dupePlayer.team_id);
-        const isMCL2   = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
-        const SEP_U    = { type: 14, divider: true, spacing: 1 };
-        const errRows  = isMCL2
+      const rest    = action.replace('player_user_', '');
+      const parts   = rest.split('_');
+      const teamId  = parseInt(parts[0]);
+      const slot    = parts[1] !== undefined ? parseInt(parts[1]) : 0;
+      const userId  = interaction.values && interaction.values[0];
+      const SEP_U   = { type: 14, divider: true, spacing: 1 };
+      const isMCL_p = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const { get: _tmpGet, set: _tmpSet2 } = require('../utils/tempState');
+      const draftKey = 'p2_draft_' + tid + '_' + teamId;
+      const draft    = _tmpGet(draftKey);
+
+      if (draft) {
+        // ── DRAFT MODE: save to temp, never touch DB yet ──────────────────
+        if (userId) draft.players[slot] = userId;
+        else delete draft.players[slot];
+        const reqPl = draft.required || (isMCL_p ? 2 : 1);
+        // Dupe check across teams
+        if (userId) {
+          const dupe = db.findOne('players', p => p.discord_id === userId && p.tournament_id === tid && p.team_id !== teamId);
+          if (dupe) {
+            delete draft.players[slot];
+            _tmpSet2(draftKey, draft, 600000);
+            const dupTeam = db.findById('teams', dupe.team_id);
+            const eRows   = isMCL_p
+              ? [
+                  { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
+                  { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
+                ]
+              : [{ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Choose a different player...', min_values: 0, max_values: 1 }] }];
+            return interaction.update({
+              flags: 32768,
+              components: [{ type: 17, accent_color: 0xED4245, components: [
+                { type: 10, content: `\u274c <@${userId}> is already on **${dupTeam?.name || 'another team'}**. Choose a different player.` },
+                SEP_U, ...eRows, SEP_U,
+                { type: 1, components: [
+                  { type: 2, style: 1, label: '\u2705 Add', custom_id: `p2_${tid}_add_confirm_${teamId}`, disabled: true },
+                  { type: 2, style: 4, label: '\u274c Cancel', custom_id: `p2_${tid}_refresh` },
+                ]},
+              ]}],
+            });
+          }
+        }
+        _tmpSet2(draftKey, draft, 600000);
+        const team_p   = db.findById('teams', teamId);
+        const filled   = Object.keys(draft.players).filter(k => draft.players[k]).length;
+        const canAdd   = filled >= reqPl;
+        const statuses = [];
+        for (let i = 0; i < reqPl; i++) {
+          const uid = draft.players[i];
+          statuses.push(uid ? `\u2705 P${reqPl > 1 ? i+1 : ''}: <@${uid}>`.replace('P: ', 'Player: ') : `\u274c P${reqPl > 1 ? i+1 : ''}: not assigned`.replace('P: ', 'Player: '));
+        }
+        const pRows = isMCL_p
           ? [
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
             ]
-          : [
-              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Choose a different player...', min_values: 0, max_values: 1 }] },
-            ];
+          : [{ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Select a player...', min_values: 0, max_values: 1 }] }];
+        return interaction.update({
+          flags: 32768,
+          components: [{ type: 17, accent_color: canAdd ? 0x57F287 : 0x5865F2, components: [
+            { type: 10, content: `**Assign ${isMCL_p ? '2 Players' : 'Player'} \u2014 ${team_p?.name}**\n> ${statuses.join('  \u00b7  ')}${canAdd ? '\n> \u2705 Ready \u2014 click **Add** to confirm.' : ''}` },
+            SEP_U, ...pRows, SEP_U,
+            { type: 1, components: [
+              { type: 2, style: 1, label: '\u2705 Add', custom_id: `p2_${tid}_add_confirm_${teamId}`, disabled: !canAdd },
+              { type: 2, style: 4, label: '\u274c Cancel', custom_id: `p2_${tid}_refresh` },
+            ]},
+          ]}],
+        });
+      }
+
+      // ── EDIT MODE: team already enrolled, save directly to DB ─────────────
+      if (!userId) return interaction.update(buildPanel2(getT(tid)));
+      const dupePlayer = db.findOne('players', p => p.discord_id === userId && p.tournament_id === tid && p.team_id !== teamId);
+      if (dupePlayer) {
+        const dupTeam = db.findById('teams', dupePlayer.team_id);
+        const errRows = isMCL_p
+          ? [
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
+            ]
+          : [{ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: 'Choose a different player...', min_values: 0, max_values: 1 }] }];
         return interaction.update({
           flags: 32768,
           components: [{ type: 17, accent_color: 0xED4245, components: [
             { type: 10, content: `\u274c <@${userId}> is already on **${dupTeam?.name || 'another team'}** in this tournament. Choose a different player.` },
-            SEP_U,
-            ...errRows,
-            SEP_U,
+            SEP_U, ...errRows, SEP_U,
             { type: 1, components: [{ type: 2, style: 4, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
           ]}],
         });
       }
-      // Save player by slot (replace existing for that slot if any)
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
-      const alreadyEnrolled = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === teamId);
-      if (!alreadyEnrolled) {
-        db.insert('tournament_teams', { tournament_id: tid, team_id: teamId, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
-      }
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
+      await interaction.deferUpdate();
+      return refreshPanel(cli, getT(tid), 2);
+    }
+
+    if (action.startsWith('add_confirm_')) {
+      const teamId2   = parseInt(action.replace('add_confirm_', ''));
+      const { get: _tmpGet2, del: _tmpDel } = require('../utils/tempState');
+      const draftKey2 = 'p2_draft_' + tid + '_' + teamId2;
+      const draft2    = _tmpGet2(draftKey2);
+      const SEP_U2    = { type: 14, divider: true, spacing: 1 };
+      const isMCL_ac  = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      if (!draft2) return interaction.update(buildPanel2(getT(tid)));
+      const reqPl2  = draft2.required || (isMCL_ac ? 2 : 1);
+      const filled2 = Object.keys(draft2.players).filter(k => draft2.players[k]).length;
+      if (filled2 < reqPl2) {
+        const acRows = isMCL_ac
+          ? [
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId2}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
+              { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId2}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
+            ]
+          : [{ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId2}_0`, placeholder: 'Select a player...', min_values: 0, max_values: 1 }] }];
+        return interaction.update({
+          flags: 32768,
+          components: [{ type: 17, accent_color: 0xED4245, components: [
+            { type: 10, content: `\u26a0\ufe0f Assign all ${reqPl2} player${reqPl2 > 1 ? 's' : ''} before adding the team.` },
+            SEP_U2, ...acRows, SEP_U2,
+            { type: 1, components: [
+              { type: 2, style: 1, label: '\u2705 Add', custom_id: `p2_${tid}_add_confirm_${teamId2}`, disabled: true },
+              { type: 2, style: 4, label: '\u274c Cancel', custom_id: `p2_${tid}_refresh` },
+            ]},
+          ]}],
+        });
+      }
+      const alreadyEnrolled2 = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === teamId2);
+      if (!alreadyEnrolled2) {
+        db.insert('tournament_teams', { tournament_id: tid, team_id: teamId2, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
+      }
+      for (const [slotStr, uid] of Object.entries(draft2.players)) {
+        if (uid) {
+          const exSl = db.findOne('players', p => p.team_id === teamId2 && p.tournament_id === tid && (p.slot || 0) === parseInt(slotStr));
+          if (exSl) db.delete('players', exSl.id);
+          db.insert('players', { discord_id: uid, team_id: teamId2, tournament_id: tid, slot: parseInt(slotStr) });
+        }
+      }
+      _tmpDel(draftKey2);
       await interaction.deferUpdate();
       return refreshPanel(cli, getT(tid), 2);
     }

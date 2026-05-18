@@ -3,6 +3,13 @@ const { buildAdminPanel, buildChannelPickerPanel } = require('../panels/adminPan
 const { db } = require('../utils/database');
 
 async function handleAdminInteraction(interaction) {
+  // Auto-delete ephemeral replies so admin sub-panels are temporary
+  const _origReply = interaction.reply.bind(interaction);
+  interaction.reply = async (opts) => {
+    const r = await _origReply(opts);
+    if (opts && opts.ephemeral) setTimeout(() => interaction.deleteReply().catch(() => {}), 8_000);
+    return r;
+  };
   const id = interaction.customId;
 
   if (id === 'adm_refresh' || id === 'adm_done') {

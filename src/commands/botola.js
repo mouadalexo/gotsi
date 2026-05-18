@@ -64,6 +64,7 @@ module.exports = {
       return interaction.reply({ content: '\u274c You need the **Manager** role to use this command.', ephemeral: true });
     }
     await interaction.reply({ ...buildBotolaListPanel(), ephemeral: true });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 30_000);
   },
 
   buildBotolaListPanel,

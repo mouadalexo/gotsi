@@ -7,15 +7,9 @@ const {
   buildEnrollStep1, buildEnrollStep2, buildEnrollFuzzyResults, buildEnrollStep3,
 } = require('../panels/enrollPanel');
 
-// ── Update all live list panels on any enroll/remove/player change ────────────
-// Uses config-level refs (one permanent message per template, across all seasons).
-// If admin reposts, the new message ref overwrites the old one — bot always
-// follows the latest ref stored in config.
 async function updateLivePanels(client, tid) {
   const t = db.findById('tournaments', tid);
   if (!t) return;
-
-  // Admin management panel (panel2_ref — still stored per tournament)
   if (t.panel2_ref) {
     try {
       const { buildPanel2 } = require('../panels/panel2');
@@ -24,8 +18,6 @@ async function updateLivePanels(client, tid) {
       await msg.edit(buildPanel2(t));
     } catch {}
   }
-
-  // Permanent public team list (stored globally in config per template)
   if (t.template) {
     const ref = db.getConfig('teams_list_ref_' + t.template);
     if (ref) {
@@ -58,6 +50,9 @@ async function handleEnrollInteraction(interaction, client) {
   }
   if (id.startsWith('enr_back_step2_')) {
     const tid = parseInt(id.replace('enr_back_step2_', ''));
+    // Clean up any draft for this admin
+    const draftKeys = Object.keys(require('../utils/tempState')._store || {});
+    tmpDel('enr_draft_' + interaction.user.id + '_' + tid);
     return interaction.update(buildEnrollStep2(tid));
   }
 
@@ -92,26 +87,21 @@ async function handleEnrollInteraction(interaction, client) {
   if (id.startsWith('enr_team_fuzzy_modal_')) {
     const tid = parseInt(id.replace('enr_team_fuzzy_modal_', ''));
     const typedText = interaction.fields.getTextInputValue('team_name').trim();
-
     const t = db.findById('tournaments', tid);
     if (!t) return interaction.update(buildEnrollStep1({ error: 'Tournament not found.' }));
-
     const enrolledIds = db.get('tournament_teams')
       .filter(tt => tt.tournament_id === tid)
       .map(tt => tt.team_id);
     const availableTeams = db.get('teams').filter(tm => !enrolledIds.includes(tm.id));
-
     if (availableTeams.length === 0) {
       return interaction.update(buildEnrollStep2(tid, { error: 'All teams are already enrolled in this tournament.' }));
     }
-
     const matches = fuzzyTeamSearch(typedText, availableTeams, 5);
     tmpSet('enr_typed_' + interaction.user.id + '_' + tid, typedText);
-
     return interaction.update(buildEnrollFuzzyResults(tid, typedText, matches));
   }
 
-  // ── Step 2: fuzzy result selected ────────────────────────────────────────
+  // ── Step 2: fuzzy result selected → ALWAYS start draft ───────────────────
   if (id.startsWith('enr_team_fuzzy_sel_')) {
     const tid = parseInt(id.replace('enr_team_fuzzy_sel_', ''));
     const val = interaction.values[0];
@@ -127,18 +117,19 @@ async function handleEnrollInteraction(interaction, client) {
     } else {
       team = db.findById('teams', parseInt(val));
     }
-
     if (!team) return interaction.update(buildEnrollStep2(tid, { error: 'Team not found.' }));
 
-    const ok = enrollTeam(tid, team.id);
-    if (!ok) {
+    // Never enroll team here — always go to draft mode first
+    const alreadyEnrolled = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === team.id);
+    if (alreadyEnrolled) {
       return interaction.update(buildEnrollStep2(tid, {
         error: '**' + team.name + '** is already enrolled in **' + t.name + '**.',
       }));
     }
 
-    updateLivePanels(client, tid).catch(() => {});
-    return interaction.update(buildEnrollStep3(tid, team.id));
+    const requiredPlayers = t.players_per_team || 1;
+    tmpSet('enr_draft_' + interaction.user.id + '_' + tid, { teamId: team.id, players: {}, required: requiredPlayers }, 600_000);
+    return interaction.update(buildEnrollStep3(tid, team.id, { isDraft: true, draftPlayers: {}, required: requiredPlayers }));
   }
 
   // ── Step 3: Player picked via Discord User Select ─────────────────────────
@@ -150,17 +141,50 @@ async function handleEnrollInteraction(interaction, client) {
     const slot   = parts[2] !== undefined ? parseInt(parts[2]) : 0;
     const userId = interaction.values[0];
 
+    const t = db.findById('tournaments', tid);
+    const requiredPlayers = t?.players_per_team || 1;
+
+    const draftKey = 'enr_draft_' + interaction.user.id + '_' + tid;
+    const draft = tmpGet(draftKey);
+
+    if (draft && draft.teamId === teamId) {
+      // Draft mode: save player to temp state (never touch DB yet)
+      if (userId) draft.players[slot] = userId;
+      else delete draft.players[slot];
+      tmpSet(draftKey, draft, 600_000);
+
+      // Count how many slots are filled
+      const filledCount = Object.keys(draft.players).filter(k => draft.players[k]).length;
+
+      // If minimum players are now assigned → finalize and create the team
+      if (filledCount >= requiredPlayers) {
+        const ok = enrollTeam(tid, teamId);
+        if (!ok) {
+          tmpDel(draftKey);
+          return interaction.update(buildEnrollStep2(tid, { error: 'Team is already enrolled.' }));
+        }
+        for (const [slotStr, uid] of Object.entries(draft.players)) {
+          if (uid) db.insert('players', { discord_id: uid, team_id: teamId, tournament_id: tid, slot: parseInt(slotStr) });
+        }
+        tmpDel(draftKey);
+        updateLivePanels(client, tid).catch(() => {});
+        // Show live step3 (enrolled mode with Remove Team button)
+        return interaction.update(buildEnrollStep3(tid, teamId));
+      }
+
+      // Not enough players yet — refresh draft panel
+      return interaction.update(buildEnrollStep3(tid, teamId, { isDraft: true, draftPlayers: draft.players, required: requiredPlayers }));
+    }
+
+    // Already-enrolled team (editing players after enrollment): save to DB immediately
     if (userId) {
-      // Find by slot field — not array index (prevents user mismatch bug)
       const existingForSlot = db.get('players').find(
         p => p.team_id === teamId && p.tournament_id === tid && p.slot === slot
       );
       if (existingForSlot) db.delete('players', existingForSlot.id);
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
     }
-
     updateLivePanels(client, tid).catch(() => {});
-    // Stay on Step 3 so admin can assign both players (critical for MCL duo teams)
     return interaction.update(buildEnrollStep3(tid, teamId));
   }
 
@@ -171,11 +195,9 @@ async function handleEnrollInteraction(interaction, client) {
     const tid    = parseInt(rest.slice(0, sep));
     const teamId = parseInt(rest.slice(sep + 1));
     const team   = db.findById('teams', teamId);
-
     db.deleteWhere('tournament_teams', r => r.tournament_id === tid && r.team_id === teamId);
     db.deleteWhere('players', p => p.team_id === teamId && p.tournament_id === tid);
     if (team && team.temporary) db.delete('teams', teamId);
-
     updateLivePanels(client, tid).catch(() => {});
     return interaction.update(buildEnrollStep2(tid));
   }

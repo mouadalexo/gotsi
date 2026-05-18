@@ -11,7 +11,6 @@ function buildEnrollStep1(opts = {}) {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const inner = [];
-
   if (!tournaments.length) {
     inner.push(txt('## \u2795  Enroll Team\n> No tournaments are currently open for registration.'));
     if (error) inner.push(txt('> \u26a0\ufe0f  ' + error));
@@ -33,7 +32,6 @@ function buildEnrollStep1(opts = {}) {
   }]});
   inner.push(SEP);
   inner.push({ type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: 'tc_refresh' }] });
-
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
@@ -50,7 +48,6 @@ function buildEnrollStep2(tid, opts = {}) {
     { type: 2, style: 1, label: '\ud83d\udd0d  Type Team Name', custom_id: 'enr_team_type_' + tid },
     { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step1' },
   ]});
-
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
@@ -66,11 +63,10 @@ function buildEnrollFuzzyResults(tid, typedText, matches) {
     description: 'Add as temporary team for this season',
     value: '_custom',
   });
-
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: 0x5865F2, components: [
-      txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Best matches for **"' + typedText + '"** in **' + (tournament ? tournament.name : '') + '**\n> Last option uses exactly what you typed.'),
+      txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Best matches for ** + typedText + ** in **' + (tournament ? tournament.name : '') + '**\n> Last option uses exactly what you typed.'),
       SEP,
       { type: 1, components: [{
         type: 3,
@@ -88,40 +84,88 @@ function buildEnrollFuzzyResults(tid, typedText, matches) {
 }
 
 function buildEnrollStep3(tid, teamId, opts = {}) {
-  const { error } = opts;
+  const { error, draftPlayers, isDraft, required } = opts;
   const tournament = db.findById('tournaments', tid);
   const team = db.findById('teams', teamId);
   if (!tournament || !team) return buildEnrollStep1();
 
-  const isMCL = (tournament.players_per_team || 1) >= 2;
+  const requiredPlayers = required || tournament.players_per_team || 1;
+  const isDuo = requiredPlayers >= 2;
 
-  // Show currently assigned players inline so admin can see progress
-  const assigned = db.get('players')
-    .filter(p => p.team_id === teamId && p.tournament_id === tid)
-    .sort((a, b) => (a.slot || 0) - (b.slot || 0));
-  const assignedLines = assigned.length
-    ? '\n> ' + assigned.map(p => 'P' + ((p.slot || 0) + 1) + ': <@' + p.discord_id + '>').join('  \u00b7  ')
-    : '';
+  // Resolve current player assignments
+  let players = {};
+  if (isDraft && draftPlayers) {
+    players = draftPlayers;
+  } else {
+    const assigned = db.get('players')
+      .filter(p => p.team_id === teamId && p.tournament_id === tid)
+      .sort((a, b) => (a.slot || 0) - (b.slot || 0));
+    for (const p of assigned) players[p.slot] = p.discord_id;
+  }
 
-  const playerRows = isMCL
-    ? [
-        { type: 1, components: [{ type: 5, custom_id: 'enr_player_sel_' + tid + '_' + teamId + '_0', placeholder: '\ud83d\udc64  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
-        { type: 1, components: [{ type: 5, custom_id: 'enr_player_sel_' + tid + '_' + teamId + '_1', placeholder: '\ud83d\udc64  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
-      ]
-    : [
-        { type: 1, components: [{ type: 5, custom_id: 'enr_player_sel_' + tid + '_' + teamId + '_0', placeholder: 'Search for a Discord member...', min_values: 0, max_values: 1 }] },
-      ];
+  // Build status lines
+  const statusLines = [];
+  for (let i = 0; i < requiredPlayers; i++) {
+    const uid = players[i];
+    const label = isDuo ? ('P' + (i + 1)) : 'Player';
+    statusLines.push(uid ? '\u2705 ' + label + ': <@' + uid + '>' : '\u274c ' + label + ': not assigned');
+  }
+  const statusText = statusLines.length ? '\n> ' + statusLines.join('  \u00b7  ') : '';
+
+  // Draft progress hint
+  const filledCount = Object.keys(players).filter(k => players[k]).length;
+  const remaining = requiredPlayers - filledCount;
+  let hintText = '';
+  if (isDraft) {
+    if (remaining > 0) {
+      hintText = '\n> Assign ' + remaining + ' more player' + (remaining > 1 ? 's' : '') + ' to complete the registration.';
+    } else {
+      hintText = '\n> \u2705 All players assigned \u2014 finalizing...';
+    }
+  }
+
+  // Build player selector rows
+  const playerRows = [];
+  for (let i = 0; i < requiredPlayers; i++) {
+    const label = isDuo
+      ? '\ud83d\udc64  Player ' + (i + 1) + ' \u2014 search member...'
+      : 'Search for a Discord member...';
+    playerRows.push({
+      type: 1,
+      components: [{
+        type: 5,
+        custom_id: 'enr_player_sel_' + tid + '_' + teamId + '_' + i,
+        placeholder: label,
+        min_values: 0,
+        max_values: 1,
+      }],
+    });
+  }
 
   const inner = [];
-  inner.push(txt('## \u2705  Enroll Team\n> **Step 3 / 3** \u2014 Assign ' + (isMCL ? '2 players' : 'a player') + ' to **' + team.name + '** in **' + tournament.name + '**' + assignedLines));
+  inner.push(txt(
+    '## \u2795  Enroll Team\n> **Step 3 / 3** \u2014 Assign ' +
+    (isDuo ? '**' + requiredPlayers + ' players**' : 'a player') +
+    ' to **' + team.name + '** in **' + tournament.name + '**' +
+    statusText + hintText
+  ));
   if (error) inner.push(txt('> \u26a0\ufe0f  ' + error));
   inner.push(SEP);
   inner.push(...playerRows);
   inner.push(SEP);
-  inner.push({ type: 1, components: [
-    { type: 2, style: 4, label: '\ud83d\uddd1\ufe0f  Remove Team', custom_id: 'enr_remove_team_' + tid + '_' + teamId },
-    { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step2_' + tid },
-  ]});
+
+  if (isDraft) {
+    // Draft mode: show Cancel only — team is created automatically once minimum players are filled
+    inner.push({ type: 1, components: [
+      { type: 2, style: 4, label: '\u274c Cancel', custom_id: 'enr_back_step2_' + tid },
+    ]});
+  } else {
+    // Already enrolled — show Remove + Back
+    inner.push({ type: 1, components: [
+      { type: 2, style: 4, label: '\ud83d\uddd1\ufe0f  Remove Team', custom_id: 'enr_remove_team_' + tid + '_' + teamId },
+      { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step2_' + tid },
+    ]});
+  }
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x57F287, components: inner }] };
 }

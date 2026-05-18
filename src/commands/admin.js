@@ -13,7 +13,7 @@ module.exports = {
     if (!isManager(interaction.member)) {
       return interaction.reply({ content: '❌ Managers only.', ephemeral: true });
     }
-    await interaction.deferReply({ ephemeral: false });
+    await interaction.deferReply({ ephemeral: true });
     await interaction.editReply(buildManagePanelV2());
   },
 };

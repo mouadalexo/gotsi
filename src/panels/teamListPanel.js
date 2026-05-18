@@ -49,18 +49,17 @@ function buildTeamsListEmbed(tournamentId) {
   const MAX_TEAM_SLOTS = 18;
   const groupSize = enrolledTeams.length <= MAX_TEAM_SLOTS ? 1 : Math.ceil(enrolledTeams.length / MAX_TEAM_SLOTS);
 
+  const E_SMALLARROW = '<a:smallarrow:1472222559645863936>';
+
   function teamLine(team, tp, i) {
     const num     = String(i + 1);
     const spacing = needsPad ? (num.length === 1 ? '    ' : '   ') : '   ';
     let line = `**${num}${spacing}Team name   ${E_ARROW}   ${team.name}**`;
-    if (playersPerTeam === 1) {
-      const p = tp[0];
-      line += p ? `\n<@${p.discord_id}>` : '';
-    } else {
-      for (let s = 0; s < playersPerTeam; s++) {
-        const p = tp[s];
-        line += p ? `\n<@${p.discord_id}>` : '';
-      }
+    for (let s = 0; s < playersPerTeam; s++) {
+      const p       = tp.find(pl => (pl.slot || 0) === s);
+      const label   = playersPerTeam > 1 ? `Player ${s + 1}` : 'Player';
+      const mention = p ? `<@${p.discord_id}>` : '`No player assigned`';
+      line += `\n\u3000 ${label}   ${E_SMALLARROW}   ${mention}`;
     }
     return line;
   }
