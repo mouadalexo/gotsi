@@ -20,7 +20,7 @@ const env = loadEnv('/home/ubuntu/goatsi/.env');
 module.exports = {
   apps: [
     {
-      name: 'gotsi',
+      name: 'goatsi',
       script: 'node',
       args: 'src/index.js',
       cwd: '/home/ubuntu/goatsi',

@@ -14,14 +14,14 @@ const E_CROWN = '<:crownn:1501741176296964277>';
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
-    .setDescription('How to use the Gotsi tournament bot — full guide'),
+    .setDescription('How to use the Goatsi tournament bot — full guide'),
 
   async execute(interaction) {
     const inner = [
 
       // ── Title ─────────────────────────────────────────────────────────────
       txt(
-        `# ${E_CUP}  Gotsi — Tournament Bot Guide\n` +
+        `# ${E_CUP}  Goatsi — Tournament Bot Guide\n` +
         `> Complete guide for managers and admins on how to run NSEL & MCL seasons.`
       ),
       SEP,
@@ -104,7 +104,7 @@ module.exports = {
       ),
       SEP,
 
-      txt(`-# Night Stars  ${E_CUP}  Gotsi Bot  •  /help`),
+      txt(`-# Night Stars  ${E_CUP}  Goatsi Bot  •  /help`),
     ];
 
     return interaction.reply(box(0x5865F2, inner));
