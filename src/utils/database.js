@@ -83,6 +83,27 @@ const db = {
   },
   delete:      (table, id)        => { const d = load(); d[table] = d[table].filter(r => r.id !== id); save(); },
   deleteWhere: (table, predicate) => { const d = load(); d[table] = d[table].filter(r => !predicate(r)); save(); },
+  insertMany: (table, records) => {
+    const d = load();
+    const inserted = records.map(data => {
+      if (!d._nextId[table]) d._nextId[table] = 1;
+      const id = d._nextId[table]++;
+      const rec = { id, created_at: new Date().toISOString(), ...data };
+      d[table].push(rec);
+      return rec;
+    });
+    save();
+    return inserted;
+  },
+  updateMany: (table, updates) => {
+    // updates = [{id, data}, ...]
+    const d = load();
+    for (const { id, data } of updates) {
+      const idx = d[table].findIndex(r => r.id === id);
+      if (idx !== -1) d[table][idx] = { ...d[table][idx], ...data };
+    }
+    save();
+  },
   setConfig:   (key, value)       => { load().config[key] = value; save(); },
   getConfig:   (key)              => load().config[key],
 };

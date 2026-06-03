@@ -58,9 +58,10 @@ function runGroupDraw(tid) {
   const shuffled = [...ttRows].sort(() => Math.random() - 0.5);
   const gs       = t.teams_per_group || 4;
   const letters  = 'ABCDEFGHIJKLMNOP'.split('');
-  shuffled.forEach((tt, i) => {
-    db.update('tournament_teams', tt.id, { group_name: letters[Math.floor(i / gs)] });
-  });
+  db.updateMany('tournament_teams', shuffled.map((tt, i) => ({
+    id: tt.id,
+    data: { group_name: letters[Math.floor(i / gs)] },
+  })));
 }
 
 function generateGroupSchedule(tid) {
@@ -72,6 +73,7 @@ function generateGroupSchedule(tid) {
     if (!groups[g]) groups[g] = [];
     groups[g].push(tt);
   }
+  const toInsert = [];
   for (const [, gTeams] of Object.entries(groups)) {
     // Circle round-robin: each team plays exactly once per round
     const arr = [...gTeams];
@@ -86,7 +88,7 @@ function generateGroupSchedule(tid) {
         const home = roundTeams[i];
         const away = roundTeams[roundTeams.length - 1 - i];
         if (home && away) {
-          db.insert('matches', {
+          toInsert.push({
             tournament_id: tid,
             home_team_id:  home.team_id,
             away_team_id:  away.team_id,
@@ -99,6 +101,7 @@ function generateGroupSchedule(tid) {
       rotating.unshift(rotating.pop());
     }
   }
+  if (toInsert.length) db.insertMany('matches', toInsert);
 }
 
 function _reverseTTStandings(tid, match) {
@@ -507,27 +510,25 @@ async function handleBotolaInteraction(interaction) {
     const mgmtCh = await cli.channels.fetch(ch.management).catch(() => null);
     if (!mgmtCh) return interaction.editReply({ content: '❌ Management channel not found.' });
 
-    // Only delete THIS tournament's own panel messages (by stored refs).
-    // Never touch other tournaments' panels even if they share the same channel.
-    for (const refKey of ['panel1_ref', 'panel2_ref', 'panel3_ref']) {
+    // Delete old panels in parallel (only this tournament's refs, never others').
+    await Promise.all(['panel1_ref', 'panel2_ref', 'panel3_ref'].map(async refKey => {
       const ref = t[refKey];
-      if (ref?.messageId) {
-        try {
-          const old = await mgmtCh.messages.fetch(ref.messageId).catch(() => null);
-          if (old) await old.delete().catch(() => {});
-        } catch {}
-      }
-    }
+      if (!ref?.messageId) return;
+      const old = await mgmtCh.messages.fetch(ref.messageId).catch(() => null);
+      if (old) await old.delete().catch(() => {});
+    }));
     db.update('tournaments', tid, { panel1_ref: null, panel2_ref: null, panel3_ref: null });
 
+    // Send panels sequentially to preserve order in channel
     const msg1 = await mgmtCh.send(buildPanel1(t)).catch(() => null);
-    if (msg1) db.update('tournaments', tid, { panel1_ref: { channelId: mgmtCh.id, messageId: msg1.id } });
-
     const msg2 = await mgmtCh.send(buildPanel2(t)).catch(() => null);
-    if (msg2) db.update('tournaments', tid, { panel2_ref: { channelId: mgmtCh.id, messageId: msg2.id } });
-
     const msg3 = await mgmtCh.send(buildPanel3(t)).catch(() => null);
-    if (msg3) db.update('tournaments', tid, { panel3_ref: { channelId: mgmtCh.id, messageId: msg3.id } });
+    // Save all refs in one write
+    db.update('tournaments', tid, {
+      panel1_ref: msg1 ? { channelId: mgmtCh.id, messageId: msg1.id } : null,
+      panel2_ref: msg2 ? { channelId: mgmtCh.id, messageId: msg2.id } : null,
+      panel3_ref: msg3 ? { channelId: mgmtCh.id, messageId: msg3.id } : null,
+    });
 
     return interaction.editReply({ content: `✅ Panels sent to <#${ch.management}>.` });
   }
@@ -593,14 +594,12 @@ async function handleBotolaInteraction(interaction) {
 
     if (action === 'end_confirm') {
       await interaction.deferUpdate();
-      db.get('matches').filter(m => m.tournament_id === tid).forEach(m => db.delete('matches', m.id));
-      db.get('players').filter(p => p.tournament_id === tid).forEach(p => db.delete('players', p.id));
-      const ttRowsR = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      for (const tt of ttRowsR) {
-        const team = db.findById('teams', tt.team_id);
-        if (team && team.temporary) db.delete('teams', tt.team_id);
-        db.delete('tournament_teams', tt.id);
-      }
+      db.deleteWhere('matches', m => m.tournament_id === tid);
+      db.deleteWhere('players', p => p.tournament_id === tid);
+      const ttRowsR   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      const tmpTeamIdsR = ttRowsR.filter(tt => db.findById('teams', tt.team_id)?.temporary).map(tt => tt.team_id);
+      if (tmpTeamIdsR.length) db.deleteWhere('teams', t2 => tmpTeamIdsR.includes(t2.id));
+      db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
       await refreshAll(cli, tid);
       return;
@@ -1388,13 +1387,11 @@ Enter all group results first.`,
 
     if (action === 'clearteams_confirm') {
       await interaction.deferUpdate();
-      const ttRowsC = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      for (const tt of ttRowsC) {
-        const team = db.findById('teams', tt.team_id);
-        if (team && team.temporary) db.delete('teams', tt.team_id);
-        db.delete('tournament_teams', tt.id);
-      }
-      db.get('players').filter(p => p.tournament_id === tid).forEach(p => db.delete('players', p.id));
+      const ttRowsC   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      const tmpTeamIdsC = ttRowsC.filter(tt => db.findById('teams', tt.team_id)?.temporary).map(tt => tt.team_id);
+      if (tmpTeamIdsC.length) db.deleteWhere('teams', t2 => tmpTeamIdsC.includes(t2.id));
+      db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
+      db.deleteWhere('players', p => p.tournament_id === tid);
       return refreshPanel(cli, getT(tid), 2);
     }
 
