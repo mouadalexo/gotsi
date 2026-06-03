@@ -608,11 +608,13 @@ async function handleBotolaInteraction(interaction) {
     // Settings — show inline panel with select menus
     if (action === 'settings') {
       const cfg     = getTplCfg(t.template || '');
+      // When cfg locks a field to a single value, always enforce that value
+      // regardless of what the tournament currently stores (handles stale data).
       const pending = {
-        team_count:        t.team_count        || cfg.team_count_opts[0],
-        teams_per_group:   t.teams_per_group   || cfg.tpg_opts[0],
-        advance_per_group: t.advance_per_group || cfg.apg_opts[0],
-        players_per_team:  t.players_per_team  || cfg.ppt_opts[0],
+        team_count:        cfg.team_count_opts.length === 1 ? cfg.team_count_opts[0] : (t.team_count        || cfg.team_count_opts[0]),
+        teams_per_group:   cfg.tpg_opts.length        === 1 ? cfg.tpg_opts[0]        : (t.teams_per_group   || cfg.tpg_opts[0]),
+        advance_per_group: cfg.apg_opts.length        === 1 ? cfg.apg_opts[0]        : (t.advance_per_group || cfg.apg_opts[0]),
+        players_per_team:  cfg.ppt_opts.length        === 1 ? cfg.ppt_opts[0]        : (t.players_per_team  || cfg.ppt_opts[0]),
       };
       db.setConfig(`p1_settings_${interaction.user.id}_${tid}`, pending);
       return interaction.update(buildSettingsPanel(t, pending));
@@ -640,11 +642,12 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'settings_save') {
       const pending = db.getConfig(`p1_settings_${interaction.user.id}_${tid}`);
       if (pending) {
+        const cfgSave = getTplCfg(t.template || '');
         db.update('tournaments', tid, {
-          team_count:        pending.team_count,
-          teams_per_group:   pending.teams_per_group,
-          advance_per_group: pending.advance_per_group,
-          players_per_team:  pending.players_per_team,
+          team_count:        cfgSave.team_count_opts.length === 1 ? cfgSave.team_count_opts[0] : pending.team_count,
+          teams_per_group:   cfgSave.tpg_opts.length        === 1 ? cfgSave.tpg_opts[0]        : pending.teams_per_group,
+          advance_per_group: cfgSave.apg_opts.length        === 1 ? cfgSave.apg_opts[0]        : pending.advance_per_group,
+          players_per_team:  cfgSave.ppt_opts.length        === 1 ? cfgSave.ppt_opts[0]        : pending.players_per_team,
         });
         db.setConfig(`p1_settings_${interaction.user.id}_${tid}`, null);
       }
@@ -1419,6 +1422,12 @@ Enter all group results first.`,
     // Toggle post / preview mode
     if (action === 'togglemode') {
       db.update('tournaments', tid, { preview_mode: !t.preview_mode });
+      const freshT = getT(tid);
+      return interaction.update(buildPanel3(freshT));
+    }
+
+    if (action === 'toggletag') {
+      db.update('tournaments', tid, { tag_on: !t.tag_on });
       const freshT = getT(tid);
       return interaction.update(buildPanel3(freshT));
     }
