@@ -888,7 +888,7 @@ Enter all group results first.`,
 
       // Refresh Panel 1
       const freshT = db.findById('tournaments', tid);
-      await refreshPanel(cli, freshT, 1);
+      await refreshAll(cli, tid);
 
       return interaction.editReply({
         content:
@@ -1059,7 +1059,7 @@ Enter all group results first.`,
           db.insert('tournament_teams', { tournament_id: tid, team_id: customTeam.id, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
         }
         const freshT = getT(tid);
-        refreshPanel(cli, freshT, 2).catch(() => {});
+        refreshAll(cli, tid).catch(() => {});
         return interaction.update(buildPanel2(freshT));
       }
       const teamId = parseInt(interaction.values[0]);
@@ -1070,7 +1070,7 @@ Enter all group results first.`,
         db.insert('tournament_teams', { tournament_id: tid, team_id: teamId, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
       }
       const freshT = getT(tid);
-      refreshPanel(cli, freshT, 2).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(freshT));
     }
 
@@ -1213,7 +1213,7 @@ Enter all group results first.`,
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
-      refreshPanel(cli, getT(tid), 2).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
@@ -1279,7 +1279,7 @@ Enter all group results first.`,
           }
         }
       })().catch(() => {});
-      refreshPanel(cli, getT(tid), 2).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
@@ -1293,7 +1293,7 @@ Enter all group results first.`,
       const freshT = getT(tid);
       // Modal submissions must be acknowledged — silently defer+delete, then refresh the panel
       await interaction.deferReply({ ephemeral: true }).catch(() => {});
-      await refreshPanel(cli, freshT, 2);
+      await refreshAll(cli, tid);
       await interaction.deleteReply().catch(() => {});
       return;
     }
@@ -1371,7 +1371,7 @@ Enter all group results first.`,
         }
       })().catch(() => {});
       const freshT = getT(tid);
-      refreshPanel(cli, freshT, 2).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(freshT));
     }
 
@@ -1398,7 +1398,7 @@ Enter all group results first.`,
       if (tmpTeamIdsC.length) db.deleteWhere('teams', t2 => tmpTeamIdsC.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.deleteWhere('players', p => p.tournament_id === tid);
-      refreshPanel(cli, getT(tid), 2).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
