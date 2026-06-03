@@ -1208,8 +1208,7 @@ Enter all group results first.`,
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
-      await interaction.deferUpdate();
-      return refreshPanel(cli, getT(tid), 2);
+      return interaction.update(buildPanel2(getT(tid)));
     }
 
     if (action.startsWith('add_confirm_')) {
@@ -1274,8 +1273,7 @@ Enter all group results first.`,
           }
         }
       })().catch(() => {});
-      await interaction.deferUpdate();
-      return refreshPanel(cli, getT(tid), 2);
+      return interaction.update(buildPanel2(getT(tid)));
     }
 
     if (action.startsWith('player_modal_')) {
@@ -1386,13 +1384,12 @@ Enter all group results first.`,
     }
 
     if (action === 'clearteams_confirm') {
-      await interaction.deferUpdate();
       const ttRowsC   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
       const tmpTeamIdsC = ttRowsC.filter(tt => db.findById('teams', tt.team_id)?.temporary).map(tt => tt.team_id);
       if (tmpTeamIdsC.length) db.deleteWhere('teams', t2 => tmpTeamIdsC.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.deleteWhere('players', p => p.tournament_id === tid);
-      return refreshPanel(cli, getT(tid), 2);
+      return interaction.update(buildPanel2(getT(tid)));
     }
 
         if (action === 'closereg') {
