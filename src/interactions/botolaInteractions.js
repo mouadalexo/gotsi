@@ -25,7 +25,18 @@ function noPermission(i) {
   return i.reply({ content: '❌ Managers only.', ephemeral: true });
 }
 
-function getT(tid) { return db.findById('tournaments', tid); }
+function getT(tid) {
+  const t = db.findById('tournaments', tid);
+  if (!t) return t;
+  const cfg = getTplCfg(t.template || '');
+  const fix = {};
+  if (cfg.tpg_opts.length        === 1 && t.teams_per_group   !== cfg.tpg_opts[0])        fix.teams_per_group   = cfg.tpg_opts[0];
+  if (cfg.apg_opts.length        === 1 && t.advance_per_group !== cfg.apg_opts[0])        fix.advance_per_group = cfg.apg_opts[0];
+  if (cfg.ppt_opts.length        === 1 && t.players_per_team  !== cfg.ppt_opts[0])        fix.players_per_team  = cfg.ppt_opts[0];
+  if (cfg.team_count_opts.length === 1 && t.team_count        !== cfg.team_count_opts[0]) fix.team_count        = cfg.team_count_opts[0];
+  if (Object.keys(fix).length) { db.update('tournaments', tid, fix); Object.assign(t, fix); }
+  return t;
+}
 
 async function refreshPanel(client, t, panelNum) {
   try {

@@ -28,5 +28,28 @@ module.exports = {
     }
 
     client.user.setActivity('NS eFootball Manager', { type: 3 });
+
+    // Auto-correct cfg-locked fields on all tournaments and refresh their panels
+    setTimeout(async () => {
+      try {
+        const { db }       = require('../utils/database');
+        const { getTplCfg } = require('../utils/templateConfig');
+        const { refreshAll } = require('../interactions/botolaInteractions');
+        const tournaments = db.get('tournaments');
+        const toRefresh = [];
+        for (const t of tournaments) {
+          const cfg = getTplCfg(t.template || '');
+          const fix = {};
+          if (cfg.tpg_opts.length        === 1 && t.teams_per_group   !== cfg.tpg_opts[0])        fix.teams_per_group   = cfg.tpg_opts[0];
+          if (cfg.apg_opts.length        === 1 && t.advance_per_group !== cfg.apg_opts[0])        fix.advance_per_group = cfg.apg_opts[0];
+          if (cfg.ppt_opts.length        === 1 && t.players_per_team  !== cfg.ppt_opts[0])        fix.players_per_team  = cfg.ppt_opts[0];
+          if (cfg.team_count_opts.length === 1 && t.team_count        !== cfg.team_count_opts[0]) fix.team_count        = cfg.team_count_opts[0];
+          if (Object.keys(fix).length) { db.update('tournaments', t.id, fix); toRefresh.push(t.id); }
+          else toRefresh.push(t.id);
+        }
+        await Promise.all(toRefresh.map(tid => refreshAll(client, tid).catch(() => {})));
+        console.log(`[BOT] Startup panel refresh done (${toRefresh.length} tournament(s)).`);
+      } catch (e) { console.error('[BOT] Startup panel refresh error:', e.message); }
+    }, 3000);
   },
 };

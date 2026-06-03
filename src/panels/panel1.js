@@ -1,5 +1,6 @@
 'use strict';
-const { db } = require('../utils/database');
+const { db }        = require('../utils/database');
+const { getTplCfg } = require('../utils/templateConfig');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -38,10 +39,13 @@ function buildPanel1(tournament) {
     const current  = ttRows.length;
     const isFull   = current >= required;
     const countStr = t.team_count ? `${current}/${required}` : `${current}`;
+    const _cfg1    = getTplCfg(t.template || '');
+    const _tpg     = _cfg1.tpg_opts.length        === 1 ? _cfg1.tpg_opts[0]   : (t.teams_per_group   || 4);
+    const _apg     = _cfg1.apg_opts.length        === 1 ? _cfg1.apg_opts[0]   : (t.advance_per_group || 2);
 
     inner.push(txt(
       `> **Status:** Setup  |  **Teams:** ${countStr}\n` +
-      `> **Type:** \`${t.type || 'group_knockout'}\`  |  **Groups of:** ${t.teams_per_group || 4}  |  **Advance:** ${t.advance_per_group || 2}/group`
+      `> **Type:** \`${t.type || 'group_knockout'}\`  |  **Groups of:** ${_tpg}  |  **Advance:** ${_apg}/group`
     ));
     inner.push(SEP);
 
