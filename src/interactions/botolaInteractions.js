@@ -1670,4 +1670,4 @@ Enter all group results first.`,
   }
 }
 
-module.exports = { handleBotolaInteraction };
+module.exports = { handleBotolaInteraction, refreshAll };
