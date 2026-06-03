@@ -1012,8 +1012,8 @@ Enter all group results first.`,
           ]}],
         });
       }
-      // Skip modal — show dropdown of all teams sorted by most used
-      return interaction.update(buildTeamSearchResults(tid, ''));
+      // Skip modal — open private dropdown for this manager only
+      return interaction.reply({ ...buildTeamSearchResults(tid, ''), ephemeral: true });
     }
 
     if (action === 'addteam_search') {
@@ -1059,6 +1059,7 @@ Enter all group results first.`,
           db.insert('tournament_teams', { tournament_id: tid, team_id: customTeam.id, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
         }
         const freshT = getT(tid);
+        refreshPanel(cli, freshT, 2).catch(() => {});
         return interaction.update(buildPanel2(freshT));
       }
       const teamId = parseInt(interaction.values[0]);
@@ -1069,6 +1070,7 @@ Enter all group results first.`,
         db.insert('tournament_teams', { tournament_id: tid, team_id: teamId, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
       }
       const freshT = getT(tid);
+      refreshPanel(cli, freshT, 2).catch(() => {});
       return interaction.update(buildPanel2(freshT));
     }
 
@@ -1211,6 +1213,7 @@ Enter all group results first.`,
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
       db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
+      refreshPanel(cli, getT(tid), 2).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
@@ -1276,6 +1279,7 @@ Enter all group results first.`,
           }
         }
       })().catch(() => {});
+      refreshPanel(cli, getT(tid), 2).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
@@ -1326,10 +1330,11 @@ Enter all group results first.`,
         const tm = db.findById('teams', tt.team_id) || { name: 'Unknown', id: tt.team_id };
         return { label: tm.name.slice(0, 100), value: String(tm.id) };
       });
-      return interaction.update({
+      return interaction.reply({
         flags: 32768,
+        ephemeral: true,
         components: [{ type: 17, accent_color: 0xED4245, components: [
-          { type: 10, content: '**\ud83d\uddd1\ufe0f  Remove Team \u2014 Select a team to unenroll**' },
+          { type: 10, content: '**\ud83d\uddd1\ufe0f  Remove Team \u2014 Select a team to unenroll**\n> *Only you can see this panel.*' },
           SEP,
           { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_removeteam_sel`, placeholder: 'Select a team to remove...', options: opts.slice(0, 25) }] },
           { type: 1, components: [{ type: 2, style: 2, label: 'Cancel', custom_id: `p2_${tid}_refresh` }] },
@@ -1366,6 +1371,7 @@ Enter all group results first.`,
         }
       })().catch(() => {});
       const freshT = getT(tid);
+      refreshPanel(cli, freshT, 2).catch(() => {});
       return interaction.update(buildPanel2(freshT));
     }
 
@@ -1373,7 +1379,7 @@ Enter all group results first.`,
       const ttCount = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).length;
       if (!ttCount) return interaction.reply({ content: '⚠️ No teams to clear.', ephemeral: true });
       const SEP_U = { type: 14, divider: true, spacing: 1 };
-      return interaction.update({
+      return interaction.reply({ ephemeral: true,
         flags: 32768,
         components: [{ type: 17, accent_color: 0xED4245, components: [
           { type: 10, content: `**⚠️  Clear All Teams**\nThis will remove all **${ttCount}** enrolled teams and their players from this tournament. This cannot be undone.` },
@@ -1392,6 +1398,7 @@ Enter all group results first.`,
       if (tmpTeamIdsC.length) db.deleteWhere('teams', t2 => tmpTeamIdsC.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.deleteWhere('players', p => p.tournament_id === tid);
+      refreshPanel(cli, getT(tid), 2).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
 
