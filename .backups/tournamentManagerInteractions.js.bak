@@ -27,70 +27,6 @@ async function refreshSubPanel(client, tournamentId) {
   } catch {}
 }
 
-// Reverse a played group match's effect on standings (used when editing an existing result)
-function _reverseGroupStandings(match, tournamentId) {
-  const hs = match.home_score, as_ = match.away_score;
-  if (hs == null || as_ == null) return;
-  const t  = db.findById('tournaments', tournamentId);
-  const wp = t?.win_pts  ?? 3;
-  const dp = t?.draw_pts ?? 1;
-  const lp = t?.loss_pts ?? 0;
-  const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
-  for (const [teamId, scored, conceded, won, lost, drew] of [
-    [match.home_team_id, hs, as_, homeWon, awayWon, draw],
-    [match.away_team_id, as_, hs, awayWon, homeWon, draw],
-  ]) {
-    const tt = db.findOne('tournament_teams', r => r.tournament_id === tournamentId && r.team_id === teamId);
-    if (tt) db.update('tournament_teams', tt.id, {
-      goals_for:     Math.max(0, (tt.goals_for     || 0) - scored),
-      goals_against: Math.max(0, (tt.goals_against || 0) - conceded),
-      wins:          Math.max(0, (tt.wins          || 0) - (won  ? 1 : 0)),
-      draws:         Math.max(0, (tt.draws         || 0) - (drew ? 1 : 0)),
-      losses:        Math.max(0, (tt.losses        || 0) - (lost ? 1 : 0)),
-      points:        Math.max(0, (tt.points        || 0) - (won ? wp : drew ? dp : lp)),
-    });
-  }
-}
-
-// Auto-advance knockout: once all matches in the current round are played,
-// generate the next round from winners (or close the tournament if the final is done).
-async function tryAdvanceKnockout(client, tid, currentRound) {
-  const roundMatches = db.get('matches').filter(m =>
-    m.tournament_id === tid && m.stage === 'knockout' && m.round === currentRound
-  );
-  if (!roundMatches.length || roundMatches.some(m => m.status !== 'played')) return;
-
-  const nextRound = currentRound / 2;
-
-  // Final just finished — close the tournament
-  if (nextRound < 1) {
-    db.update('tournaments', tid, { status: 'finished' });
-    return;
-  }
-
-  // Collect winners in bracket order (preserve seeding)
-  const winners = roundMatches.map(m => {
-    if (m.home_score > m.away_score) return m.home_team_id;
-    if (m.away_score > m.home_score) return m.away_team_id;
-    return m.pen_winner ?? m.home_team_id; // draw resolved by penalties
-  });
-
-  // Pair consecutive winners: 1 vs 2, 3 vs 4, ...
-  for (let i = 0; i + 1 < winners.length; i += 2) {
-    db.insert('matches', {
-      tournament_id: tid,
-      home_team_id:  winners[i],
-      away_team_id:  winners[i + 1],
-      stage:         'knockout',
-      round:         nextRound,
-      leg:           1,
-      status:        'pending',
-      home_score:    null,
-      away_score:    null,
-    });
-  }
-}
-
 // ── Main handler ──────────────────────────────────────────────────────────────
 async function handleTournamentManagerInteraction(interaction) {
   const id = interaction.customId;
@@ -117,6 +53,7 @@ async function handleTournamentManagerInteraction(interaction) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
     const template = id.replace('tmgr_new_', '');
     const modal = buildNewSeasonModal(template);
+    // Reuse existing modal but remap customId for our handler
     modal.setCustomId(`tmgr_create_modal_${template}`);
     return interaction.showModal(modal);
   }
@@ -234,10 +171,10 @@ async function handleTournamentManagerInteraction(interaction) {
   // ── Draw Groups ───────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_drawgroups_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid    = parseInt(id.replace('tmgr_drawgroups_', ''));
-    const t      = db.findById('tournaments', tid);
+    const tid   = parseInt(id.replace('tmgr_drawgroups_', ''));
+    const t     = db.findById('tournaments', tid);
     const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-    const shuffled  = [...ttRows].sort(() => Math.random() - 0.5);
+    const shuffled = [...ttRows].sort(() => Math.random() - 0.5);
     const groupSize = t?.group_size || 4;
     const letters   = 'ABCDEFGHIJKLMNOP';
 
@@ -251,15 +188,13 @@ async function handleTournamentManagerInteraction(interaction) {
   // ── Generate Matches ──────────────────────────────────────────────────────
   if (id.startsWith('tmgr_genmatches_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid        = parseInt(id.replace('tmgr_genmatches_', ''));
-    const t          = db.findById('tournaments', tid);
-    const encounters = Math.max(1, t?.encounters || 1);
-    const ttRows     = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+    const tid   = parseInt(id.replace('tmgr_genmatches_', ''));
+    const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
 
     // Delete existing pending group matches
     db.deleteWhere('matches', m => m.tournament_id === tid && m.stage === 'group' && m.status === 'pending');
 
-    // Group teams by group_name
+    // Group by group_name
     const groups = {};
     for (const tt of ttRows) {
       const g = tt.group_name || 'A';
@@ -267,36 +202,15 @@ async function handleTournamentManagerInteraction(interaction) {
       groups[g].push(tt.team_id);
     }
 
-    // Round-robin per group using Berger rotation.
-    // Odd-n groups use a null "bye" slot so every pair is generated correctly.
-    // encounters=2 generates a return leg (home/away swapped) as extra rounds.
+    // Round-robin per group
     for (const [, gTeams] of Object.entries(groups)) {
-      const rawN = gTeams.length;
-      const teams = rawN % 2 === 0 ? [...gTeams] : [...gTeams, null]; // pad to even
-      const n = teams.length;
-
-      for (let enc = 0; enc < encounters; enc++) {
-        const roundTeams = [...teams];
-        const roundOffset = enc * (n - 1); // round numbers for 2nd encounter continue from where 1st left off
-        for (let round = 0; round < n - 1; round++) {
-          for (let i = 0; i < n / 2; i++) {
-            // Swap home/away for the return leg (enc > 0)
-            const home = enc === 0 ? roundTeams[i]         : roundTeams[n - 1 - i];
-            const away = enc === 0 ? roundTeams[n - 1 - i] : roundTeams[i];
-            if (home === null || away === null) continue; // bye — skip
-            db.insert('matches', {
-              tournament_id: tid,
-              home_team_id:  home,
-              away_team_id:  away,
-              stage:         'group',
-              round:         roundOffset + round + 1,
-              status:        'pending',
-              home_score:    null,
-              away_score:    null,
-            });
-          }
-          roundTeams.splice(1, 0, roundTeams.pop()); // Berger table rotation
+      const n = gTeams.length;
+      for (let round = 0; round < n - 1; round++) {
+        for (let i = 0; i < Math.floor(n / 2); i++) {
+          const home = gTeams[i], away = gTeams[n - 1 - i];
+          db.insert('matches', { tournament_id: tid, home_team_id: home, away_team_id: away, stage: 'group', round: round + 1, status: 'pending', home_score: null, away_score: null });
         }
+        gTeams.splice(1, 0, gTeams.pop()); // rotate
       }
     }
 
@@ -344,36 +258,22 @@ async function handleTournamentManagerInteraction(interaction) {
     const teams   = db.get('teams');
     const home    = teams.find(t => t.id === match?.home_team_id)?.name || 'Home';
     const away    = teams.find(t => t.id === match?.away_team_id)?.name || 'Away';
-    const isKO    = match?.stage === 'knockout';
 
-    const modal = new ModalBuilder()
-      .setCustomId(`tmgr_result_modal_${matchId}_${tid}`)
-      .setTitle(`${home} vs ${away}`)
-      .addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('home_score').setLabel(`${home} Score`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('away_score').setLabel(`${away} Score`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
-        ),
-      );
-
-    if (isKO) {
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('home_pens').setLabel(`${home} Penalties (draw only)`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank if not a draw').setRequired(false)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('away_pens').setLabel(`${away} Penalties (draw only)`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank if not a draw').setRequired(false)
-        ),
-      );
-    }
-
-    return interaction.showModal(modal);
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId(`tmgr_result_modal_${matchId}_${tid}`)
+        .setTitle(`${home} vs ${away}`)
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('home_score').setLabel(`${home} Score`)
+              .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('away_score').setLabel(`${away} Score`)
+              .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
+          )
+        )
+    );
   }
 
   // ── Result modal submit ───────────────────────────────────────────────────
@@ -382,7 +282,7 @@ async function handleTournamentManagerInteraction(interaction) {
     const matchId = parseInt(parts[0]);
     const tid     = parseInt(parts[1]);
 
-    const hs  = parseInt(interaction.fields.getTextInputValue('home_score'));
+    const hs = parseInt(interaction.fields.getTextInputValue('home_score'));
     const as_ = parseInt(interaction.fields.getTextInputValue('away_score'));
 
     if (isNaN(hs) || isNaN(as_)) {
@@ -392,66 +292,24 @@ async function handleTournamentManagerInteraction(interaction) {
     const match = db.findById('matches', matchId);
     if (!match) return interaction.reply({ content: '❌ Match not found.', ephemeral: true });
 
-    const t  = db.findById('tournaments', tid);
-    const wp = t?.win_pts  ?? 3;
-    const dp = t?.draw_pts ?? 1;
-    const lp = t?.loss_pts ?? 0;
+    db.update('matches', matchId, { status: 'played', home_score: hs, away_score: as_ });
 
-    // ── Knockout result ──────────────────────────────────────────────────
-    if (match.stage === 'knockout') {
-      if (hs === as_) {
-        let hp = NaN, ap = NaN;
-        try { hp = parseInt(interaction.fields.getTextInputValue('home_pens')); } catch {}
-        try { ap = parseInt(interaction.fields.getTextInputValue('away_pens')); } catch {}
-        if (isNaN(hp) || isNaN(ap) || hp === ap) {
-          return interaction.reply({ content: '❌ Knockout draw — fill in both Penalty fields with different scores.', ephemeral: true });
-        }
-        const penWinner = hp > ap ? match.home_team_id : match.away_team_id;
-        db.update('matches', matchId, {
-          status: 'played', home_score: hs, away_score: as_,
-          home_pens: hp, away_pens: ap, pen_winner: penWinner,
-        });
-      } else {
-        db.update('matches', matchId, {
-          status: 'played', home_score: hs, away_score: as_,
-          home_pens: null, away_pens: null, pen_winner: null,
-        });
-      }
-      await tryAdvanceKnockout(interaction.client, tid, match.round);
-      await interaction.reply({ content: `✅ KO result saved: **${hs} — ${as_}**`, ephemeral: true });
-      return refreshSubPanel(interaction.client, tid);
+    // Update standings for group matches
+    if (match.stage === 'group') {
+      const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
+      const homeTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.home_team_id);
+      const awayTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.away_team_id);
+      if (homeTT) db.update('tournament_teams', homeTT.id, {
+        wins: (homeTT.wins||0) + (homeWon?1:0), draws: (homeTT.draws||0) + (draw?1:0), losses: (homeTT.losses||0) + (awayWon?1:0),
+        goals_for: (homeTT.goals_for||0) + hs, goals_against: (homeTT.goals_against||0) + as_,
+        points: (homeTT.points||0) + (homeWon?3:draw?1:0),
+      });
+      if (awayTT) db.update('tournament_teams', awayTT.id, {
+        wins: (awayTT.wins||0) + (awayWon?1:0), draws: (awayTT.draws||0) + (draw?1:0), losses: (awayTT.losses||0) + (homeWon?1:0),
+        goals_for: (awayTT.goals_for||0) + as_, goals_against: (awayTT.goals_against||0) + hs,
+        points: (awayTT.points||0) + (awayWon?3:draw?1:0),
+      });
     }
-
-    // ── Group result ─────────────────────────────────────────────────────
-    // Reverse old standings if this is an edit of an already-played match
-    if (match.status === 'played' && match.home_score != null) {
-      _reverseGroupStandings(match, tid);
-    }
-
-    db.update('matches', matchId, {
-      status: 'played', home_score: hs, away_score: as_,
-      home_pens: null, away_pens: null, pen_winner: null,
-    });
-
-    const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
-    const homeTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.home_team_id);
-    const awayTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.away_team_id);
-    if (homeTT) db.update('tournament_teams', homeTT.id, {
-      wins:          (homeTT.wins          || 0) + (homeWon ? 1 : 0),
-      draws:         (homeTT.draws         || 0) + (draw    ? 1 : 0),
-      losses:        (homeTT.losses        || 0) + (awayWon ? 1 : 0),
-      goals_for:     (homeTT.goals_for     || 0) + hs,
-      goals_against: (homeTT.goals_against || 0) + as_,
-      points:        (homeTT.points        || 0) + (homeWon ? wp : draw ? dp : lp),
-    });
-    if (awayTT) db.update('tournament_teams', awayTT.id, {
-      wins:          (awayTT.wins          || 0) + (awayWon ? 1 : 0),
-      draws:         (awayTT.draws         || 0) + (draw    ? 1 : 0),
-      losses:        (awayTT.losses        || 0) + (homeWon ? 1 : 0),
-      goals_for:     (awayTT.goals_for     || 0) + as_,
-      goals_against: (awayTT.goals_against || 0) + hs,
-      points:        (awayTT.points        || 0) + (awayWon ? wp : draw ? dp : lp),
-    });
 
     await interaction.reply({ content: `✅ Result saved: **${hs} — ${as_}**`, ephemeral: true });
     return refreshSubPanel(interaction.client, tid);
@@ -460,11 +318,9 @@ async function handleTournamentManagerInteraction(interaction) {
   // ── Start Knockout ────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_knockout_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid     = parseInt(id.replace('tmgr_knockout_', ''));
-    const t       = db.findById('tournaments', tid);
-    const advance = t?.advance_per_group || 2;
-    const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-
+    const tid  = parseInt(id.replace('tmgr_knockout_', ''));
+    const t    = db.findById('tournaments', tid);
+    const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
     const groups = {};
     for (const tt of ttRows) {
       const g = tt.group_name || 'A';
@@ -474,37 +330,19 @@ async function handleTournamentManagerInteraction(interaction) {
 
     const qualifiers = [];
     for (const gTeams of Object.values(groups)) {
-      // Sort by points → goal difference → goals scored (three-level tiebreaker)
-      gTeams.sort((a, b) => {
-        const pd = (b.points || 0) - (a.points || 0);
-        if (pd !== 0) return pd;
-        const gd = ((b.goals_for || 0) - (b.goals_against || 0)) - ((a.goals_for || 0) - (a.goals_against || 0));
-        if (gd !== 0) return gd;
-        return (b.goals_for || 0) - (a.goals_for || 0);
-      });
-      for (let i = 0; i < advance && i < gTeams.length; i++) {
-        qualifiers.push(gTeams[i].team_id);
-      }
+      gTeams.sort((a, b) => (b.points||0) - (a.points||0));
+      if (gTeams[0]) qualifiers.push(gTeams[0].team_id);
+      if (gTeams[1]) qualifiers.push(gTeams[1].team_id);
     }
 
     if (qualifiers.length < 2) {
       return interaction.reply({ content: '❌ Need at least 2 qualified teams.', ephemeral: true });
     }
 
-    const shuffled   = [...qualifiers].sort(() => Math.random() - 0.5);
+    const shuffled = [...qualifiers].sort(() => Math.random() - 0.5);
     const numMatches = Math.floor(shuffled.length / 2);
     for (let i = 0; i + 1 < shuffled.length; i += 2) {
-      db.insert('matches', {
-        tournament_id: tid,
-        home_team_id:  shuffled[i],
-        away_team_id:  shuffled[i + 1],
-        stage:         'knockout',
-        round:         numMatches,
-        leg:           1,
-        status:        'pending',
-        home_score:    null,
-        away_score:    null,
-      });
+      db.insert('matches', { tournament_id: tid, home_team_id: shuffled[i], away_team_id: shuffled[i+1], stage: 'knockout', round: numMatches, leg: 1, status: 'pending', home_score: null, away_score: null });
     }
 
     db.update('tournaments', tid, { status: 'active' });

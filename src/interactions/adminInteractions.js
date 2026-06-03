@@ -7,7 +7,7 @@ async function handleAdminInteraction(interaction) {
   const _origReply = interaction.reply.bind(interaction);
   interaction.reply = async (opts) => {
     const r = await _origReply(opts);
-    if (opts && opts.ephemeral) setTimeout(() => interaction.deleteReply().catch(() => {}), 8_000);
+    if (opts && opts.ephemeral) setTimeout(() => interaction.deleteReply().catch(() => {}), 5_000);
     return r;
   };
   const id = interaction.customId;
@@ -38,6 +38,52 @@ async function handleAdminInteraction(interaction) {
     });
 
     return interaction.update(buildChannelPickerPanel(template));
+  }
+
+  // adm_setregrole_{TEMPLATE} — open modal to enter a Role ID
+  if (id.startsWith('adm_setregrole_') && !id.includes('_modal_')) {
+    const template = id.replace('adm_setregrole_', '');
+    const t = db.get('tournaments')
+      .filter(t2 => t2.template === template)
+      .sort((a, b) => b.season - a.season)[0];
+    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+
+    const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId(`adm_setregrole_modal_${template}`)
+        .setTitle(`Set ${template} Registration Role`)
+        .addComponents(new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('role_id')
+            .setLabel('Role ID — right-click role → Copy ID. Blank = remove.')
+            .setStyle(TextInputStyle.Short)
+            .setValue(t.registration_role_id || '')
+            .setPlaceholder('1234567890123456789')
+            .setRequired(false)
+        ))
+    );
+  }
+
+  // adm_setregrole_modal_{TEMPLATE} — save registration role from modal
+  if (id.startsWith('adm_setregrole_modal_')) {
+    const template = id.replace('adm_setregrole_modal_', '');
+    const t = db.get('tournaments')
+      .filter(t2 => t2.template === template)
+      .sort((a, b) => b.season - a.season)[0];
+    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+
+    const raw    = interaction.fields.getTextInputValue('role_id').trim();
+    const roleId = raw.replace(/\D/g, '') || null;
+    db.update('tournaments', t.id, { registration_role_id: roleId });
+
+    await interaction.reply({
+      content: roleId
+        ? `✅ **${template}** registration role set to <@&${roleId}>. Players will receive it on enrollment.`
+        : `✅ **${template}** registration role cleared.`,
+      ephemeral: true,
+    });
+    return interaction.update(buildAdminPanel());
   }
 }
 

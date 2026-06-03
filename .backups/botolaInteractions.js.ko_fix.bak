@@ -206,31 +206,20 @@ function generateKnockoutBracket(tid) {
 }
 
 function advanceKnockout(tid) {
-  const matches = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
-
-  // Round numbering: QF=4, SF=2, Final=1 (higher = earlier stage).
-  // We want the MOST ADVANCED completed round = lowest round number where
-  // every match is played. Sort ascending so index-0 = most recent stage.
-  const completedRounds = [...new Set(matches.filter(m => m.status === 'played').map(m => m.round))]
-    .filter(r => matches.filter(m => m.round === r).every(m => m.status === 'played'))
-    .sort((a, b) => a - b);                           // ascending: 1 < 2 < 4
-
-  if (!completedRounds.length) return false;
-  const curRound  = completedRounds[0];               // lowest = most advanced stage
-  const curPlayed = matches.filter(m => m.round === curRound && m.status === 'played');
-  const nextRound = Math.floor(curRound / 2);
-
+  const matches     = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
+  const playedRounds= [...new Set(matches.filter(m => m.status === 'played').map(m => m.round))].sort((a, b) => b - a);
+  if (!playedRounds.length) return false;
+  const curRound    = playedRounds[0];
+  const curPlayed   = matches.filter(m => m.round === curRound && m.status === 'played');
+  const nextRound   = Math.floor(curRound / 2);
   if (nextRound < 1) {
     db.update('tournaments', tid, { status: 'finished' });
-    return 'finished';
+    return true;
   }
-
-  // Guard: next round already exists — nothing to do (prevents double-advance)
-  if (matches.some(m => m.round === nextRound)) return false;
-
   const winners = curPlayed.map(m => {
     if (m.home_score > m.away_score) return m.home_team_id;
     if (m.away_score > m.home_score) return m.away_team_id;
+    // Draw in knockout: use penalty winner
     return m.pen_winner || m.away_team_id;
   });
   for (let i = 0; i + 1 < winners.length; i += 2) {
@@ -241,7 +230,7 @@ function advanceKnockout(tid) {
       status: 'pending', home_score: null, away_score: null,
     });
   }
-  return nextRound;
+  return true;
 }
 
 // ── Pending match panel ───────────────────────────────────────────────────────
@@ -386,15 +375,6 @@ async function postToChannel(client, channelId, payload) {
   if (!channelId) return null;
   const ch = await client.channels.fetch(channelId).catch(() => null);
   if (!ch) return null;
-  return ch.send(payload).catch(() => null);
-}
-
-// Ping role (plain msg) then post embed — two separate messages, no tag for teams list
-async function postWithPing(client, channelId, roleId, payload) {
-  if (!channelId) return null;
-  const ch = await client.channels.fetch(channelId).catch(() => null);
-  if (!ch) return null;
-  if (roleId) await ch.send({ content: '<@&' + roleId + '>' }).catch(() => {});
   return ch.send(payload).catch(() => null);
 }
 
@@ -1486,8 +1466,7 @@ Enter all group results first.`,
         return interaction.reply({ ...schedPayload, ephemeral: true });
       }
       if (!ch.schedule) return interaction.reply({ content: '❌ No schedule channel set. Use `/admin`.', ephemeral: true });
-      const _schedRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.schedule, _schedRole, schedPayload);
+      await postToChannel(cli, ch.schedule, schedPayload);
       return interaction.reply({ content: `✅ Round ${round} schedule posted to <#${ch.schedule}>.`, ephemeral: true });
     }
 
@@ -1539,8 +1518,7 @@ Enter all group results first.`,
       if (t.preview_mode) {
         return interaction.reply({ ...resultsPayload, ephemeral: true });
       }
-      const _resRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.results, _resRole, resultsPayload);
+      await postToChannel(cli, ch.results, resultsPayload);
       return interaction.reply({ content: `✅ Round ${round} results posted to <#${ch.results}>.`, ephemeral: true });
     }
 
@@ -1553,8 +1531,7 @@ Enter all group results first.`,
       }
       const postCh = ch.results || ch.management;
       if (!postCh) return interaction.reply({ content: '❌ No results channel configured. Set it via `/admin`.', ephemeral: true });
-      const _standRole = t.tag_on ? t.registration_role_id : null;
-      const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
+      const posted = await postToChannel(cli, postCh, standEmbed);
       if (posted) db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id });
       return interaction.reply({ content: `✅ Standings posted to <#${postCh}> — it will update live as results are added.`, ephemeral: true });
     }
@@ -1612,8 +1589,7 @@ Enter all group results first.`,
       ];
       const drawPayload = { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: drawInner }] };
       if (t.preview_mode) return interaction.reply({ ...drawPayload, ephemeral: true });
-      const _drawRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, postCh, _drawRole, drawPayload);
+      await postToChannel(cli, postCh, drawPayload);
       return interaction.reply({ content: `✅ Group draw posted to <#${postCh}>.`, ephemeral: true });
     }
 
@@ -1640,8 +1616,7 @@ Enter all group results first.`,
       if (!postCh) return interaction.reply({ content: '❌ No results channel configured.', ephemeral: true });
       const bracketPayload = makeBracketPost(tid);
       if (bracketPayload) {
-        const _brackRole = t.tag_on ? t.registration_role_id : null;
-        const posted = await postWithPing(cli, postCh, _brackRole, bracketPayload);
+        const posted = await postToChannel(cli, postCh, bracketPayload);
         if (posted) db.setConfig('bracket_ref_' + tid, { channelId: postCh, messageId: posted.id });
       }
       return interaction.reply({ content: `✅ Bracket posted to <#${postCh}> — it will update live as results are added.`, ephemeral: true });

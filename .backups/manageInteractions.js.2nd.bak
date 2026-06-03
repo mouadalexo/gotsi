@@ -424,31 +424,20 @@ async function handleManageInteraction(interaction, client) {
     db.deleteWhere('matches', m => m.tournament_id === t.id && m.status === 'pending' && m.stage === 'group');
 
     const allMatches = [];
+    let round = 1;
     for (const groupTeams of Object.values(groups)) {
-      // Circle round-robin: each pair plays exactly once per round
-      const arr = [...groupTeams];
-      if (arr.length % 2 !== 0) arr.push(null); // bye slot for odd counts
-      const numRounds = arr.length - 1;
-      const half      = arr.length / 2;
-      const fixed     = arr[0];
-      const rotating  = arr.slice(1);
-      for (let r = 0; r < numRounds; r++) {
-        const roundTeams = [fixed, ...rotating];
-        for (let i = 0; i < half; i++) {
-          const home = roundTeams[i];
-          const away = roundTeams[roundTeams.length - 1 - i];
-          if (home && away) {
-            allMatches.push(db.insert('matches', {
-              tournament_id: t.id,
-              home_team_id: home.team_id,
-              away_team_id: away.team_id,
-              stage: 'group', round: r + 1, leg: 1, status: 'pending',
-              home_score: null, away_score: null,
-            }));
-          }
+      for (let i = 0; i < groupTeams.length; i++) {
+        for (let j = i + 1; j < groupTeams.length; j++) {
+          allMatches.push(db.insert('matches', {
+            tournament_id: t.id,
+            home_team_id: groupTeams[i].team_id,
+            away_team_id: groupTeams[j].team_id,
+            stage: 'group', round, leg: 1, status: 'pending',
+            home_score: null, away_score: null,
+          }));
         }
-        rotating.unshift(rotating.pop());
       }
+      round++;
     }
 
     await refreshManagePanel(interaction, template);

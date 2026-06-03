@@ -18,7 +18,7 @@ const TEAM_IDS = [
   'custom_team_modal', 'team_add_player', 'team_select', 'team_remove', 'team_remove_select',
 ];
 
-const TEST_IDS = ['test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw'];
+const TEST_IDS = ['test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw', 'test_bracket'];
 
 module.exports = {
   name: 'interactionCreate',
@@ -60,7 +60,7 @@ module.exports = {
           } catch {}
         }
         const team = db.findById('teams', teamId);
-        return interaction.reply({
+        return await interaction.reply({
           content: `✅ **${team?.name || 'Team'}** enrolled${rawId ? ` — player <@${rawId}> assigned` : ''}`,
           ephemeral: true,
         });
@@ -68,14 +68,20 @@ module.exports = {
 
       const id = interaction.customId || '';
 
+      // ── Help page buttons ─────────────────────────────────────────────────
+      if (id === 'help_p1' || id === 'help_p2') {
+        const { buildPage1, buildPage2 } = require('../commands/help');
+        return await interaction.update(id === 'help_p1' ? buildPage1() : buildPage2());
+      }
+
       // ── Test panel ─────────────────────────────────────────────────────────
       if (TEST_IDS.includes(id)) {
-        return handleTestInteraction(interaction);
+        return await handleTestInteraction(interaction);
       }
 
       // ── Admin panel ────────────────────────────────────────────────────────
       if (id === 'adm_refresh' || id === 'adm_done' || id.startsWith('adm_tch_') || id.startsWith('adm_ch_')) {
-        return handleAdminInteraction(interaction);
+        return await handleAdminInteraction(interaction);
       }
 
       // ── Tournament manager panel (legacy tmgr_*) ───────────────────────────
@@ -99,7 +105,7 @@ module.exports = {
         id.startsWith('tmgr_knockout_')          ||
         id.startsWith('tmgr_closeseason_')
       ) {
-        return handleTournamentManagerInteraction(interaction);
+        return await handleTournamentManagerInteraction(interaction);
       }
 
       // ── Team CRUD (/team) ──────────────────────────────────────────────────
@@ -122,7 +128,7 @@ module.exports = {
         id.startsWith('tc_edit_modal_')   ||
         id.startsWith('tc_del_confirm_')
       ) {
-        return handleTeamCrudInteraction(interaction);
+        return await handleTeamCrudInteraction(interaction);
       }
 
       // ── Enroll flow (enr_*) ─────────────────────────────────────────────
@@ -141,7 +147,7 @@ module.exports = {
         id.startsWith('enr_skip_')            ||
         id.startsWith('enr_back_step2_')
       ) {
-        return handleEnrollInteraction(interaction, client);
+        return await handleEnrollInteraction(interaction, client);
       }
 
       // ── Botola + Panel 1/2/3 ──────────────────────────────────────────────
@@ -151,12 +157,12 @@ module.exports = {
         id.startsWith('p2_')              ||
         id.startsWith('p3_')
       ) {
-        return handleBotolaInteraction(interaction);
+        return await handleBotolaInteraction(interaction);
       }
 
       // ── New manage panel (mgr2_*) ─────────────────────────────────────────
       if (id.startsWith('mgr2_')) {
-        return handleMgr2Interaction(interaction);
+        return await handleMgr2Interaction(interaction);
       }
 
       // ── Manager panel (legacy mgr_*) ──────────────────────────────────────
@@ -180,12 +186,12 @@ module.exports = {
         id.startsWith('mgr_view_bracket_')        ||
         id.startsWith('mgr_close_season_')
       ) {
-        return handleManageInteraction(interaction, client);
+        return await handleManageInteraction(interaction, client);
       }
 
       // ── Old team interactions ──────────────────────────────────────────────
       if (TEAM_IDS.includes(id) || id.startsWith('player_add_modal_')) {
-        return handleTeamInteraction(interaction, client);
+        return await handleTeamInteraction(interaction, client);
       }
 
       // ── Result interactions ────────────────────────────────────────────────
@@ -196,7 +202,7 @@ module.exports = {
         id.startsWith('result_modal_')    ||
         id.startsWith('view_results_')
       ) {
-        return handleResultInteraction(interaction, client);
+        return await handleResultInteraction(interaction, client);
       }
 
       // ── Old tournament panel ───────────────────────────────────────────────
@@ -206,24 +212,23 @@ module.exports = {
         id === 'tournament_manage'   || id === 'tournament_bracket' ||
         id.startsWith('tmt_')
       ) {
-        return handleTournamentInteraction(interaction, client);
+        return await handleTournamentInteraction(interaction, client);
       }
 
       // ── Standings select ───────────────────────────────────────────────────
-      if (id === 'tournament_select') {
-        const tournamentId = parseInt(interaction.values[0]);
+      // tournament_select is now handled by tournament_select_manage above
+
+      if (id === 'tournament_select_manage' || id === 'tournament_select') {
+        await interaction.deferUpdate().catch(() => {});
+        const tournamentId = parseInt(interaction.values?.[0]);
         const groupEmbed   = buildGroupStandingsEmbed(tournamentId);
         const bracketEmbed = buildKnockoutBracketEmbed(tournamentId);
         const embeds = [groupEmbed, bracketEmbed].filter(Boolean);
-        return interaction.update({ content: null, embeds: embeds.length ? embeds : undefined, components: [] });
-      }
-
-      if (id === 'tournament_select_manage') {
-        return handleTournamentInteraction({ ...interaction, customId: 'tournament_select' }, client);
+        return interaction.editReply({ content: null, embeds: embeds.length ? embeds : [], components: [] }).catch(() => {});
       }
 
     } catch (err) {
-      console.error('[Interaction Error]', err);
+      console.error('[Interaction Error] customId=%s', interaction.customId || 'n/a', err?.stack || err);
       const payload = { embeds: [errorEmbed('Something went wrong', err.message)], ephemeral: true };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});

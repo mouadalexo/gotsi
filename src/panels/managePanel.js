@@ -84,6 +84,8 @@ function buildManagePanelV2() {
   ]});
   inner.push({ type: 1, components: [
     btn('🏆 Winners Setup', 'mgr2_winners',        1),
+    btn('🎟️ Reg. Role',     'mgr2_reg_role_start', 2),
+    btn('⚙️ Template Cfg',   'mgr2_tpl_cfg',        2),
     btn('Reset Everything', 'mgr2_reset',          4),
   ]});
   inner.push(SEP);
@@ -159,11 +161,16 @@ function buildWinnersSubPanel() {
   if (!tournaments.length) {
     inner.push(txt('No tournaments yet.'));
   } else {
-    const lines = tournaments.slice(0, 10).map(t => {
-      const roleStatus = t.winner_role_id ? `✅ <@&${t.winner_role_id}>` : '`Not set`';
-      const refStatus  = t.winners_history_ref ? `✅ linked` : '`Not set`';
-      return `**${t.name}** S${t.season}\n` +
-             `> Winner Role: ${roleStatus}  |  History Msg: ${refStatus}`;
+    // Group by template — winner role & history shared across seasons
+    const byTpl = {};
+    for (const t of tournaments) {
+      const k = t.template || t.name;
+      if (!byTpl[k] || t.season > byTpl[k].season) byTpl[k] = t;
+    }
+    const lines = Object.entries(byTpl).map(([tpl, t]) => {
+      const roleStatus = t.winner_role_id ? `\u2705 <@&${t.winner_role_id}>` : '`Not set`';
+      const refStatus  = t.winners_history_ref ? `\u2705 linked` : '`Not set`';
+      return `**${tpl}**\n> Winner Role: ${roleStatus}  |  History Msg: ${refStatus}`;
     });
     inner.push(txt(lines.join('\n')));
   }

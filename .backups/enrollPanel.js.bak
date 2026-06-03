@@ -40,10 +40,12 @@ function buildEnrollStep2(tid, opts = {}) {
   const tournament = db.findById('tournaments', tid);
   if (!tournament) return buildEnrollStep1({ error: 'Tournament not found.' });
 
+  // Get already-enrolled team IDs for this tournament
   const enrolledIds = db.get('tournament_teams')
     .filter(tt => tt.tournament_id === tid)
     .map(tt => tt.team_id);
 
+  // All non-enrolled teams, sorted by usage (most appearances in tournament_teams first)
   const allTournamentTeams = db.get('tournament_teams');
   const usageCount = {};
   for (const tt of allTournamentTeams) {
@@ -53,6 +55,7 @@ function buildEnrollStep2(tid, opts = {}) {
     .filter(tm => !enrolledIds.includes(tm.id) && !tm.temporary)
     .sort((a, b) => (usageCount[b.id] || 0) - (usageCount[a.id] || 0) || a.name.localeCompare(b.name));
 
+  // Full-cap guard — show inline error if no spots left
   const isFull = !!(tournament.team_count && enrolledIds.length >= tournament.team_count);
 
   const inner = [];
@@ -68,6 +71,7 @@ function buildEnrollStep2(tid, opts = {}) {
   if (error) inner.push(txt('> \u26a0\ufe0f  ' + error));
   inner.push(SEP);
 
+  // Dropdown: up to 25 teams sorted by most used
   if (availableTeams.length > 0) {
     inner.push({ type: 1, components: [{
       type: 3,
@@ -82,6 +86,7 @@ function buildEnrollStep2(tid, opts = {}) {
     inner.push(SEP);
   }
 
+  // Always show the type/search button
   inner.push({ type: 1, components: [
     { type: 2, style: 1, label: '\ud83d\udd0d  Search by Name', custom_id: 'enr_team_type_' + tid },
     { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step1' },
@@ -104,7 +109,7 @@ function buildEnrollFuzzyResults(tid, typedText, matches) {
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: 0x5865F2, components: [
-      txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Best matches for **' + typedText + '** in **' + (tournament ? tournament.name : '') + '**\n> Last option uses exactly what you typed.'),
+      txt('## \u2795  Enroll Team\n> **Step 2 / 3** \u2014 Best matches for ** + typedText + ** in **' + (tournament ? tournament.name : '') + '**\n> Last option uses exactly what you typed.'),
       SEP,
       { type: 1, components: [{
         type: 3,
@@ -130,6 +135,7 @@ function buildEnrollStep3(tid, teamId, opts = {}) {
   const requiredPlayers = required || tournament.players_per_team || 1;
   const isDuo = requiredPlayers >= 2;
 
+  // Resolve current player assignments
   let players = {};
   if (isDraft && draftPlayers) {
     players = draftPlayers;
@@ -140,6 +146,7 @@ function buildEnrollStep3(tid, teamId, opts = {}) {
     for (const p of assigned) players[p.slot] = p.discord_id;
   }
 
+  // Build status lines
   const statusLines = [];
   for (let i = 0; i < requiredPlayers; i++) {
     const uid = players[i];
@@ -148,6 +155,7 @@ function buildEnrollStep3(tid, teamId, opts = {}) {
   }
   const statusText = statusLines.length ? '\n> ' + statusLines.join('  \u00b7  ') : '';
 
+  // Draft progress hint
   const filledCount = Object.keys(players).filter(k => players[k]).length;
   const remaining = requiredPlayers - filledCount;
   let hintText = '';
@@ -159,6 +167,7 @@ function buildEnrollStep3(tid, teamId, opts = {}) {
     }
   }
 
+  // Build player selector rows
   const playerRows = [];
   for (let i = 0; i < requiredPlayers; i++) {
     const label = isDuo
@@ -189,10 +198,12 @@ function buildEnrollStep3(tid, teamId, opts = {}) {
   inner.push(SEP);
 
   if (isDraft) {
+    // Draft mode: show Cancel only — team is created automatically once minimum players are filled
     inner.push({ type: 1, components: [
       { type: 2, style: 4, label: '\u274c Cancel', custom_id: 'enr_back_step2_' + tid },
     ]});
   } else {
+    // Already enrolled — show Remove + Back
     inner.push({ type: 1, components: [
       { type: 2, style: 4, label: '\ud83d\uddd1\ufe0f  Remove Team', custom_id: 'enr_remove_team_' + tid + '_' + teamId },
       { type: 2, style: 2, label: '\u2190 Back', custom_id: 'enr_back_step2_' + tid },

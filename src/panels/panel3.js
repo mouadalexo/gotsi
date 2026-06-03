@@ -37,23 +37,31 @@ function buildPanel3(tournament) {
   const modeStyle   = previewMode ? 4 : 3;
   const actStyle    = previewMode ? 2 : 1;
 
-  const E_CUP = '<a:cup:1501741159557500971>';
+  // Tag toggle — only active in Post mode (tagging a preview is pointless)
+  const tagOn     = t.tag_on === true;
+  const tagLabel  = tagOn ? '🔔  Tag: ON' : '🔕  Tag: OFF';
+  const tagStyle  = tagOn ? 3 : 2;
+
+  const E_CUP = "<a:hashtag:1501741088736678069>";
   const inner = [];
 
-  inner.push(txt(`# ${E_CUP}  Post & Publish  —  ${t.name}`));
+  inner.push(txt(`# ${E_CUP}  Post & Publish  —  ${t.template || t.name}`));
   inner.push(SEP);
   inner.push(txt(`**Channels**\n${chParts.join('  |  ')}`));
   inner.push(SEP);
 
-  // Mode toggle row
+  // Mode + Tag toggle row
   inner.push({ type: 1, components: [
     { type: 2, style: modeStyle, label: modeLabel, custom_id: `p3_${tid}_togglemode` },
+    { type: 2, style: tagStyle,  label: tagLabel,  custom_id: `p3_${tid}_toggletag`,  disabled: previewMode },
     btn('Refresh', `p3_${tid}_refresh`, 2),
   ]});
   inner.push(txt(
     previewMode
       ? '> 🔴 **Preview mode** — buttons show you an ephemeral preview only.'
-      : '> 🟢 **Post mode** — buttons post directly to the configured channels.'
+      : tagOn
+        ? '> 🟢 **Post mode**  •  🔔 **Tag ON** — posts will ping <@&' + (t.registration_role_id || '?') + '> before each post.'
+        : '> 🟢 **Post mode**  •  🔕 **Tag OFF** — posts will be sent without a role ping.'
   ));
   inner.push(SEP);
 

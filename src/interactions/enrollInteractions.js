@@ -16,7 +16,7 @@ async function updateLivePanels(client, tid) {
       const ch  = await client.channels.fetch(t.panel2_ref.channelId);
       const msg = await ch.messages.fetch(t.panel2_ref.messageId);
       await msg.edit(buildPanel2(t));
-    } catch {}
+    } catch (e) { console.warn("[teamList/panel2]", e.message); }
   }
   if (t.template) {
     const ref = db.getConfig('teams_list_ref_' + t.template);
@@ -26,9 +26,26 @@ async function updateLivePanels(client, tid) {
         const ch  = await client.channels.fetch(ref.channelId);
         const msg = await ch.messages.fetch(ref.messageId);
         await msg.edit(buildTeamsListEmbed(tid));
-      } catch {}
+      } catch (e) { console.warn("[teamList/ref]", e.message); }
     }
   }
+}
+
+
+async function applyRegistrationRole(client, guildId, playerIds, tournamentId, add = true) {
+  const t = require("../utils/database").db.findById("tournaments", tournamentId);
+  const roleId = t && t.registration_role_id;
+  if (!roleId) return;
+  try {
+    const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return;
+    for (const uid of playerIds) {
+      const member = await guild.members.fetch(uid).catch(() => null);
+      if (!member) continue;
+      if (add) await member.roles.add(roleId).catch(() => {});
+      else await member.roles.remove(roleId).catch(() => {});
+    }
+  } catch {}
 }
 
 function enrollTeam(tid, teamId) {
@@ -75,6 +92,12 @@ async function handleEnrollInteraction(interaction, client) {
       return interaction.update(buildEnrollStep2(tid, {
         error: '**' + team.name + '** is already enrolled in **' + t.name + '**.',
       }));
+    }
+
+    // Cap check: block if tournament is full
+    const enrolledCount = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).length;
+    if (t.team_count && enrolledCount >= t.team_count) {
+      return interaction.update(buildEnrollStep2(tid, { error: 'This tournament is full — **' + enrolledCount + '/' + t.team_count + '** spots taken.' }));
     }
 
     const requiredPlayers = t.players_per_team || 1;
@@ -147,6 +170,12 @@ async function handleEnrollInteraction(interaction, client) {
       }));
     }
 
+    // Cap check: block if tournament is full
+    const enrolledCountF = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).length;
+    if (t.team_count && enrolledCountF >= t.team_count) {
+      return interaction.update(buildEnrollStep2(tid, { error: 'This tournament is full — **' + enrolledCountF + '/' + t.team_count + '** spots taken.' }));
+    }
+
     const requiredPlayers = t.players_per_team || 1;
     tmpSet('enr_draft_' + interaction.user.id + '_' + tid, { teamId: team.id, players: {}, required: requiredPlayers }, 600_000);
     return interaction.update(buildEnrollStep3(tid, team.id, { isDraft: true, draftPlayers: {}, required: requiredPlayers }));
@@ -188,6 +217,8 @@ async function handleEnrollInteraction(interaction, client) {
         }
         tmpDel(draftKey);
         updateLivePanels(client, tid).catch(() => {});
+        // Give registration role to enrolled players
+        applyRegistrationRole(client, interaction.guild.id, Object.values(draft.players).filter(Boolean), tid, true).catch(() => {});
         // Show live step3 (enrolled mode with Remove Team button)
         return interaction.update(buildEnrollStep3(tid, teamId));
       }

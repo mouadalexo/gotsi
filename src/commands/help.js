@@ -1,112 +1,142 @@
 'use strict';
 const { SlashCommandBuilder } = require('discord.js');
 
-const SEP  = { type: 14, divider: true, spacing: 1 };
-const txt  = c => ({ type: 10, content: c });
-const box  = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
+const SEP   = { type: 14, divider: true, spacing: 1 };
+const txt   = c => ({ type: 10, content: c });
 
 const E_CUP   = '<a:cup:1501741159557500971>';
 const E_HASH  = '<a:hashtag:1501741088736678069>';
 const E_ARR   = '<a:arrow:1501741110798585927>';
 const E_FIRE  = '<a:fire:1472250580583059611>';
-const E_CROWN = '<:crownn:1501741176296964277>';
+
+function buildPage1() {
+  return {
+    flags: 32768,
+    components: [{
+      type: 17, accent_color: 0x5865F2,
+      components: [
+        txt(
+          `# ${E_CUP}  Goatsi — Tournament Bot Guide\n` +
+          `> Full guide for admins and managers. Page **1 / 2**.`
+        ),
+        SEP,
+        txt(
+          `${E_HASH}  **Slash Commands**\n` +
+          `${E_ARR}  \`/admin\` — Admin panel: create tournaments, set channels, configure templates\n` +
+          `${E_ARR}  \`/botola\` — Manager hub: the 3 control panels\n` +
+          `${E_ARR}  \`/team\` — Manage the master teams list *(admins)*\n` +
+          `${E_ARR}  \`/help\` — This guide`
+        ),
+        SEP,
+        txt(
+          `${E_HASH}  **\`/admin\` — One-Time Admin Setup**\n\n` +
+          `**New Tournament**\n` +
+          `${E_ARR}  Click **New Tournament** → choose template (NSEL or MCL)\n` +
+          `${E_ARR}  Enter the **Season Number** (e.g. \`3\`) → tournament created as \`NSEL S3\`\n\n` +
+          `**Set Channels**\n` +
+          `${E_ARR}  Assign channels per tournament: Management, Results, Schedule, Teams List\n\n` +
+          `**⚙️ Template Config**\n` +
+          `${E_ARR}  Controls which options managers see in the Settings panel\n` +
+          `${E_ARR}  NSEL defaults: Teams \`16/32/64\`, Groups of \`4\`, Advance \`2\`, Solo 1v1\n` +
+          `${E_ARR}  MCL defaults: Teams \`8/16/32\`, Groups of \`4\`, Advance \`2\`, Duo 2v2\n\n` +
+          `**🎟️ Reg. Role** — auto-gives a Discord role when a team enrolls\n` +
+          `**🏆 Winners Setup** — winner role, history channel and message link`
+        ),
+        SEP,
+        txt(
+          `${E_FIRE}  **Panel 1 — Tournament Control**\n\n` +
+          `**Setup stage**\n` +
+          `${E_ARR}  **Begin Season** — draws groups + generates full schedule *(unlocks when all teams registered)*\n` +
+          `${E_ARR}  **Settings** — select menus for Team Count, Groups size, Advance/Group, Players/Team\n` +
+          `${E_ARR}  **🔢 Season** button — change season number (digits only, 1–999, no duplicates)\n\n` +
+          `**Group stage**\n` +
+          `${E_ARR}  **Add Result** → pick a match → enter scores\n` +
+          `${E_ARR}  **Advance to Knockout** — unlocks when all group matches are done\n\n` +
+          `**Knockout stage**\n` +
+          `${E_ARR}  **Add Result** → **Next Round** after each KO round\n` +
+          `${E_ARR}  **Confirm Winner** → role assigned + history updated automatically`
+        ),
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: 'Page 2 →', custom_id: 'help_p2' },
+        ]},
+      ],
+    }],
+  };
+}
+
+function buildPage2() {
+  return {
+    flags: 32768,
+    components: [{
+      type: 17, accent_color: 0x5865F2,
+      components: [
+        txt(
+          `# ${E_CUP}  Goatsi — Tournament Bot Guide\n` +
+          `> Full guide for admins and managers. Page **2 / 2**.`
+        ),
+        SEP,
+        txt(
+          `${E_FIRE}  **Panel 2 — Team Registration**\n\n` +
+          `${E_ARR}  **Add Team** → type name → pick from 5 closest matches (last option = your exact text)\n` +
+          `${E_ARR}  After selecting → assign player(s) via Discord member search\n` +
+          `   • NSEL (1v1): 1 player  |  MCL (2v2): 2 players (two separate pickers)\n` +
+          `${E_ARR}  **✏️ Edit Team** — rename an enrolled team\n` +
+          `${E_ARR}  **🗑️ Remove Team** — unenroll (removes Reg. Role from players automatically)`
+        ),
+        SEP,
+        txt(
+          `${E_FIRE}  **Panel 3 — Post & Publish**\n\n` +
+          `${E_ARR}  **Post Teams List** — preview (only you see it) → confirm → posts to Teams channel\n` +
+          `${E_ARR}  **Post Schedule** — pick a round → posts to Schedule channel *(one round at a time)*\n` +
+          `${E_ARR}  **Post Results** — auto-posts when a full round is entered, no action needed\n` +
+          `${E_ARR}  **Post Standings** — preview → confirm → posts to Results channel\n` +
+          `${E_ARR}  **Post Group Draw** — posts the draw to the management channel`
+        ),
+        SEP,
+        txt(
+          `${E_HASH}  **Full Season Flow**\n\n` +
+          `**1.** \`/admin\` → New Tournament → template → season number\n` +
+          `**2.** \`/admin\` → Set Channels → assign all 4 channels\n` +
+          `**3.** \`/botola\` → select tournament → 3 panels appear\n` +
+          `**4.** Panel 2 → Add all teams + assign players\n` +
+          `**5.** Panel 3 → Post Teams List → preview → confirm\n` +
+          `**6.** Panel 1 → **Begin Season** → groups drawn, schedule generated\n` +
+          `**7.** Panel 3 → Post Schedule → Round 1\n` +
+          `**8.** After round played → Panel 1 → Add Result per match\n` +
+          `   *(results auto-post when full round is entered)*\n` +
+          `**9.** Repeat 7–8 for every group round\n` +
+          `**10.** Panel 1 → Advance to Knockout → add KO results → Next Round\n` +
+          `**11.** Final done → Confirm Winner`
+        ),
+        SEP,
+        txt(
+          `${E_HASH}  **Quick Tips**\n` +
+          `${E_ARR}  Results **auto-post** when every match in a round is entered\n` +
+          `${E_ARR}  Teams List **auto-updates** after every enroll / unenroll\n` +
+          `${E_ARR}  Post Schedule **one round at a time** — you control when each round is revealed\n` +
+          `${E_ARR}  Season numbers are **unique per template** — NSEL S3 and MCL S3 can coexist\n` +
+          `${E_ARR}  **Template Config** in \`/admin\` controls which select menus managers see\n` +
+          `${E_ARR}  Use **Refresh** on any panel to reload the latest data\n\n` +
+          `-# Night Stars  ${E_CUP}  Goatsi Bot  •  /help`
+        ),
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 2, label: '← Page 1', custom_id: 'help_p1' },
+        ]},
+      ],
+    }],
+  };
+}
 
 module.exports = {
+  buildPage1,
+  buildPage2,
   data: new SlashCommandBuilder()
     .setName('help')
     .setDescription('How to use the Goatsi tournament bot — full guide'),
 
   async execute(interaction) {
-    const inner = [
-
-      // ── Title ─────────────────────────────────────────────────────────────
-      txt(
-        `# ${E_CUP}  Goatsi — Tournament Bot Guide\n` +
-        `> Complete guide for managers and admins on how to run NSEL & MCL seasons.`
-      ),
-      SEP,
-
-      // ── Commands ──────────────────────────────────────────────────────────
-      txt(
-        `${E_HASH}  **Slash Commands**\n` +
-        `${E_ARR}  \`/botola\`  —  Open the tournament hub *(managers)*\n` +
-        `${E_ARR}  \`/team\`  —  Manage the master teams list *(admins)*\n` +
-        `${E_ARR}  \`/admin\`  —  Set public channels for each tournament *(admins)*\n` +
-        `${E_ARR}  \`/manage\`  —  Create or configure a new tournament *(admins)*\n` +
-        `${E_ARR}  \`/help\`  —  Show this guide`
-      ),
-      SEP,
-
-      // ── Step 1: Admin Setup ───────────────────────────────────────────────
-      txt(
-        `${E_HASH}  **Step 1 — One-Time Admin Setup**\n\n` +
-        `**A. Build the master teams list** using \`/team\`\n` +
-        `${E_ARR}  Click **Add Team** → type the name → bot shows the 5 closest matches + your exact text → pick one\n` +
-        `${E_ARR}  Click **Delete Team** → same fuzzy search → confirm delete\n\n` +
-        `**B. Set public channels** using \`/admin\`\n` +
-        `${E_ARR}  Set channels for NSEL and MCL: Schedule, Results, Standings, Teams List\n\n` +
-        `**C. Create a tournament** using \`/manage\` if one doesn't exist yet\n` +
-        `${E_ARR}  Choose template (NSEL or MCL), name, season number, group size`
-      ),
-      SEP,
-
-      // ── Step 2: Panels ───────────────────────────────────────────────────
-      txt(
-        `${E_HASH}  **Step 2 — The 3 Panels** *(open with \`/botola\`)*\n` +
-        `Select a tournament → 3 control panels appear in the management channel\n\n` +
-        `${E_FIRE}  **Panel 1 — Tournament Control**\n` +
-        `${E_ARR}  **Begin Season** → draws groups + generates full match schedule automatically\n` +
-        `${E_ARR}  **Add Result** → enter scores match by match\n` +
-        `${E_ARR}  **Advance to Knockout** → runs after all group matches are done\n` +
-        `${E_ARR}  **Settings** → rename, adjust group size, max teams\n\n` +
-        `${E_FIRE}  **Panel 2 — Team Registration**\n` +
-        `${E_ARR}  Click **Add Team** → type a name → bot shows the 5 closest matches from the master list\n` +
-        `${E_ARR}  The last option always lets you use exactly what you typed (adds as a temporary team)\n` +
-        `${E_ARR}  After selecting a team → assign the player(s) using the live member search\n` +
-        `${E_ARR}  **NSEL:** 1 player per team   |   **MCL:** 2 players per team (two separate pickers)\n` +
-        `${E_ARR}  Use **✏️ Edit Team** to rename, **🗑️ Remove Team** to unenroll — both on the same step\n\n` +
-        `${E_FIRE}  **Panel 3 — Post & Preview**\n` +
-        `${E_ARR}  **Post Teams List** → shows you a preview first (only you see it) → click Confirm → posted to the teams channel\n` +
-        `${E_ARR}  **Post Schedule** → pick a round → only that round's matches are posted to the schedule channel\n` +
-        `${E_ARR}  **Post Results** → results auto-post the moment a round is fully played — no action needed\n` +
-        `${E_ARR}  **Post Standings** → preview shown first → confirm → posted to standings channel\n` +
-        `${E_ARR}  **Post Group Draw** → posts the group draw to the management channel`
-      ),
-      SEP,
-
-      // ── Step 3: Running a Season ─────────────────────────────────────────
-      txt(
-        `${E_HASH}  **Step 3 — Running a Season (Full Flow)**\n\n` +
-        `**1.** Open \`/botola\` → select your tournament\n` +
-        `**2.** In **Panel 2** → add all teams and assign their players\n` +
-        `**3.** In **Panel 1** → click **Begin Season**\n` +
-        `${E_ARR}  Groups are drawn and the full schedule is generated automatically\n` +
-        `**4.** In **Panel 3** → click **Post Teams List** → preview → confirm\n` +
-        `**5.** In **Panel 3** → click **Post Schedule** → select **Round 1** → posted to schedule channel\n` +
-        `**6.** After Round 1 is played → **Panel 1 → Add Result** for each match\n` +
-        `${E_ARR}  When the last match of the round is entered → results post automatically\n` +
-        `**7.** Repeat steps 5–6 for every round\n` +
-        `**8.** After all group matches → **Panel 1 → Advance to Knockout**\n` +
-        `**9.** Continue adding KO results → **Next Round** after each KO round\n` +
-        `**10.** Final done → **Confirm Winner** → role assigned + history updated automatically`
-      ),
-      SEP,
-
-      // ── Tips ─────────────────────────────────────────────────────────────
-      txt(
-        `${E_HASH}  **Quick Tips**\n` +
-        `${E_ARR}  Results for a round **auto-post** the moment all matches in that round are entered\n` +
-        `${E_ARR}  Schedule is posted **one round at a time** — you control when each round is revealed\n` +
-        `${E_ARR}  Teams List preview is **only visible to you** before you confirm posting\n` +
-        `${E_ARR}  Temporary teams (typed freely) exist only for that season and are removed after\n` +
-        `${E_ARR}  Use **Refresh** on any panel to reload the latest data after changes\n` +
-        `${E_ARR}  Channels are set by admins via \`/admin\` — managers cannot change them`
-      ),
-      SEP,
-
-      txt(`-# Night Stars  ${E_CUP}  Goatsi Bot  •  /help`),
-    ];
-
-    return interaction.reply(box(0x5865F2, inner));
+    return interaction.reply(buildPage1());
   },
 };

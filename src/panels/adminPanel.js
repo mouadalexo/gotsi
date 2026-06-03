@@ -12,6 +12,12 @@ function chLine(t, key) {
   return id ? `<#${id}>` : '`not set`';
 }
 
+
+function roleLine(t, key) {
+  const id = t?.[key];
+  return id ? `<@&${id}>` : '`not set`';
+}
+
 function latestTournament(template) {
   return db.get('tournaments')
     .filter(t => t.template === template)
@@ -32,7 +38,8 @@ function buildAdminPanel() {
       `${E_HASH}  **NSEL — Season ${nsel.season}**\n` +
       `Management  →  ${chLine(nsel, 'management')}\n` +
       `Schedule    →  ${chLine(nsel, 'schedule')}\n` +
-      `Results     →  ${chLine(nsel, 'results')}`
+      `Results     →  ${chLine(nsel, 'results')}\n` +
+      `Reg. Role   →  ${roleLine(nsel, 'registration_role_id')}`
     ));
     inner.push(SEP);
   }
@@ -42,7 +49,8 @@ function buildAdminPanel() {
       `${E_HASH}  **MCL — Season ${mcl.season}**\n` +
       `Management  →  ${chLine(mcl, 'management')}\n` +
       `Schedule    →  ${chLine(mcl, 'schedule')}\n` +
-      `Results     →  ${chLine(mcl, 'results')}`
+      `Results     →  ${chLine(mcl, 'results')}\n` +
+      `Reg. Role   →  ${roleLine(mcl, 'registration_role_id')}`
     ));
     inner.push(SEP);
   }
@@ -53,9 +61,13 @@ function buildAdminPanel() {
   }
 
   inner.push({ type: 1, components: [
-    { type: 2, style: 1, label: 'Set NSEL Channels', custom_id: 'adm_tch_NSEL', disabled: !nsel },
-    { type: 2, style: 1, label: 'Set MCL Channels',  custom_id: 'adm_tch_MCL',  disabled: !mcl  },
-    { type: 2, style: 2, label: 'Refresh',           custom_id: 'adm_refresh'  },
+    { type: 2, style: 1, label: 'Set NSEL Channels',   custom_id: 'adm_tch_NSEL',      disabled: !nsel },
+    { type: 2, style: 1, label: 'Set MCL Channels',    custom_id: 'adm_tch_MCL',       disabled: !mcl  },
+    { type: 2, style: 2, label: 'Refresh',             custom_id: 'adm_refresh'        },
+  ]});
+  inner.push({ type: 1, components: [
+    { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'NSEL Reg. Role ✓' : 'Set NSEL Reg. Role', custom_id: 'adm_setregrole_NSEL', disabled: !nsel },
+    { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'MCL Reg. Role ✓'  : 'Set MCL Reg. Role',  custom_id: 'adm_setregrole_MCL',  disabled: !mcl  },
   ]});
 
   inner.push(SEP);

@@ -210,7 +210,7 @@ async function handleTournamentInteraction(interaction, client) {
   }
 
   if (id === 'tournament_bracket') {
-    const menu = buildTournamentSelectMenu('Select a tournament to view bracket...', { showFinished: true });
+    const menu = buildTournamentSelectMenu('Select a tournament to view bracket...');
     if (!menu) return interaction.reply({ embeds: [warningEmbed('No Tournaments', 'No active tournaments found.')], ephemeral: true });
     return interaction.reply({ content: '📋 Select a tournament:', components: [menu], ephemeral: true });
   }

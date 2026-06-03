@@ -42,6 +42,8 @@ function load() {
           if (t.panel3_ref         === undefined) t.panel3_ref         = null;
           // Winners history fields
           if (t.winner_role_id        === undefined) t.winner_role_id        = null;
+          if (t.registration_role_id  === undefined) t.registration_role_id  = null;
+          if (t.tag_on               === undefined) t.tag_on               = false;
           if (t.winners_history_ref   === undefined) t.winners_history_ref   = null;
           if (t.teams_list_ref        === undefined) t.teams_list_ref        = null;
         }
@@ -86,4 +88,5 @@ const db = {
 };
 
 function initDB() { load(); console.log('[DB] Database initialized.'); }
-module.exports = { db, initDB };
+function reload() { _db = null; }
+module.exports = { db, initDB, reload };

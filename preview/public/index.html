@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>goatsi · Preview Panel</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1e1f22;color:#dbdee1;font-family:'gg sans','Noto Sans',Whitney,'Helvetica Neue',Helvetica,Roboto,Arial,sans-serif;font-size:15px;line-height:1.375}
+
+/* ── Header ── */
+.topbar{background:#2b2d31;border-bottom:2px solid #1e1f22;padding:10px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px #0005}
+.topbar h1{font-size:15px;font-weight:700;color:#f2f3f5;letter-spacing:.01em}
+.badge{background:#5865F2;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;text-transform:uppercase;letter-spacing:.05em}
+.ml{margin-left:auto;display:flex;align-items:center;gap:10px}
+.auto-wrap{display:flex;align-items:center;gap:5px;font-size:12px;color:#949ba4;cursor:pointer}
+.auto-wrap input{cursor:pointer}
+.btn{background:#5865F2;color:#fff;border:none;border-radius:4px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn:hover{background:#4752c4}
+.btn:disabled{background:#4e5058;cursor:not-allowed}
+
+/* ── Grid ── */
+main{padding:20px 20px 48px;max-width:1700px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:20px}
+
+/* ── Panel card ── */
+.card{background:#313338;border-radius:8px;overflow:hidden;border:1px solid #1a1b1e}
+.card-hdr{background:#232428;padding:8px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#949ba4;border-bottom:1px solid #1a1b1e}
+.card-body{padding:14px;overflow-x:auto}
+
+/* ── Discord Components V2 ── */
+
+/* Container (type 17) */
+.dc-cont{border-radius:4px;overflow:hidden;background:#2b2d31;display:flex;margin:2px 0}
+.dc-accent{width:4px;flex-shrink:0}
+.dc-inner{flex:1;padding:10px 12px;min-width:0}
+
+/* Separator (type 14) */
+.dc-sep{height:1px;background:#3d3f45;margin:6px 0;opacity:.6}
+
+/* Text (type 10) */
+.dc-txt{font-size:15px;color:#dbdee1;word-break:break-word}
+.dc-txt h1{font-size:22px;font-weight:700;color:#f2f3f5;line-height:1.2;margin-bottom:2px}
+.dc-txt h2{font-size:18px;font-weight:700;color:#f2f3f5;line-height:1.2;margin-bottom:2px}
+.dc-txt h3{font-size:15px;font-weight:700;color:#f2f3f5;line-height:1.2}
+.dc-txt .sub{font-size:12px;color:#6d6f78}
+.dc-txt code{font-family:'Consolas','Courier New',monospace;font-size:13px;background:#111214;border:1px solid #0d0e0f;border-radius:3px;padding:0 4px;white-space:pre;color:#dbdee1}
+.dc-txt .bq{border-left:4px solid #4e5058;padding-left:10px;margin:3px 0;color:#dbdee1}
+.dc-txt .emoji{height:20px;width:20px;vertical-align:middle;display:inline-block;object-fit:contain}
+.dc-txt .mention{background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px;font-weight:500}
+.dc-txt strong{font-weight:700;color:#f2f3f5}
+.dc-txt em{font-style:italic}
+
+/* Action row (type 1) */
+.dc-row{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
+
+/* Button (type 2) */
+.dc-btn{padding:5px 16px;border-radius:3px;font-size:14px;font-weight:500;border:none;cursor:default;opacity:.8;white-space:nowrap;line-height:1.5;display:inline-flex;align-items:center;gap:4px}
+.dc-btn img{height:16px;width:16px}
+.s1{background:#5865F2;color:#fff}
+.s2{background:#4e5058;color:#dbdee1}
+.s3{background:#248046;color:#fff}
+.s4{background:#da373c;color:#fff}
+.s5{background:transparent;border:1px solid #4e5058;color:#dbdee1}
+
+/* Select (type 3/5) */
+.dc-sel-wrap{position:relative;width:100%;margin:4px 0}
+.dc-sel{background:#1e1f22;border:1px solid #27292d;border-radius:4px;color:#6d6f78;padding:10px 36px 10px 12px;font-size:15px;width:100%}
+.dc-sel-arrow{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#6d6f78;pointer-events:none;font-size:12px}
+
+/* Error / loading */
+.err{color:#f23f43;font-size:13px;background:rgba(242,63,67,.1);border-radius:4px;padding:8px 12px;margin:4px 0}
+.loading-msg{color:#6d6f78;text-align:center;padding:32px 0;font-size:14px}
+
+/* Status bar */
+.statusbar{position:fixed;bottom:0;left:0;right:0;background:#1a1b1e;border-top:1px solid #111;padding:5px 20px;font-size:11px;color:#6d6f78;text-align:center}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span style="font-size:20px">⚽</span>
+  <h1>goatsi · Preview Panel</h1>
+  <span class="badge">Live</span>
+  <div class="ml">
+    <label class="auto-wrap">
+      <input type="checkbox" id="autoChk"> Auto-refresh (10s)
+    </label>
+    <button class="btn" id="refreshBtn" onclick="loadAll()">↺ Refresh All</button>
+  </div>
+</div>
+
+<main>
+  <div class="grid" id="grid"><div class="loading-msg">⟳ Loading panels…</div></div>
+</main>
+
+<div class="statusbar" id="sb">Ready</div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   Markdown + Discord Component Renderer
+───────────────────────────────────────────────────────────────────────────── */
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+// Convert hex accent_color int → CSS hex string
+function toHex(n){ return '#' + (n >>> 0).toString(16).padStart(6,'0') }
+
+function renderInline(raw){
+  const ph = [];
+  function mark(html){ const t=`\x00${ph.length}\x00`; ph.push(html); return t; }
+
+  let t = raw;
+  // Custom animated emoji <a:name:id>
+  t = t.replace(/<a:[^:>]+:(\d+)>/g, (_,id)=>mark(`<img src="https://cdn.discordapp.com/emojis/${id}.gif?size=32" class="emoji" alt="">`));
+  // Custom static emoji <:name:id>
+  t = t.replace(/<:[^:>]+:(\d+)>/g,  (_,id)=>mark(`<img src="https://cdn.discordapp.com/emojis/${id}.png?size=32" class="emoji" alt="">`));
+  // Mention <@id>
+  t = t.replace(/<@!?(\d+)>/g, ()=>mark(`<span class="mention">@user</span>`));
+
+  // Escape remaining HTML
+  t = esc(t);
+
+  // Restore placeholders
+  t = t.replace(/\x00(\d+)\x00/g, (_,i)=>ph[+i]);
+
+  // Bold+italic ***
+  t = t.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+  // Bold **
+  t = t.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
+  // Italic *
+  t = t.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
+  // Underline __
+  t = t.replace(/__([^_\n]+?)__/g,'<u>$1</u>');
+  // Strikethrough ~~
+  t = t.replace(/~~([^~\n]+?)~~/g,'<s>$1</s>');
+
+  return t;
+}
+
+function renderMarkdown(raw){
+  if(!raw) return '';
+  const codePH = [];
+  // Protect inline code
+  let text = raw.replace(/`([^`\n]+)`/g, (_,inner)=>{
+    const tok=`\x00C${codePH.length}\x00`;
+    codePH.push(`<code>${esc(inner)}</code>`);
+    return tok;
+  });
+
+  const lines = text.split('\n');
+  let html = '';
+
+  for(let i=0;i<lines.length;i++){
+    const ln = lines[i];
+    if     (ln.startsWith('-# '))  html += `<span class="sub">${renderInline(ln.slice(3))}</span>`;
+    else if(ln.startsWith('# '))   html += `<h1>${renderInline(ln.slice(2))}</h1>`;
+    else if(ln.startsWith('## '))  html += `<h2>${renderInline(ln.slice(3))}</h2>`;
+    else if(ln.startsWith('### ')) html += `<h3>${renderInline(ln.slice(4))}</h3>`;
+    else if(ln.startsWith('> '))   html += `<div class="bq">${renderInline(ln.slice(2))}</div>`;
+    else if(ln === '')             html += '<br>';
+    else {
+      html += renderInline(ln);
+      if(i < lines.length-1) html += '<br>';
+    }
+  }
+
+  // Restore code
+  html = html.replace(/\x00C(\d+)\x00/g, (_,i)=>codePH[+i]);
+  return html;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Component tree → HTML
+───────────────────────────────────────────────────────────────────────────── */
+function renderComp(c){
+  if(!c||!c.type) return '';
+  switch(c.type){
+    case 17: { // Container
+      const color = c.accent_color != null ? toHex(c.accent_color) : '#4e5058';
+      const body  = (c.components||[]).map(renderComp).join('');
+      return `<div class="dc-cont"><div class="dc-accent" style="background:${color}"></div><div class="dc-inner">${body}</div></div>`;
+    }
+    case 14: return `<div class="dc-sep"></div>`; // Separator
+    case 10: // Text
+      return `<div class="dc-txt">${renderMarkdown(c.content||'')}</div>`;
+    case 1: { // Action row
+      const inner=(c.components||[]).map(renderComp).join('');
+      return `<div class="dc-row">${inner}</div>`;
+    }
+    case 2: { // Button
+      const sc=`s${c.style||1}`;
+      let em='';
+      if(c.emoji){
+        const ext=c.emoji.animated?'gif':'png';
+        em=`<img src="https://cdn.discordapp.com/emojis/${c.emoji.id}.${ext}?size=32" alt="">`;
+      }
+      return `<button class="dc-btn ${sc}" disabled>${em}${esc(c.label||'')}</button>`;
+    }
+    case 3: // String select
+    case 5: // User select
+      return `<div class="dc-sel-wrap"><div class="dc-sel">${esc(c.placeholder||'Select…')}</div><span class="dc-sel-arrow">▾</span></div>`;
+    default: return '';
+  }
+}
+
+function renderPayload(payload){
+  if(!payload) return '<div class="err">No payload</div>';
+  return (payload.components||[]).map(renderComp).join('');
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Panel definitions & loading
+───────────────────────────────────────────────────────────────────────────── */
+const PANELS=[
+  {id:'teams_list', label:'📋 Teams List'},
+  {id:'schedule',   label:'📅 Schedule'},
+  {id:'results',    label:'⚽ Results'},
+  {id:'standings',  label:'📊 Standings'},
+  {id:'groupdraw',  label:'🎲 Group Draw'},
+  {id:'bracket',    label:'🏆 Bracket'},
+];
+
+let loading=false, timer=null;
+
+async function loadAll(){
+  if(loading) return;
+  loading=true;
+  const btn=document.getElementById('refreshBtn');
+  btn.disabled=true; btn.textContent='⟳ Loading…';
+  document.getElementById('sb').textContent='Fetching panels from bot…';
+
+  try{
+    const res  = await fetch('/api/panels?t='+Date.now());
+    const data = await res.json();
+    const grid = document.getElementById('grid');
+    grid.innerHTML='';
+
+    for(const p of PANELS){
+      const panel=data[p.id];
+      let body;
+      if(!panel)           body=`<div class="err">Panel not found</div>`;
+      else if(panel.error) body=`<div class="err">⚠ ${esc(panel.error)}</div>`;
+      else                 body=renderPayload(panel.payload);
+
+      const card=document.createElement('div');
+      card.className='card';
+      card.innerHTML=`<div class="card-hdr">${p.label}</div><div class="card-body">${body}</div>`;
+      grid.appendChild(card);
+    }
+
+    document.getElementById('sb').textContent='Last refreshed: '+new Date().toLocaleTimeString();
+  }catch(e){
+    document.getElementById('sb').textContent='Error: '+e.message;
+  }finally{
+    loading=false;
+    btn.disabled=false; btn.textContent='↺ Refresh All';
+  }
+}
+
+document.getElementById('autoChk').addEventListener('change',function(){
+  clearInterval(timer);
+  if(this.checked) timer=setInterval(loadAll,10000);
+});
+
+loadAll();
+</script>
+</body>
+</html>

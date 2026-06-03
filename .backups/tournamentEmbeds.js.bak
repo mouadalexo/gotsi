@@ -98,12 +98,15 @@ function makeResultsPost(tid, round) {
     SEP,
   ];
 
+  // NW = fixed team-name width → score is always at the same column every line
   const NW_R = 18;
   entries.forEach(([g, gm], i) => {
     const lines = gm.map(m => {
       const draw = m.home_score === m.away_score;
+      // Pad names to fixed width so the score block never shifts
       const home = m.homeName.toUpperCase().slice(0, NW_R).padEnd(NW_R);
       const away = m.awayName.toUpperCase().slice(0, NW_R).padEnd(NW_R);
+      // Pad score digits so '1 — 0' and '10 — 2' are the same width
       const hs  = String(m.home_score).padStart(2);
       const as_ = String(m.away_score).padStart(2);
       const icon = draw ? '🤝' : E_FIRE;
@@ -141,6 +144,7 @@ function makeStandingsPost(tid) {
     });
   }
 
+  // Title: single line with cup emoji and em dash — no # heading
   const inner = [
     txt(`${E_CUP}  **STANDINGS  —  ${label.toUpperCase()}**`),
     SEP,
@@ -160,10 +164,11 @@ function makeStandingsPost(tid) {
       return `\`${String(pos).padEnd(2)} ${name}  ${String(p).padStart(1)}  ${dif.padStart(4)}  ${String(pts).padStart(3)}${mark}\``;
     });
     inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${header}\n${rows.join('\n')}`));
-    inner.push(SEP);
+    inner.push(SEP);  // separator between groups (consistent structure)
   });
 
-  inner.pop();
+  // Replace last group separator with credit (no trailing separator)
+  inner.pop(); // remove the final group's trailing SEP
   inner.push(txt(`-# Night Stars  •  ${label}  •  🎯 = Advances to Knockout`));
   return box(RED, inner);
 }
@@ -224,41 +229,27 @@ function makeBracketPost(tid) {
     rounds[m.round].push(m);
   }
 
+  // Highest round number = earliest stage (e.g. round=8 = Round of 16)
   const entries = Object.entries(rounds).sort((a, b) => Number(b[0]) - Number(a[0]));
   entries.forEach(([round, rMatches], i) => {
     const rName = koRoundName(Number(round));
     const lines = rMatches.map(m => {
-      const home  = getTeam(m.home_team_id);
-      const away  = getTeam(m.away_team_id);
-      const hName = home.name.toUpperCase();
-      const aName = away.name.toUpperCase();
-
+      const home    = getTeam(m.home_team_id);
+      const away    = getTeam(m.away_team_id);
+      const hName   = home.name.toUpperCase();
+      const aName   = away.name.toUpperCase();
       if (m.status !== 'played') {
         return `🏠 **${hName}**   \`?  —  ?\`   **${aName}** ✈️`;
       }
-
       const homeWon = m.home_score > m.away_score;
       const awayWon = m.away_score > m.home_score;
       const h = homeWon ? `${E_CROWN} **${hName}**` : `**${hName}**`;
       const a = awayWon ? `**${aName}** ${E_CROWN}` : `**${aName}**`;
-
-      let winner;
-      if (homeWon) {
-        winner = `\n> 🏆 **${hName}** advances`;
-      } else if (awayWon) {
-        winner = `\n> 🏆 **${aName}** advances`;
-      } else if (m.pen_winner) {
-        // Draw resolved by penalties — show who won on pens and the score
-        const penWinTeam  = getTeam(m.pen_winner);
-        const penIsHome   = m.pen_winner === m.home_team_id;
-        const hp          = penIsHome ? m.home_pens : m.away_pens;
-        const ap          = penIsHome ? m.away_pens : m.home_pens;
-        const penName     = penWinTeam.name.toUpperCase();
-        winner = `\n> 🏆 **${penName}** wins on penalties **(${hp} — ${ap})**`;
-      } else {
-        winner = `\n> 🤝 Extra time needed`;
-      }
-
+      const winner  = homeWon
+        ? `\n> 🏆 **${hName}** advances`
+        : awayWon
+        ? `\n> 🏆 **${aName}** advances`
+        : `\n> 🤝 Extra time needed`;
       return `🏠 ${h}   \`${m.home_score} — ${m.away_score}\`   ${a} ✈️${winner}`;
     });
     inner.push(txt(`${E_HASH}  **${rName}**\n${lines.join('\n')}`));

@@ -16,7 +16,7 @@ const txt = c => ({ type: 10, content: c });
 const box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_color: color, components: inner }] });
 
 function buildPendingMatchesSelect(tournamentId) {
-  const matches = db.get("matches").filter(m => m.tournament_id === tournamentId && m.status === "pending");
+  const matches = db.get("matches").filter(m => m.tournament_id === tournamentId);
   if (!matches.length) return null;
 
   const teams   = db.get("teams");
@@ -25,31 +25,47 @@ function buildPendingMatchesSelect(tournamentId) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`match_select_${tournamentId}`)
-      .setPlaceholder("Select a match to add result...")
+      .setPlaceholder("Select a match to enter/edit result...")
       .addOptions(matches.slice(0, 25).map(m => {
         const home = getTeam(m.home_team_id);
         const away = getTeam(m.away_team_id);
+        const statusLabel = m.status === "played"
+          ? `✏️ Edit · ${m.home_score}–${m.away_score}`
+          : `⏳ Pending`;
         return {
           label: `${home.name} vs ${away.name}`,
           value: String(m.id),
-          description: `${m.stage} · Round ${m.round}`,
+          description: `${m.stage} · R${m.round} · ${statusLabel}`,
         };
       }))
   );
 }
 
 function buildResultModal(matchId) {
-  return new ModalBuilder()
+  const match = db.findById("matches", matchId);
+  const isKnockout = match?.stage === "knockout";
+  const modal = new ModalBuilder()
     .setCustomId(`result_modal_${matchId}`)
-    .setTitle("Enter Match Result")
+    .setTitle(isKnockout ? "Enter Match Result (Knockout)" : "Enter Match Result")
     .addComponents(
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("home_score").setLabel("Home Team Score").setStyle(TextInputStyle.Short).setPlaceholder("0").setRequired(true)
+        new TextInputBuilder().setCustomId("home_score").setLabel("Home Team Score").setStyle(TextInputStyle.Short).setPlaceholder("0").setRequired(true).setValue(match?.home_score != null ? String(match.home_score) : "")
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("away_score").setLabel("Away Team Score").setStyle(TextInputStyle.Short).setPlaceholder("0").setRequired(true)
+        new TextInputBuilder().setCustomId("away_score").setLabel("Away Team Score").setStyle(TextInputStyle.Short).setPlaceholder("0").setRequired(true).setValue(match?.away_score != null ? String(match.away_score) : "")
       ),
     );
+  if (isKnockout) {
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId("home_pens").setLabel("Home Penalties (if draw)").setStyle(TextInputStyle.Short).setPlaceholder("Leave blank if no draw").setRequired(false).setValue(match?.home_pens != null ? String(match.home_pens) : "")
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId("away_pens").setLabel("Away Penalties (if draw)").setStyle(TextInputStyle.Short).setPlaceholder("Leave blank if no draw").setRequired(false).setValue(match?.away_pens != null ? String(match.away_pens) : "")
+      ),
+    );
+  }
+  return modal;
 }
 
 // ── All Results — Component V2 ─────────────────────────────────────────────────

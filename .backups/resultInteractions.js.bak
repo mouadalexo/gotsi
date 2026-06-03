@@ -5,6 +5,7 @@ const { successEmbed, errorEmbed, warningEmbed, E } = require('../utils/embeds')
 const { buildPendingMatchesSelect, buildResultModal, buildAllResultsEmbed } = require('../panels/resultsPanel');
 const { buildTournamentSelectMenu } = require('../panels/tournamentPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
+// postResultAndNextRound removed — manager posts results manually via panel
 const { makeResultEmbed } = require('../utils/tournamentEmbeds');
 
 // Reverse a played group match's effect on standings (for edits)
@@ -51,13 +52,6 @@ async function handleResultInteraction(interaction, client) {
     return interaction.reply({ content: `${E.cup}  Select a tournament:`, components: [menu], ephemeral: true });
   }
 
-  // ── Select tournament to view bracket ─────────────────────────────────────
-  if (id === 'tournament_bracket') {
-    const menu = buildTournamentSelectMenu('Select a tournament...', 'bracket_tournament_select', { showFinished: true });
-    if (!menu) return interaction.reply({ embeds: [warningEmbed('No Tournaments', 'No tournaments found.')], ephemeral: true });
-    return interaction.reply({ content: '📋  Select a tournament to view its bracket:', components: [menu], ephemeral: true });
-  }
-
   if (id === 'result_tournament_select') {
     const tournamentId = parseInt(interaction.values[0]);
     const matchMenu = buildPendingMatchesSelect(tournamentId);
@@ -86,9 +80,6 @@ async function handleResultInteraction(interaction, client) {
     if (!match) return interaction.reply({ embeds: [errorEmbed('Not Found', 'Match not found.')], ephemeral: true });
 
     const tournament = db.findById('tournaments', match.tournament_id);
-    const wp = tournament?.win_pts  ?? 3;
-    const dp = tournament?.draw_pts ?? 1;
-    const lp = tournament?.loss_pts ?? 0;
     const teams      = db.get('teams');
     const homeTeam   = teams.find(t => t.id === match.home_team_id) || { name: 'Home', short_name: 'HOM' };
     const awayTeam   = teams.find(t => t.id === match.away_team_id) || { name: 'Away', short_name: 'AWY' };
@@ -108,6 +99,10 @@ async function handleResultInteraction(interaction, client) {
         });
       }
       const penWinner = hp > ap ? match.home_team_id : match.away_team_id;
+      // Reverse old standings if match was already played
+      if (match.status === 'played' && match.home_score != null && match.stage === 'group') {
+        _reverseGroupStandings(match, tournament.id);
+      }
       db.update('matches', matchId, {
         home_score: homeScore, away_score: awayScore,
         home_pens: hp, away_pens: ap, pen_winner: penWinner,
@@ -136,7 +131,7 @@ async function handleResultInteraction(interaction, client) {
       played_at: new Date().toISOString(),
     });
 
-    // Update group standings using tournament-configured points
+    // Update group standings
     if (match.stage === 'group') {
       const homeWon = homeScore > awayScore;
       const awayWon = awayScore > homeScore;
@@ -152,7 +147,7 @@ async function handleResultInteraction(interaction, client) {
           wins:          (tt.wins          || 0) + (won  ? 1 : 0),
           draws:         (tt.draws         || 0) + (draw ? 1 : 0),
           losses:        (tt.losses        || 0) + (lost ? 1 : 0),
-          points:        (tt.points        || 0) + (won ? wp : draw ? dp : lp),
+          points:        (tt.points        || 0) + (won ? 3 : draw ? 1 : 0),
         });
       }
     }

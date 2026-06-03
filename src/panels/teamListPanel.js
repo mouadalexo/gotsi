@@ -30,7 +30,7 @@ function buildTeamsListEmbed(tournamentId) {
   const teams   = db.get('teams');
   const players = db.get('players');
 
-  const E_CUP     = '<a:cup:1501741159557500971>';
+  const E_CUP     = "<a:cup:1501741159557500971>";
   const E_ARROW   = '<a:arrow:1501741110798585927>';
   const E_CHANNEL = '<a:channelutility:1501741046734786600>';
   const SEP       = { type: 14, divider: true, spacing: 1 };
@@ -76,7 +76,6 @@ function buildTeamsListEmbed(tournamentId) {
   }
 
   inner.push({ type: 10, content: '-# \u00a9 2026 Night Stars \u2022 All rights reserved' });
-  inner.push(SEP);
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: inner }] };
 }

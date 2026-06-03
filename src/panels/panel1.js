@@ -27,10 +27,10 @@ function buildPanel1(tournament) {
   const pendingGroup    = groupMatches.filter(m => m.status === 'pending').length;
   const ttRows          = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
 
-  const E_CUP = '<a:cup:1501741159557500971>';
+  const E_CUP = '<a:hashtag:1501741088736678069>';
   const inner = [];
 
-  inner.push(txt(`# ${E_CUP}  ${t.name}`));
+  inner.push(txt(`# ${E_CUP}  Tournament Settings  —  ${t.template || t.name}`));
   inner.push(SEP);
 
   if (stage === 'setup') {
@@ -150,7 +150,7 @@ function buildPanel1(tournament) {
   }
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  •  Panel 1: Tournament Management  •  ${t.template || t.name}`));
+  inner.push(txt(`-# Night Stars  •  Tournament Settings`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }

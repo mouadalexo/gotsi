@@ -58,10 +58,9 @@ function buildTemplateSelectMenu() {
   );
 }
 
-// showFinished: pass true to include finished tournaments (e.g. bracket viewer)
-function buildTournamentSelectMenu(placeholder = 'Select a tournament...', customId = 'tournament_select', { showFinished = false } = {}) {
+function buildTournamentSelectMenu(placeholder = 'Select a tournament...', customId = 'tournament_select') {
   const tournaments = db.get('tournaments')
-    .filter(t => showFinished || t.status !== 'finished')
+    .filter(t => t.status !== 'finished')
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 25);
   if (!tournaments.length) return null;
