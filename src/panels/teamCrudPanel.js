@@ -44,7 +44,7 @@ function buildTeamCrudPanel(opts = {}) {
     btn('Refresh',        'tc_refresh',   2),
   ]});
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
@@ -114,7 +114,7 @@ function buildSearchResultsPanel(query, teams) {
   }
   inner.push(SEP);
   inner.push({ type: 1, components: [btn('\u2190 Back', 'tc_refresh', 2)] });
-  inner.push(txt('-# Night Stars  \u2022  /team  \u2022  Admin only'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 

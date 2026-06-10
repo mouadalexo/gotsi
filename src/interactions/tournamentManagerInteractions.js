@@ -3,7 +3,7 @@ const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = req
 const { db } = require('../utils/database');
 const { requireManager } = require('../utils/permissions');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { makeScheduleEmbed } = require('../utils/tournamentEmbeds');
+const { makeSchedulePost, makeResultsPost } = require('../utils/tournamentEmbeds');
 const { buildNewSeasonModal } = require('../panels/managePanel');
 const {
   buildTournamentListPanel,
@@ -306,28 +306,19 @@ async function handleTournamentManagerInteraction(interaction) {
   // ── Post Schedule ─────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_postschedule_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid  = parseInt(id.replace('tmgr_postschedule_', ''));
-    const t    = db.findById('tournaments', tid);
+    const tid     = parseInt(id.replace('tmgr_postschedule_', ''));
+    const t       = db.findById('tournaments', tid);
     const pending = db.get('matches').filter(m => m.tournament_id === tid && m.status === 'pending');
-    const teams   = db.get('teams');
-    const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-    const groupOf = id_ => ttRows.find(tt => tt.team_id === id_)?.group_name || '';
+    const rounds  = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
+    const round   = rounds[0] || 1;
 
-    const rounds = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
-    const round  = rounds[0] || 1;
-    const byRound = pending.filter(m => m.round === round).map(m => ({
-      home: teams.find(t => t.id === m.home_team_id)?.name || 'TBD',
-      away: teams.find(t => t.id === m.away_team_id)?.name || 'TBD',
-      group: groupOf(m.home_team_id),
-    }));
+    const scheduleCh = await getTargetChannel(interaction.guild, t.template, 'matchSchedule').catch(() => null);
+    const target     = scheduleCh || interaction.channel;
+    const payload    = makeSchedulePost(tid, round);
+    if (payload) await target.send(payload).catch(() => {});
 
-    const payload = makeScheduleEmbed(byRound, `Round ${round}`, t.name);
-    const scheduleCh = await getTargetChannel(interaction.guild, t.template, 'matchSchedule');
-    const target = scheduleCh || interaction.channel;
-    await target.send(payload);
-
-    await interaction.reply({ content: `✅ Schedule for Round ${round} posted to ${scheduleCh ? `<#${scheduleCh.id}>` : 'this channel'}.`, ephemeral: true });
-    return interaction.message.edit(buildTournamentSubPanel(tid)).catch(() => {});
+    await interaction.reply({ content: `✅ Round ${round} schedule posted to ${scheduleCh ? `<#${scheduleCh.id}>` : 'this channel'}.`, ephemeral: true });
+    return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => {});
   }
 
   // ── Add Result — show match picker ────────────────────────────────────────
@@ -419,7 +410,7 @@ async function handleTournamentManagerInteraction(interaction) {
       }
       await tryAdvanceKnockout(interaction.client, tid, match.round);
       await interaction.reply({ content: `✅ KO result saved: **${hs} — ${as_}**`, ephemeral: true });
-      return refreshSubPanel(interaction.client, tid);
+      return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => refreshSubPanel(interaction.client, tid));
     }
 
     // ── Group result ─────────────────────────────────────────────────────
@@ -454,7 +445,7 @@ async function handleTournamentManagerInteraction(interaction) {
     });
 
     await interaction.reply({ content: `✅ Result saved: **${hs} — ${as_}**`, ephemeral: true });
-    return refreshSubPanel(interaction.client, tid);
+    return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => refreshSubPanel(interaction.client, tid));
   }
 
   // ── Start Knockout ────────────────────────────────────────────────────────
@@ -508,6 +499,23 @@ async function handleTournamentManagerInteraction(interaction) {
     }
 
     db.update('tournaments', tid, { status: 'active' });
+    return interaction.update(buildTournamentSubPanel(tid));
+  }
+
+  // ── Next Round ────────────────────────────────────────────────────────────
+  if (id.startsWith('tmgr_nextround_')) {
+    if (!requireManager(interaction.member)) return noPermission(interaction);
+    const parts     = id.replace('tmgr_nextround_', '').split('_');
+    const tid       = parseInt(parts[0]);
+    const nextRound = parseInt(parts[1]);
+    const t         = db.findById('tournaments', tid);
+    if (!t) return interaction.update(buildTournamentListPanel());
+
+    const scheduleCh = await getTargetChannel(interaction.guild, t.template, 'matchSchedule').catch(() => null);
+    const target     = scheduleCh || interaction.channel;
+    const payload    = makeSchedulePost(tid, nextRound);
+    if (payload) await target.send(payload).catch(() => {});
+
     return interaction.update(buildTournamentSubPanel(tid));
   }
 

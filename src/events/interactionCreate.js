@@ -10,7 +10,8 @@ const { handleAdminInteraction }              = require('../interactions/adminIn
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
 const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
-const { handleEnrollInteraction }             = require('../interactions/enrollInteractions');
+const { handleEnrollInteraction }             = require("../interactions/enrollInteractions");
+const { handleAutotestInteraction }           = require("../interactions/autotestInteractions");
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 
 const TEAM_IDS = [
@@ -74,6 +75,12 @@ module.exports = {
         return await interaction.update(id === 'help_p1' ? buildPage1() : buildPage2());
       }
 
+
+      // ── AutoTest step buttons ─────────────────────────────────────────────────
+      if (id.startsWith("at_next_") || id.startsWith("at_end_") || id.startsWith("at_tmpl_") || id.startsWith("at_size_") || id.startsWith("at_auto_") || id === "at_start") {
+        return await handleAutotestInteraction(interaction, client);
+      }
+
       // ── Test panel ─────────────────────────────────────────────────────────
       if (TEST_IDS.includes(id)) {
         return await handleTestInteraction(interaction);
@@ -103,7 +110,8 @@ module.exports = {
         id.startsWith('tmgr_match_sel_')         ||
         id.startsWith('tmgr_result_modal_')      ||
         id.startsWith('tmgr_knockout_')          ||
-        id.startsWith('tmgr_closeseason_')
+        id.startsWith('tmgr_closeseason_')          ||
+        id.startsWith('tmgr_nextround_')
       ) {
         return await handleTournamentManagerInteraction(interaction);
       }

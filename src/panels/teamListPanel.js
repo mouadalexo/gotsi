@@ -20,7 +20,7 @@ const _box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_
  * MCL slot:  **N   Team name <arrow> name** / <@id1> / <@id2>
  * Padding: >=10 teams = single digit 4 spaces / double digit 3 spaces. <10 = always 3 spaces
  * If teams > 18: groups multiple teams per slot to stay within 40-component Discord limit
- * Footer: -# copyright 2026 Night Stars
+ * Footer: -# © 24 2026  |  Goatsi Bot
  */
 function buildTeamsListEmbed(tournamentId) {
   const tournament = db.findById('tournaments', tournamentId);
@@ -75,7 +75,7 @@ function buildTeamsListEmbed(tournamentId) {
     inner.push(SEP);
   }
 
-  inner.push({ type: 10, content: '-# \u00a9 2026 Night Stars \u2022 All rights reserved' });
+  inner.push({ type: 10, content: '-# \u00a9 24 2026  |  Goatsi Bot' });
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: inner }] };
 }

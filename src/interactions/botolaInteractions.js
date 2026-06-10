@@ -901,6 +901,35 @@ Enter all group results first.`,
       const freshT = db.findById('tournaments', tid);
       await refreshAll(cli, tid);
 
+      // -- Public champion announcement --
+      const champCh = ch.results || ch.management;
+      if (champCh) {
+        const champChannel = await cli.channels.fetch(champCh).catch(() => null);
+        if (champChannel) {
+          const playerMentions = playerIds.length
+            ? playerIds.map(pid => `<@${pid}>`).join('  ')
+            : '`No players registered`';
+          const champPayload = {
+            flags: 32768,
+            components: [{ type: 17, accent_color: 0xFFD700, components: [
+              { type: 10, content: `<a:cup:1501741159557500971>  **TOURNAMENT CHAMPION  —  ${(t.name || '').toUpperCase()}  —  SEASON ${t.season}**` },
+              { type: 14, divider: true, spacing: 1 },
+              { type: 10, content: `<:crownn:1501741176296964277>  **${winTeam2?.name?.toUpperCase() || 'UNKNOWN'}**` },
+              { type: 14, divider: true, spacing: 1 },
+              { type: 10, content: `👤  ${playerMentions}` },
+              { type: 14, divider: true, spacing: 1 },
+              { type: 10, content: `-# © 24 2026  |  Goatsi Bot` },
+            ]}],
+          };
+          const _champRole = t.tag_on ? t.registration_role_id : null;
+          if (_champRole) {
+            await champChannel.send({ content: `<@&${_champRole}>`, allowedMentions: { roles: [_champRole] } })
+              .then(m => setTimeout(() => m.delete().catch(() => {}), 5000)).catch(() => {});
+          }
+          await champChannel.send(champPayload).catch(() => {});
+        }
+      }
+
       return interaction.editReply({
         content:
           `# 🏆  Season ${t.season} Winner Confirmed!\n` +
@@ -1501,7 +1530,7 @@ Enter all group results first.`,
         inner.push(txt(`**GROUP ${g}**\n${gm.map(m => `⚽  **${getTeam(m.home_team_id).name}**  vs  **${getTeam(m.away_team_id).name}**`).join('\n')}`));
         inner.push(SEP);
       }
-      inner.push(txt(`-# Night Stars  •  ${t.template}  •  Group Stage  •  Round ${round}`));
+      inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
       const schedPayload = { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
       if (t.preview_mode) {
         return interaction.reply({ ...schedPayload, ephemeral: true });
@@ -1555,7 +1584,7 @@ Enter all group results first.`,
         }).join('\n')}`));
         inner.push(SEP);
       }
-      inner.push(txt(`-# Night Stars  •  ${t.template}  •  Group Stage  •  Round ${round}`));
+      inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
       const resultsPayload = { flags: 32768, components: [{ type: 17, accent_color: 0xCC0000, components: inner }] };
       if (t.preview_mode) {
         return interaction.reply({ ...resultsPayload, ephemeral: true });
@@ -1629,7 +1658,7 @@ Enter all group results first.`,
         ...Object.entries(groups).sort().map(([g, names]) =>
           txt(`**Group ${g}**\n${names.map(n => `• ${n}`).join('\n')}`)
         ),
-        SEP, txt('-# Night Stars  •  Group Draw'),
+        SEP, txt('-# © 24 2026  |  Goatsi Bot'),
       ];
       const drawPayload = { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: drawInner }] };
       if (t.preview_mode) return interaction.reply({ ...drawPayload, ephemeral: true });

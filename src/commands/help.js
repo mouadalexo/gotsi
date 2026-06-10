@@ -118,7 +118,7 @@ function buildPage2() {
           `${E_ARR}  Season numbers are **unique per template** — NSEL S3 and MCL S3 can coexist\n` +
           `${E_ARR}  **Template Config** in \`/admin\` controls which select menus managers see\n` +
           `${E_ARR}  Use **Refresh** on any panel to reload the latest data\n\n` +
-          `-# Night Stars  ${E_CUP}  Goatsi Bot  •  /help`
+          `-# © 24 2026  |  Goatsi Bot`
         ),
         SEP,
         { type: 1, components: [

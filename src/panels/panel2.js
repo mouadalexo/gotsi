@@ -70,7 +70,7 @@ function buildPanel2(tournament) {
   ]});
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  \u2022  Team Registration`));
+  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x2B2D31, components: inner }] };
 }

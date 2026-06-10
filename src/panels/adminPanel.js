@@ -71,7 +71,7 @@ function buildAdminPanel() {
   ]});
 
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  Admin Setup  •  Admins only'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }

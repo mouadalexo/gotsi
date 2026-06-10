@@ -47,7 +47,7 @@ function buildTournamentListPanel() {
     ],
   });
   inner.push(SEP);
-  inner.push(txt('-# Night Stars • Tournament Manager — Admins & Managers only'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
   inner.push(SEP);
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: inner }] };
@@ -105,7 +105,7 @@ function buildTournamentSubPanel(tournamentId) {
       ],
     },
     SEP,
-    txt('-# Night Stars • Tournament Manager — Admins & Managers only'),
+    txt('-# © 24 2026  |  Goatsi Bot'),
     SEP,
   ];
 
@@ -145,7 +145,7 @@ function buildMatchPickerPanel(tournamentId) {
   inner.push(SEP);
   inner.push({ type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: `tmgr_t_${tournamentId}`, emoji: { name: '◀️' } }] });
   inner.push(SEP);
-  inner.push(txt('-# Night Stars • Tournament Manager'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
   inner.push(SEP);
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };

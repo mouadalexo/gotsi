@@ -75,7 +75,7 @@ async function handleMgr2Interaction(interaction) {
         .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('name').setLabel('Bot Display Name')
-              .setStyle(TextInputStyle.Short).setValue(cfg.name || 'Night Stars Bot').setRequired(false)
+              .setStyle(TextInputStyle.Short).setValue(cfg.name || '24').setRequired(false)
           ),
         )
     );

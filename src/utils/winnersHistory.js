@@ -32,7 +32,7 @@ function buildWinnersHistoryPayload(tournamentId) {
   }
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  •  ${t.template || t.name}  •  Winners History`));
+  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return {
     flags: 32768,

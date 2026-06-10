@@ -200,7 +200,7 @@ function buildTestMenuPayload() {
       { type: 2, style: 1, label: '🏆 Bracket',      custom_id: 'test_bracket'    },
     ]},
     SEP,
-    txt('-# Night Stars  •  Test Mode — previews are ephemeral, only you can see them'),
+    txt('-# © 24 2026  |  Goatsi Bot'),
   ]);
 }
 

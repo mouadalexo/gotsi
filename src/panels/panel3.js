@@ -78,7 +78,7 @@ function buildPanel3(tournament) {
   ]});
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  •  Panel 3: Post & Publish  •  ${t.template || t.name}`));
+  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: inner }] };
 }

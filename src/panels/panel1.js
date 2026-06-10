@@ -154,7 +154,7 @@ function buildPanel1(tournament) {
   }
 
   inner.push(SEP);
-  inner.push(txt(`-# Night Stars  •  Tournament Settings`));
+  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }

@@ -51,7 +51,7 @@ function buildManagePanelV2() {
   // Header
   inner.push(txt(
     `# ⚙️  NS eFootball — Manager Panel\n` +
-    `> Bot: **${botCfg.name || 'Night Stars Bot'}**  |  ` +
+    `> Bot: **${botCfg.name || '24'}**  |  ` +
     `Admins: **${admins.filter(a => a.role === 'admin').length}**  |  ` +
     `Managers: **${admins.filter(a => a.role === 'manager').length}**`
   ));
@@ -105,7 +105,7 @@ function buildManagePanelV2() {
     inner.push(SEP);
   }
 
-  inner.push(txt('-# Night Stars  •  /manage  •  Admins only'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
@@ -141,7 +141,7 @@ function buildAdminsSubPanel() {
   ];
   for (const r of rows) inner.push(r);
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  /manage  •  Admin management'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
@@ -183,7 +183,7 @@ function buildWinnersSubPanel() {
     btn('Back',              'mgr2_refresh',            2),
   ]});
   inner.push(SEP);
-  inner.push(txt('-# Night Stars  •  Winners History Setup'));
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFFD700, components: inner }] };
 }

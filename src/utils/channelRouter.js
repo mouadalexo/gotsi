@@ -24,7 +24,7 @@ async function getTargetChannel(guild, template, type) {
   const configId = db.get('config')?.channels?.[tmpl]?.[type];
   const channelId = configId || CHANNEL_MAP[tmpl]?.[type];
   if (!channelId) return null;
-  return guild.channels.cache.get(channelId) || null;
+  return guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
 }
 
 module.exports = { getTargetChannel, CHANNEL_MAP };
