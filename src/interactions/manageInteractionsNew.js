@@ -5,14 +5,13 @@ const {
 const { db }         = require('../utils/database');
 const { getTplCfg, getKnownTemplates } = require('../utils/templateConfig');
 const { isManager, isAdmin } = require('../utils/permissions');
-const { buildManagePanelV2, buildAdminsSubPanel, buildWinnersSubPanel } = require('../panels/managePanel');
+const { buildManagePanelV2, buildAdminsSubPanel, buildWinnersSubPanel, buildWinnersForTournament } = require('../panels/managePanel');
 const { buildWinnersHistoryPayload } = require('../utils/winnersHistory');
 
 function noPermission(i) {
   return i.reply({ content: '❌ Admins only.', ephemeral: true });
 }
 
-// Template config helpers — backed by shared utils/templateConfig.js
 const _getTplCfg        = getTplCfg;
 const _getKnownTemplates = getKnownTemplates;
 
@@ -66,32 +65,7 @@ async function handleMgr2Interaction(interaction) {
     return interaction.update(buildManagePanelV2());
   }
 
-  // ── Bot Settings ─────────────────────────────────────────────────────────
-  if (id === 'mgr2_bots') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const cfg = db.getConfig('bot_config') || {};
-    return interaction.showModal(
-      new ModalBuilder().setCustomId('mgr2_bot_modal').setTitle('Bot Settings')
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('name').setLabel('Bot Display Name')
-              .setStyle(TextInputStyle.Short).setValue(cfg.name || '24').setRequired(false)
-          ),
-        )
-    );
-  }
-
-  if (id === 'mgr2_bot_modal') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const name = interaction.fields.getTextInputValue('name').trim();
-    const cur  = db.getConfig('bot_config') || {};
-    db.setConfig('bot_config', { ...cur, name: name || cur.name });
-    await interaction.deferUpdate();
-    await interaction.editReply(buildManagePanelV2());
-    return interaction.followUp({ content: '✅ Bot settings saved.', ephemeral: true });
-  }
-
-  // ── Manage Admins ────────────────────────────────────────────────────────
+  // ── Manage Admins (backward-compat — buttons no longer shown in panel) ───
   if (id === 'mgr2_admins') {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     return interaction.update(buildAdminsSubPanel());
@@ -185,7 +159,6 @@ async function handleMgr2Interaction(interaction) {
     });
   }
 
-  // mgr2_nt_tpl_{TEMPLATE} — show season number modal
   if (id.startsWith('mgr2_nt_tpl_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const tpl    = id.slice('mgr2_nt_tpl_'.length);
@@ -210,7 +183,6 @@ async function handleMgr2Interaction(interaction) {
     );
   }
 
-  // mgr2_nt_season_{TEMPLATE} — season modal submitted → store pending → show config panel
   if (id.startsWith('mgr2_nt_season_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     let tpl = id.slice('mgr2_nt_season_'.length);
@@ -232,7 +204,6 @@ async function handleMgr2Interaction(interaction) {
     return interaction.reply(_buildNtConfigPanel(pending, cfg));
   }
 
-  // mgr2_nt_cfg_{field} — select menu changed → update pending + refresh panel
   if (id.startsWith('mgr2_nt_cfg_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const field   = id.slice('mgr2_nt_cfg_'.length);
@@ -244,7 +215,6 @@ async function handleMgr2Interaction(interaction) {
     return interaction.update(_buildNtConfigPanel(pending, _getTplCfg(pending.template)));
   }
 
-  // mgr2_nt_confirm — create the tournament
   if (id === 'mgr2_nt_confirm') {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const pending = db.getConfig(`mgr2_pending_${interaction.user.id}`);
@@ -278,12 +248,12 @@ async function handleMgr2Interaction(interaction) {
     await interaction.update(buildManagePanelV2());
     const nGroups = Math.ceil(t.team_count / t.teams_per_group);
     return interaction.followUp({
-      content: `✅ **${t.name}** created!\n> **${t.team_count}** teams · **${nGroups}** groups of **${t.teams_per_group}** · **${t.advance_per_group}** advance/group · **${t.players_per_team}v${t.players_per_team}**${catId ? '\n🏆 Winners History channel auto-created.' : ''}\nUse \`/botola\` to open its panels.`,
+      content: `✅ **${t.name}** created!\n> **${t.team_count}** teams · **${nGroups}** groups of **${t.teams_per_group}** · **${t.advance_per_group}** advance/group · **${t.players_per_team}v${t.players_per_team}**${catId ? '\n🏆 Winners History channel auto-created.' : ''}\nUse \`/panels\` to open its panels.`,
       ephemeral: true,
     });
   }
 
-  // ── Template Config (/admin → ⚙️ Template Cfg) ───────────────────────────
+  // ── Format Config (⚙️) ───────────────────────────────────────────────────
   if (id === 'mgr2_tpl_cfg') {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const tpls = _getKnownTemplates();
@@ -291,7 +261,7 @@ async function handleMgr2Interaction(interaction) {
     return interaction.update({
       flags: 32768,
       components: [{ type: 17, accent_color: 0xFEE75C, components: [
-        { type: 10, content: '**⚙️ Template Config — Select template to edit**' },
+        { type: 10, content: '**⚙️ Format Config — Select a template to edit**' },
         SEP,
         { type: 1, components: [{
           type: 3, custom_id: 'mgr2_tpl_cfg_sel', placeholder: 'Select template…',
@@ -314,7 +284,7 @@ async function handleMgr2Interaction(interaction) {
     return interaction.update({
       flags: 32768,
       components: [{ type: 17, accent_color: 0xFEE75C, components: [
-        { type: 10, content: `**⚙️ Template Config — ${tpl}**\n> Teams: **${cfg.team_count_opts.join(', ')}** · Groups of: **${cfg.tpg_opts.join(', ')}** · Advance: **${cfg.apg_opts.join(', ')}** · Players/Team: **${cfg.ppt_opts.join(', ')}** · Encounters: **${cfg.enc_opts.join(', ')}**` },
+        { type: 10, content: `**⚙️ Format Config — ${tpl}**\n> Teams: **${cfg.team_count_opts.join(', ')}** · Groups of: **${cfg.tpg_opts.join(', ')}** · Advance: **${cfg.apg_opts.join(', ')}** · Players/Team: **${cfg.ppt_opts.join(', ')}** · Encounters: **${cfg.enc_opts.join(', ')}**` },
         SEP,
         { type: 1, components: [
           { type: 2, style: 1, label: `Edit ${tpl} options`, custom_id: `mgr2_tpl_cfg_edit_${tpl}` },
@@ -329,7 +299,7 @@ async function handleMgr2Interaction(interaction) {
     const tpl = id.slice('mgr2_tpl_cfg_edit_'.length);
     const cfg = _getTplCfg(tpl);
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`mgr2_tpl_cfg_save_${tpl}`).setTitle(`Config — ${tpl}`)
+      new ModalBuilder().setCustomId(`mgr2_tpl_cfg_save_${tpl}`).setTitle(`Format Config — ${tpl}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('team_count_opts').setLabel('Team Count options (comma-separated)')
@@ -348,7 +318,7 @@ async function handleMgr2Interaction(interaction) {
               .setStyle(TextInputStyle.Short).setValue(cfg.ppt_opts.join(', ')).setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('enc_opts').setLabel('Encounters/Match options (1=single, 2=H+A)')
+            new TextInputBuilder().setCustomId('enc_opts').setLabel('Encounters/Match (1=single, 2=H+A)')
               .setStyle(TextInputStyle.Short).setValue(cfg.enc_opts.join(', ')).setRequired(true)
           ),
         )
@@ -371,10 +341,10 @@ async function handleMgr2Interaction(interaction) {
     db.setConfig(`tpl_cfg_${tpl}`, newCfg);
     await interaction.deferUpdate();
     await interaction.editReply(buildManagePanelV2());
-    return interaction.followUp({ content: `✅ Template **${tpl}** config saved!`, ephemeral: true });
+    return interaction.followUp({ content: `✅ Format config for **${tpl}** saved!`, ephemeral: true });
   }
 
-    // ── Set Channels (per tournament) ────────────────────────────────────────
+  // ── Set Channels (per tournament) ────────────────────────────────────────
   if (id === 'mgr2_channels_start') {
     const tournaments = db.get('tournaments').filter(t => t.status !== 'finished');
     if (!tournaments.length) return interaction.reply({ content: '❌ No active tournaments.', ephemeral: true });
@@ -387,19 +357,17 @@ async function handleMgr2Interaction(interaction) {
         { type: 1, components: [{
           type: 3, custom_id: 'mgr2_channels_sel', placeholder: 'Select tournament...',
           options: [
-              { label: 'Test', value: 'test' },
-              ...tournaments
-            .filter(t => t.template !== 'TEST')
-            .sort((a, b) => {
-              if (a.status === 'active' && b.status !== 'active') return -1;
-              if (b.status === 'active' && a.status !== 'active') return 1;
-              return a.template.localeCompare(b.template);
-            })
-            .slice(0, 24).map(t => {
-              const stripped = t.name.replace(new RegExp(t.template, 'gi'), '').replace(/\bS?\d+\b/g, '').trim();
-              const label = stripped ? stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase() : t.template;
-              return { label, value: String(t.id) };
-            })],
+            { label: 'Test', value: 'test' },
+            ...tournaments
+              .filter(t => t.template !== 'TEST')
+              .sort((a, b) => {
+                if (a.status === 'active' && b.status !== 'active') return -1;
+                if (b.status === 'active' && a.status !== 'active') return 1;
+                return a.template.localeCompare(b.template);
+              })
+              .slice(0, 24)
+              .map(t => ({ label: t.name.slice(0, 100), value: String(t.id) })),
+          ],
         }]},
         SEP,
         { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_refresh' }]},
@@ -459,8 +427,8 @@ async function handleMgr2Interaction(interaction) {
   }
 
   if (id.startsWith('mgr2_testch_')) {
-    const key3  = id.replace('mgr2_testch_', '');
-    const val3  = (interaction.values && interaction.values[0]) || null;
+    const key3   = id.replace('mgr2_testch_', '');
+    const val3   = (interaction.values && interaction.values[0]) || null;
     const cfgKey = key3 === 'results' ? 'test_results_channel_id' : 'test_schedule_channel_id';
     db.setConfig(cfgKey, val3);
     return interaction.reply({ content: `✅ **Test ${key3}** → ${val3 ? `<#${val3}>` : 'cleared'}.`, flags: 64 });
@@ -479,36 +447,17 @@ async function handleMgr2Interaction(interaction) {
     return interaction.reply({ content: `✅ **${key2}** → ${val ? `<#${val}>` : 'cleared'}.`, flags: 64 });
   }
 
-  // ── Reset ────────────────────────────────────────────────────────────────
-  if (id === 'mgr2_reset') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const SEP = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xED4245, components: [
-        { type: 10, content: '# ☢️  Reset Everything\n> **This will delete ALL tournaments, enrollments and matches. Teams & players are kept. This cannot be undone.**' },
-        SEP,
-        { type: 1, components: [
-          { type: 2, style: 4, label: 'Yes, Reset Everything', custom_id: 'mgr2_reset_confirm' },
-          { type: 2, style: 2, label: 'Cancel',                custom_id: 'mgr2_refresh' },
-        ]},
-      ]}],
-    });
-  }
-
-  if (id === 'mgr2_reset_confirm') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    // Wipe all game data but keep admins and bot_config
-    db.get('tournaments').slice().forEach(t => db.delete('tournaments', t.id));
-    db.get('tournament_teams').slice().forEach(tt => db.delete('tournament_teams', tt.id));
-    db.get('matches').slice().forEach(m => db.delete('matches', m.id));
-    await interaction.update(buildManagePanelV2());
-    return interaction.followUp({ content: '✅ All tournament data has been reset.', ephemeral: true });
-  }
   // ── Winners Setup ────────────────────────────────────────────────────────
   if (id === 'mgr2_winners') {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     return interaction.update(buildWinnersSubPanel());
+  }
+
+  // Tournament selected from winners selector
+  if (id === 'mgr2_winners_sel') {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(interaction.values[0]);
+    return interaction.update(buildWinnersForTournament(tid));
   }
 
   // Set winners history category
@@ -536,139 +485,114 @@ async function handleMgr2Interaction(interaction) {
     return interaction.followUp({ content: `✅ Winners History category set to <#${catId}>.`, ephemeral: true });
   }
 
-  // Set winner role for a tournament
-  if (id === 'mgr2_winner_role_start') {
+  // ── Per-tournament winners: Set Winner Role ───────────────────────────────
+  if (id.startsWith('mgr2_wt_role_') && !id.includes('_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tournaments = db.get('tournaments');
-    if (!tournaments.length) return interaction.reply({ content: '❌ No tournaments.', ephemeral: true });
-    const SEP2 = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content: '**🏆 Set Winner Role — Select a tournament**' },
-        SEP2,
-        { type: 1, components: [{
-          type: 3, custom_id: 'mgr2_winner_role_sel', placeholder: 'Select tournament...',
-          options: tournaments.slice(0, 25).map(t => ({
-            label: t.name.slice(0, 100), value: String(t.id),
-            description: `S${t.season} · ${t.winner_role_id ? 'Role set' : 'No role'}`,
-          })),
-        }]},
-        SEP2,
-        { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_winners' }]},
-      ]}],
-    });
-  }
-
-  if (id === 'mgr2_winner_role_sel') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tid2 = parseInt(interaction.values[0]);
-    const t2   = db.findById('tournaments', tid2);
-    if (!t2) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
+    const tid = parseInt(id.replace('mgr2_wt_role_', ''));
+    const t   = db.findById('tournaments', tid);
+    if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`mgr2_winner_role_modal_${tid2}`).setTitle(`Winner Role — ${t2.name.slice(0, 30)}`)
+      new ModalBuilder().setCustomId(`mgr2_wt_role_modal_${tid}`).setTitle(`Winner Role — ${t.name.slice(0, 30)}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('role_id').setLabel('Winner Role ID (right-click role → Copy ID)')
-              .setStyle(TextInputStyle.Short).setValue(t2.winner_role_id || '').setPlaceholder('1234567890123456789').setRequired(false)
+            new TextInputBuilder().setCustomId('role_id').setLabel('Role ID (right-click role → Copy ID)')
+              .setStyle(TextInputStyle.Short).setValue(t.winner_role_id || '').setPlaceholder('1234567890123456789').setRequired(false)
           ),
         )
     );
   }
 
-  if (id.startsWith('mgr2_winner_role_modal_')) {
+  if (id.startsWith('mgr2_wt_role_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tid3   = parseInt(id.replace('mgr2_winner_role_modal_', ''));
+    const tid    = parseInt(id.replace('mgr2_wt_role_modal_', ''));
     const roleId = interaction.fields.getTextInputValue('role_id').trim().replace(/\D/g, '') || null;
-    db.update('tournaments', tid3, { winner_role_id: roleId });
+    db.update('tournaments', tid, { winner_role_id: roleId });
     await interaction.deferUpdate();
-    await interaction.editReply(buildWinnersSubPanel());
+    await interaction.editReply(buildWinnersForTournament(tid));
     return interaction.followUp({
       content: roleId ? `✅ Winner role set to <@&${roleId}>.` : '✅ Winner role cleared.',
       ephemeral: true,
     });
   }
 
-  // Set winners history message reference for a tournament
-  if (id === 'mgr2_winref_start') {
+  // ── Per-tournament winners: Set History Ref ───────────────────────────────
+  if (id.startsWith('mgr2_wt_ref_') && !id.includes('_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tournaments = db.get('tournaments');
-    if (!tournaments.length) return interaction.reply({ content: '❌ No tournaments.', ephemeral: true });
-    const SEP3 = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content: '**🏆 Set Winners History Message — Select a tournament**' },
-        SEP3,
-        { type: 1, components: [{
-          type: 3, custom_id: 'mgr2_winref_sel', placeholder: 'Select tournament...',
-          options: tournaments.slice(0, 25).map(t => ({
-            label: t.name.slice(0, 100), value: String(t.id),
-            description: `S${t.season} · ${t.winners_history_ref ? 'Ref set' : 'No ref'}`,
-          })),
-        }]},
-        SEP3,
-        { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_winners' }]},
-      ]}],
-    });
-  }
-
-  if (id === 'mgr2_winref_sel') {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tid4 = parseInt(interaction.values[0]);
-    const t4   = db.findById('tournaments', tid4);
-    if (!t4) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
-    const curRef = t4.winners_history_ref || {};
+    const tid    = parseInt(id.replace('mgr2_wt_ref_', ''));
+    const t      = db.findById('tournaments', tid);
+    if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
+    const curRef = t.winners_history_ref || {};
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`mgr2_winref_modal_${tid4}`).setTitle(`History Msg — ${t4.name.slice(0, 28)}`)
+      new ModalBuilder().setCustomId(`mgr2_wt_ref_modal_${tid}`).setTitle(`History Ref — ${t.name.slice(0, 28)}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('channel_id').setLabel('Channel ID of the winners history channel')
+            new TextInputBuilder().setCustomId('channel_id').setLabel('History channel ID')
               .setStyle(TextInputStyle.Short).setValue(curRef.channelId || '').setPlaceholder('1234567890123456789').setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('message_id').setLabel('Message ID of the persistent leaderboard')
+            new TextInputBuilder().setCustomId('message_id').setLabel('History message ID')
               .setStyle(TextInputStyle.Short).setValue(curRef.messageId || '').setPlaceholder('1234567890123456789').setRequired(true)
           ),
         )
     );
   }
 
-  if (id.startsWith('mgr2_winref_modal_')) {
+  if (id.startsWith('mgr2_wt_ref_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tid5  = parseInt(id.replace('mgr2_winref_modal_', ''));
+    const tid   = parseInt(id.replace('mgr2_wt_ref_modal_', ''));
     const chId  = interaction.fields.getTextInputValue('channel_id').trim().replace(/\D/g, '');
     const msgId = interaction.fields.getTextInputValue('message_id').trim().replace(/\D/g, '');
     if (!chId || !msgId) return interaction.reply({ content: '❌ Invalid channel or message ID.', ephemeral: true });
-    db.update('tournaments', tid5, { winners_history_ref: { channelId: chId, messageId: msgId } });
+    db.update('tournaments', tid, { winners_history_ref: { channelId: chId, messageId: msgId } });
     await interaction.deferUpdate();
-    await interaction.editReply(buildWinnersSubPanel());
+    await interaction.editReply(buildWinnersForTournament(tid));
     return interaction.followUp({
-      content: `✅ Winners History message linked: <#${chId}> / \`${msgId}\`.`,
+      content: `✅ History message linked: <#${chId}> / \`${msgId}\`.`,
       ephemeral: true,
     });
   }
 
-  // ── Set registration role for a tournament ─────────────────────────────────
+  // ── Per-tournament winners: Re-post History ───────────────────────────────
+  if (id.startsWith('mgr2_wt_repost_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(id.replace('mgr2_wt_repost_', ''));
+    const t   = db.findById('tournaments', tid);
+    if (!t || !t.winners_history_ref?.channelId)
+      return interaction.reply({ content: '❌ No history channel configured.', ephemeral: true });
+    await interaction.deferUpdate();
+    try {
+      const ch  = await interaction.guild.channels.fetch(t.winners_history_ref.channelId);
+      const msg = await ch.send(buildWinnersHistoryPayload(tid));
+      db.update('tournaments', tid, { winners_history_ref: { channelId: ch.id, messageId: msg.id } });
+      await interaction.editReply(buildWinnersForTournament(tid));
+      return interaction.followUp({ content: `✅ Winners history re-posted to <#${ch.id}>.`, ephemeral: true });
+    } catch (e) {
+      await interaction.editReply(buildWinnersForTournament(tid));
+      return interaction.followUp({ content: `❌ Failed to post: ${e.message}`, ephemeral: true });
+    }
+  }
+
+  // ── Set Role (registration role per tournament) ───────────────────────────
   if (id === 'mgr2_reg_role_start') {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tournaments = db.get('tournaments');
-    if (!tournaments.length) return interaction.reply({ content: '❌ No tournaments.', ephemeral: true });
+    const tournaments = db.get('tournaments').filter(t => t.template !== 'TEST');
+    if (!tournaments.length) return interaction.reply({ content: '❌ No tournaments found.', ephemeral: true });
     const SEP2 = { type: 14, divider: true, spacing: 1 };
     return interaction.update({
       flags: 32768,
       components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content: '**🎟️ Set Registration Role — Select a tournament**' },
+        { type: 10, content: '**🎟️ Set Role — Select a tournament**\nThe selected role will be tagged with posts when Tag is ON in the Publish panel.' },
         SEP2,
         { type: 1, components: [{
           type: 3, custom_id: 'mgr2_reg_role_sel', placeholder: 'Select tournament...',
           options: tournaments.slice(0, 25).map(t => ({
-            label: t.name.slice(0, 100), value: String(t.id),
-            description: `S${t.season} · ${t.registration_role_id ? 'Role set' : 'No role'}`,
+            label: t.name.slice(0, 100),
+            value: String(t.id),
+            description: `Season ${t.season} · ${t.registration_role_id ? '✅ Role set' : 'No role set'}`,
           })),
         }]},
         SEP2,
-        { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_winners' }]},
+        { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_refresh' }]},
       ]}],
     });
   }
@@ -678,7 +602,7 @@ async function handleMgr2Interaction(interaction) {
     const tRR = db.findById('tournaments', parseInt(interaction.values[0]));
     if (!tRR) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`mgr2_reg_role_modal_${tRR.id}`).setTitle(`Reg. Role — ${tRR.name.slice(0, 30)}`)
+      new ModalBuilder().setCustomId(`mgr2_reg_role_modal_${tRR.id}`).setTitle(`Set Role — ${tRR.name.slice(0, 35)}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('role_id').setLabel('Role ID (right-click role → Copy ID)')
@@ -690,17 +614,18 @@ async function handleMgr2Interaction(interaction) {
 
   if (id.startsWith('mgr2_reg_role_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tRRid = parseInt(id.replace('mgr2_reg_role_modal_', ''));
+    const tRRid     = parseInt(id.replace('mgr2_reg_role_modal_', ''));
     const regRoleId = interaction.fields.getTextInputValue('role_id').trim().replace(/\D/g, '') || null;
     db.update('tournaments', tRRid, { registration_role_id: regRoleId });
     await interaction.deferUpdate();
-    await interaction.editReply(buildWinnersSubPanel());
+    await interaction.editReply(buildManagePanelV2());
     return interaction.followUp({
-      content: regRoleId ? `✅ Registration role set to <@&${regRoleId}>. Players get it on enrollment.` : '✅ Registration role cleared.',
+      content: regRoleId
+        ? `✅ Role set to <@&${regRoleId}>. Posts will tag this role when Tag is ON.`
+        : '✅ Role cleared.',
       ephemeral: true,
     });
   }
-
 
 }
 

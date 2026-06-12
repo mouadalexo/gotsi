@@ -36,61 +36,43 @@ function buildNewSeasonModal(template) {
 
 // ── V2 Manage Panel ───────────────────────────────────────────────────────────
 function buildManagePanelV2() {
-  const testChId   = db.getConfig('test_channel_id');
-  const tournaments = db.get('tournaments').sort((a, b) => {
-    if (a.status === 'active' && b.status !== 'active') return -1;
-    if (b.status === 'active' && a.status !== 'active') return 1;
-    return new Date(b.created_at) - new Date(a.created_at);
-  });
-  const admins  = db.get('admins') || [];
-  const botCfg  = db.getConfig('bot_config') || {};
-  const catId   = db.getConfig('winners_history_category');
+  const catId = db.getConfig('winners_history_category');
 
-  const E_CUP  = '<a:cup:1501741159557500971>';
-  const inner  = [];
+  const inner = [];
 
-  // Header
   inner.push(txt(`# Admin Panel`));
   inner.push(SEP);
 
-
-  // Main action buttons
   inner.push({ type: 1, components: [
-    btn('New Tournament',   'mgr2_newtournament',  1),
-    btn('Set Channels',     'mgr2_channels_start', 2),
-    btn('Manage Admins',    'mgr2_admins',         2),
-    btn('Bot Settings',     'mgr2_bots',           2),
-    btn('Refresh',          'mgr2_refresh',        2),
+    btn('New Tournament', 'mgr2_newtournament',  1),
+    btn('Set Channels',   'mgr2_channels_start', 2),
   ]});
+
   inner.push({ type: 1, components: [
     btn('🏆 Winners Setup', 'mgr2_winners',        1),
-    btn('🎟️ Reg. Role',     'mgr2_reg_role_start', 2),
-    btn('⚙️ Template Cfg',   'mgr2_tpl_cfg',        2),
-    btn('Reset Everything', 'mgr2_reset',          4),
+    btn('Set Role',          'mgr2_reg_role_start', 2),
+    btn('⚙️ Format Config',  'mgr2_tpl_cfg',        2),
   ]});
+
   inner.push(SEP);
 
-  // Winners history category status
   if (catId) {
     inner.push(txt(`**Winners History Category:** <#${catId}>`));
   } else {
     inner.push(txt('**Winners History Category:** _Not configured_ — use **🏆 Winners Setup** to configure.'));
   }
+
   inner.push(SEP);
-
-  // Admins list
-  if (admins.length) {
-    const lines = admins.map(a => `\`${a.role.padEnd(7)}\`  <@${a.discord_id}>`);
-    inner.push(txt(`**Registered Admins & Managers**\n${lines.join('\n')}`));
-    inner.push(SEP);
-  }
-
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
+
+  inner.push({ type: 1, components: [
+    btn('Refresh', 'mgr2_refresh', 2),
+  ]});
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
-// ── Admins sub-panel ──────────────────────────────────────────────────────────
+// ── Admins sub-panel (kept for backward-compat) ───────────────────────────────
 function buildAdminsSubPanel() {
   const admins = db.get('admins') || [];
   const inner  = [];
@@ -111,57 +93,92 @@ function buildAdminsSubPanel() {
   }
   inner.push(SEP);
 
-  const rows = [
-    { type: 1, components: [
-      btn('Add Admin',   'mgr2_admin_add_admin',   1),
-      btn('Add Manager', 'mgr2_admin_add_manager', 2),
-      btn('Remove User', 'mgr2_admin_del_start',   4, admins.length === 0),
-      btn('Back',        'mgr2_refresh',            2),
-    ]},
-  ];
-  for (const r of rows) inner.push(r);
+  inner.push({ type: 1, components: [
+    btn('Add Admin',   'mgr2_admin_add_admin',   1),
+    btn('Add Manager', 'mgr2_admin_add_manager', 2),
+    btn('Remove User', 'mgr2_admin_del_start',   4, admins.length === 0),
+    btn('Back',        'mgr2_refresh',            2),
+  ]});
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
-// ── Winners Setup sub-panel ───────────────────────────────────────────────────
+// ── Winners Setup — tournament selector ───────────────────────────────────────
 function buildWinnersSubPanel() {
-  const tournaments = db.get('tournaments');
+  const tournaments = db.get('tournaments').filter(t => t.template !== 'TEST');
   const catId       = db.getConfig('winners_history_category');
   const inner       = [];
 
   inner.push(txt(
-    `# 🏆  Winners History Setup\n` +
+    `# 🏆  Winners Setup\n` +
     `> **Category:** ${catId ? `<#${catId}>` : '`Not configured`'}`
   ));
   inner.push(SEP);
 
   if (!tournaments.length) {
-    inner.push(txt('No tournaments yet.'));
+    inner.push(txt('No tournaments found.'));
+    inner.push(SEP);
+    inner.push({ type: 1, components: [
+      btn('Set Category', 'mgr2_winners_setup', 2),
+      btn('Back',         'mgr2_refresh',       2),
+    ]});
   } else {
-    // Group by template — winner role & history shared across seasons
-    const byTpl = {};
-    for (const t of tournaments) {
-      const k = t.template || t.name;
-      if (!byTpl[k] || t.season > byTpl[k].season) byTpl[k] = t;
-    }
-    const lines = Object.entries(byTpl).map(([tpl, t]) => {
-      const roleStatus = t.winner_role_id ? `\u2705 <@&${t.winner_role_id}>` : '`Not set`';
-      const refStatus  = t.winners_history_ref ? `\u2705 linked` : '`Not set`';
-      return `**${tpl}**\n> Winner Role: ${roleStatus}  |  History Msg: ${refStatus}`;
-    });
-    inner.push(txt(lines.join('\n')));
+    inner.push(txt('Select a tournament to manage its winner role and history.'));
+    inner.push(SEP);
+    inner.push({ type: 1, components: [{
+      type: 3, custom_id: 'mgr2_winners_sel', placeholder: 'Select tournament…',
+      options: tournaments.slice(0, 25).map(t => ({
+        label: t.name.slice(0, 100),
+        value: String(t.id),
+        description: `Season ${t.season} · ${t.winner_role_id ? 'Role ✅' : 'Role not set'} · ${t.winners_history_ref ? 'History ✅' : 'History not set'}`,
+      })),
+    }]},);
+    inner.push(SEP);
+    inner.push({ type: 1, components: [
+      btn('Set Category', 'mgr2_winners_setup', 2),
+      btn('Back',         'mgr2_refresh',       2),
+    ]});
   }
+
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFFD700, components: inner }] };
+}
+
+// ── Per-tournament winners sub-panel ─────────────────────────────────────────
+function buildWinnersForTournament(tid) {
+  const t = db.findById('tournaments', tid);
+  if (!t) return buildWinnersSubPanel();
+
+  const catId  = db.getConfig('winners_history_category');
+  const ref    = t.winners_history_ref || {};
+  const inner  = [];
+
+  inner.push(txt(
+    `# 🏆  Winners — ${t.name}\n` +
+    `> Season **${t.season}**`
+  ));
+  inner.push(SEP);
+  inner.push(txt(
+    `**Category:**       ${catId ? `<#${catId}>` : '`Not set`'}\n` +
+    `**Winner Role:**    ${t.winner_role_id ? `✅ <@&${t.winner_role_id}>` : '`Not set`'}\n` +
+    `**History Channel:**${ref.channelId ? ` ✅ <#${ref.channelId}>` : ' `Not set`'}\n` +
+    `**History Message:**${ref.messageId ? ' ✅ Linked' : ' `Not set`'}`
+  ));
   inner.push(SEP);
 
   inner.push({ type: 1, components: [
-    btn('Set Category',      'mgr2_winners_setup',      1),
-    btn('Set Winner Role',   'mgr2_winner_role_start',  2),
-    btn('Set History Msg',   'mgr2_winref_start',       2),
-    btn('Back',              'mgr2_refresh',            2),
+    btn('Set Winner Role',   `mgr2_wt_role_${tid}`,   2),
+    btn('Set History Ref',   `mgr2_wt_ref_${tid}`,    2),
+    btn('Re-post History',   `mgr2_wt_repost_${tid}`, 1, !ref.channelId),
   ]});
+  inner.push({ type: 1, components: [
+    btn('Back', 'mgr2_winners', 2),
+  ]});
+
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
@@ -173,4 +190,5 @@ module.exports = {
   buildManagePanelV2,
   buildAdminsSubPanel,
   buildWinnersSubPanel,
+  buildWinnersForTournament,
 };
