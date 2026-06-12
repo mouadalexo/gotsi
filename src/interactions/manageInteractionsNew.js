@@ -386,10 +386,20 @@ async function handleMgr2Interaction(interaction) {
         SEP,
         { type: 1, components: [{
           type: 3, custom_id: 'mgr2_channels_sel', placeholder: 'Select tournament...',
-          options: tournaments.slice(0, 25).map(t => ({
-            label: t.name.slice(0, 100), value: String(t.id),
-            description: `S${t.season} · ${t.status}`,
-          })),
+          options: [
+              { label: 'Test', value: 'test' },
+              ...tournaments
+            .filter(t => t.template !== 'TEST')
+            .sort((a, b) => {
+              if (a.status === 'active' && b.status !== 'active') return -1;
+              if (b.status === 'active' && a.status !== 'active') return 1;
+              return a.template.localeCompare(b.template);
+            })
+            .slice(0, 24).map(t => {
+              const stripped = t.name.replace(new RegExp(t.template, 'gi'), '').replace(/\bS?\d+\b/g, '').trim();
+              const label = stripped ? stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase() : t.template;
+              return { label, value: String(t.id) };
+            })],
         }]},
         SEP,
         { type: 1, components: [{ type: 2, style: 2, label: 'Back', custom_id: 'mgr2_refresh' }]},
@@ -398,6 +408,29 @@ async function handleMgr2Interaction(interaction) {
   }
 
   if (id === 'mgr2_channels_sel') {
+    if (interaction.values[0] === 'test') {
+      const rId = db.getConfig('test_results_channel_id');
+      const sId = db.getConfig('test_schedule_channel_id');
+      const SEP2 = { type: 14, divider: true, spacing: 1 };
+      const mkPicker = (label, key, currentId) => ({
+        type: 1,
+        components: [{
+          type: 8, custom_id: `mgr2_testch_${key}`,
+          placeholder: currentId ? `${label} (currently set)` : `${label} — select channel`,
+          channel_types: [0, 5], min_values: 0, max_values: 1,
+          ...(currentId ? { default_values: [{ id: currentId, type: 'channel' }] } : {}),
+        }],
+      });
+      return interaction.reply({
+        flags: 32768, ephemeral: true,
+        components: [{ type: 17, accent_color: 0x5865F2, components: [
+          { type: 10, content: '**📺 Set Channels — Test**\nSelect a channel for each category. Changes save instantly.' },
+          SEP2,
+          mkPicker('Results & Standings', 'results', rId),
+          mkPicker('Schedule', 'schedule', sId),
+        ]}],
+      });
+    }
     const tid  = parseInt(interaction.values[0]);
     const t    = db.findById('tournaments', tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
@@ -423,6 +456,14 @@ async function handleMgr2Interaction(interaction) {
         chSel('Teams List', 'teamsList'),
       ]}],
     });
+  }
+
+  if (id.startsWith('mgr2_testch_')) {
+    const key3  = id.replace('mgr2_testch_', '');
+    const val3  = (interaction.values && interaction.values[0]) || null;
+    const cfgKey = key3 === 'results' ? 'test_results_channel_id' : 'test_schedule_channel_id';
+    db.setConfig(cfgKey, val3);
+    return interaction.reply({ content: `✅ **Test ${key3}** → ${val3 ? `<#${val3}>` : 'cleared'}.`, flags: 64 });
   }
 
   if (id.startsWith('mgr2_ch_')) {

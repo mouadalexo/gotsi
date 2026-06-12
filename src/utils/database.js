@@ -53,7 +53,7 @@ function load() {
   return _db;
 }
 
-function save() { fs.writeFileSync(DB_PATH, JSON.stringify(_db, null, 2)); }
+function save() { fs.writeFileSync(DB_PATH, JSON.stringify(_db)); }
 function nextId(table) {
   const d = load();
   if (!d._nextId[table]) d._nextId[table] = 1;

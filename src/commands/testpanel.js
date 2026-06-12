@@ -1,14 +1,14 @@
 'use strict';
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { buildTestMenuPayload } = require('../interactions/testInteractions');
+const { executeTestpanel } = require('../interactions/testInteractions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('testpanel')
-    .setDescription('Preview all bot panels with random data (updates in place)')
+    .setDescription('Post all bot posts with random teams — live preview in this channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    await interaction.reply(buildTestMenuPayload());
+    await executeTestpanel(interaction);
   },
 };

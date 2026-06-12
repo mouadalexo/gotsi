@@ -1,5 +1,6 @@
 'use strict';
-const { db } = require('../utils/database');
+const { db }       = require('../utils/database');
+const { getStage } = require('./panel1');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -9,70 +10,47 @@ function buildPanel2(tournament) {
   const t       = tournament;
   const tid     = t.id;
   const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-  const teams   = db.get('teams');
-  const players = db.get('players');
-  const needed  = Math.min(t.players_per_team || 1, 4);
-  const hasTeams = ttRows.length > 0;
-  const isFull   = !!(t.team_count && ttRows.length >= t.team_count);
+  const hasTeams  = ttRows.length > 0;
+  const regLocked = getStage(t) !== 'setup';
+  const ch        = t.channels || {};
 
-  const E_CUP  = "<a:hashtag:1501741088736678069>";
-  const E_CH   = '<a:channelutility:1501741046734786600>';
-  const E_ARR  = '<a:arrow:1501741110798585927>';
-  const E_SARR = '<a:smallarrow:1472222559645863936>';
+  const E_CH = '<a:channelutility:1501741046734786600>';
 
   const inner = [];
 
-  inner.push(txt(
-    `# ${E_CUP}  Team Registration  \u2014  ${t.template || t.name}\n` +
-    `${E_CH}  The **${ttRows.length}** registered teams for **${t.template || t.name}**` +
-    (t.season ? ` **S${t.season}**` : '') +
-    (t.team_count ? `  \u2014  *${ttRows.length}/${t.team_count} spots*` : '')
-  ));
+  const registered = ttRows.length;
+  const total      = t.team_count || null;
+  const spotsLeft  = total !== null ? total - registered : null;
+  const teamListCh = ch.teamsList ? `<#${ch.teamsList}>` : '`not set`';
+
+  const spotsTxt = total !== null
+    ? `${E_CH}  **${registered}** teams registered  \u2022  **${spotsLeft}** ${spotsLeft === 1 ? 'spot' : 'spots'} left`
+    : `${E_CH}  **${registered}** teams registered`;
+
+  inner.push(txt(`## Registration \u2014 ${t.template || t.name}`));
+  inner.push(SEP);
+  inner.push(txt(`**List** : ${teamListCh}\n${spotsTxt}`));
   inner.push(SEP);
 
-  if (!ttRows.length) {
-    inner.push(txt('> No teams registered yet. Use **Add Team** to start.'));
-    inner.push(SEP);
-  } else {
-    // Build one line per team, then batch into chunks of 20 to stay under
-    // Discord's 40-component limit regardless of team count (16, 64, etc.)
-    const lines = ttRows.map((tt, idx) => {
-      const team     = teams.find(t2 => t2.id === tt.team_id) || { name: 'Unknown' };
-      const tPlayers = players.filter(p => p.team_id === tt.team_id);
-      const num      = String(idx + 1).padStart(ttRows.length >= 10 ? 2 : 1, ' ');
-      let playerPart = '';
-      if (needed === 1) {
-        const p = tPlayers[0]?.discord_id ? `<@${tPlayers[0].discord_id}>` : '`-`';
-        playerPart = `  ${E_SARR}  ${p}`;
-      } else {
-        const parts = [];
-        for (let i = 0; i < needed; i++) {
-          const p = tPlayers[i]?.discord_id ? `<@${tPlayers[i].discord_id}>` : '`-`';
-          parts.push(`P${i + 1}: ${p}`);
-        }
-        playerPart = `  ${E_SARR}  ` + parts.join('  ·  ');
-      }
-      return `**${num}.  ${team.name}**${playerPart}`;
-    });
-    const CHUNK = 20;
-    for (let i = 0; i < lines.length; i += CHUNK) {
-      inner.push(txt(lines.slice(i, i + CHUNK).join('\n')));
-      inner.push(SEP);
-    }
-  }
-
   inner.push({ type: 1, components: [
-    btn('Add Team',       `p2_${tid}_addteam`,    1),
-    btn('Remove Team',    `p2_${tid}_removeteam`, 4, !hasTeams),
-    btn('Clear Teams',    `p2_${tid}_clearteams`, 4, !hasTeams),
-    btn('Post Team List', `p2_${tid}_postlist`,   2),
-    btn('Refresh',        `p2_${tid}_refresh`,    2),
+    btn('Add Team', `p2_${tid}_addteam`, 1, regLocked),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('\uD83D\uDC41 Preview',   `p2_${tid}_previewlist`, 3, !hasTeams),
+    btn('Post / Update', `p2_${tid}_postlist`,    3),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('Remove',    `p2_${tid}_removeteam`, 4, !hasTeams || regLocked),
+    btn('Clear All', `p2_${tid}_clearteams`, 4, !hasTeams || regLocked),
+  ]});
+  inner.push({ type: 1, components: [
+    btn('Refresh', `p2_${tid}_refresh`, 2),
   ]});
 
   inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
+  inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x2B2D31, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
 module.exports = { buildPanel2 };

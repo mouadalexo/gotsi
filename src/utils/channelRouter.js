@@ -2,7 +2,7 @@
 const { db } = require('./database');
 
 const CHANNEL_MAP = {
-  NSEL: {
+  EL: {
     teamsList:      '1462982588661628938',
     results:        '1463162274192556072',
     matchSchedule:  '1462982363267993672',

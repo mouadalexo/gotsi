@@ -5,6 +5,15 @@ const SEP  = { type: 14, divider: true, spacing: 1 };
 const txt  = c => ({ type: 10, content: c });
 const btn  = (label, id, style, emoji) => ({ type: 2, style, label, custom_id: id, emoji: { name: emoji } });
 
+
+// Strips template prefix + season number → shows just the unique suffix
+// e.g. "EL S99 TEST" → "TEST",  "MCL" → "MCL",  "EL" → "EL"
+function shortName(t) {
+  const name = (t.name || t.template || '').trim();
+  if (name === t.template) return name;
+  const stripped = name.replace(t.template, '').replace(/\s*S?\d+\s*/g, '').trim();
+  return stripped || name.split(' ').pop() || t.template;
+}
 // ── Tournament list panel ─────────────────────────────────────────────────────
 function buildTournamentListPanel() {
   const all = db.get('tournaments').sort((a, b) => {
@@ -30,7 +39,7 @@ function buildTournamentListPanel() {
         components: chunk.map(t => ({
           type: 2,
           style: t.status === 'active' ? 1 : 2,
-          label: `${t.template} S${t.season}`,
+          label: shortName(t),
           custom_id: `tmgr_t_${t.id}`,
           emoji: { name: t.status === 'active' ? '🟢' : t.status === 'finished' ? '🔒' : '⚙️' },
         })),
@@ -43,7 +52,7 @@ function buildTournamentListPanel() {
     type: 1,
     components: [
       btn('New MCL Season',  'tmgr_new_MCL',  3, '⚡'),
-      btn('New NSEL Season', 'tmgr_new_NSEL', 3, '🏆'),
+      btn('New EL Season', 'tmgr_new_EL', 3, '🏆'),
     ],
   });
   inner.push(SEP);
@@ -71,7 +80,7 @@ function buildTournamentSubPanel(tournamentId) {
 
   const inner = [
     txt(
-      `# ${t.template} Season ${t.season}  —  ${t.name}\n` +
+      `# ${shortName(t)}\n` +
       `${statusLabel}  ·  Teams **${enrolled.length}/${t.team_count || '?'}**  ·  ` +
       `Played **${played.length}**  ·  Pending **${pending.length}**  ·  Current Round **${currentRound}**`
     ),

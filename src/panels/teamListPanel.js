@@ -16,7 +16,7 @@ const _box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_
  *
  * flags: 32768 | accent_color: 0x2b2d31 | type-17 container | max 40 components total
  * Header:  # <cup>  {TEMPLATE}  Team List / <channelutility> The N registered teams ...
- * NSEL slot: **N    Team name <arrow> name** / <@id>
+ * EL slot: **N    Team name <arrow> name** / <@id>
  * MCL slot:  **N   Team name <arrow> name** / <@id1> / <@id2>
  * Padding: >=10 teams = single digit 4 spaces / double digit 3 spaces. <10 = always 3 spaces
  * If teams > 18: groups multiple teams per slot to stay within 40-component Discord limit

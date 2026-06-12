@@ -146,7 +146,7 @@ async function handleManageInteraction(interaction, client) {
   // ── New Season button ────────────────────────────────────────────────────────
   if (id.startsWith('mgr_new_season_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const template = extractTemplate(id) || 'NSEL';
+    const template = extractTemplate(id) || 'EL';
     return interaction.showModal(buildNewSeasonModal(template));
   }
 

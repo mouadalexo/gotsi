@@ -2,7 +2,7 @@
 const { db } = require('./database');
 
 const DEFAULTS = {
-  NSEL: { team_count_opts: [16, 32, 64], tpg_opts: [4], apg_opts: [2], ppt_opts: [1], enc_opts: [1] },
+  EL: { team_count_opts: [16, 32, 64], tpg_opts: [4], apg_opts: [2], ppt_opts: [1], enc_opts: [1] },
   MCL:  { team_count_opts: [8, 16, 32],  tpg_opts: [4], apg_opts: [2], ppt_opts: [2], enc_opts: [1] },
 };
 
@@ -20,7 +20,7 @@ function getTplCfg(template) {
 
 function getKnownTemplates() {
   const fromDB = db.get('tournaments').map(t => t.template);
-  return [...new Set(['NSEL', 'MCL', ...fromDB])];
+  return [...new Set(['EL', 'MCL', ...fromDB])];
 }
 
 module.exports = { getTplCfg, getKnownTemplates };

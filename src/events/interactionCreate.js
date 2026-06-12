@@ -19,12 +19,16 @@ const TEAM_IDS = [
   'custom_team_modal', 'team_add_player', 'team_select', 'team_remove', 'team_remove_select',
 ];
 
-const TEST_IDS = ['test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw', 'test_bracket'];
+const TEST_IDS = ['tp_refresh', 'test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw', 'test_bracket'];
 
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction, client) {
     try {
+      // Drop stale component interactions (expired tokens replayed after bot downtime)
+      // Slash commands and autocomplete are always fresh — skip the guard for them
+      if (!interaction.isChatInputCommand() && !interaction.isAutocomplete() &&
+          Date.now() - interaction.createdTimestamp > 2500) return;
       // ── Slash commands ─────────────────────────────────────────────────────
       if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
@@ -75,14 +79,23 @@ module.exports = {
         return await interaction.update(id === 'help_p1' ? buildPage1() : buildPage2());
       }
 
+      if (id === 'help_mgr_p1' || id === 'help_mgr_p2' || id === 'help_mgr_p3') {
+        const { buildMgrPage1, buildMgrPage2, buildMgrPage3 } = require('../commands/help-manager');
+        const page = id === 'help_mgr_p1' ? buildMgrPage1()
+                   : id === 'help_mgr_p2' ? buildMgrPage2()
+                   :                        buildMgrPage3();
+        return await interaction.update(page);
+      }
+
 
       // ── AutoTest step buttons ─────────────────────────────────────────────────
       if (id.startsWith("at_next_") || id.startsWith("at_end_") || id.startsWith("at_tmpl_") || id.startsWith("at_size_") || id.startsWith("at_auto_") || id === "at_start") {
         return await handleAutotestInteraction(interaction, client);
       }
 
-      // ── Test panel ─────────────────────────────────────────────────────────
+      // ── Test panel (defer immediately — must beat Discord 3s deadline) ────────────
       if (TEST_IDS.includes(id)) {
+        await interaction.deferReply({ flags: 64 }); // 64 = ephemeral
         return await handleTestInteraction(interaction);
       }
 

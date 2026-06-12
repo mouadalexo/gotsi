@@ -25,10 +25,8 @@ function buildPanel3(tournament) {
 
   const ch = t.channels || {};
   const chParts = [
-    ch.schedule   ? `Schedule → <#${ch.schedule}>`       : 'Schedule → `not set`',
-    ch.results    ? `Results → <#${ch.results}>`         : 'Results → `not set`',
-    ch.management ? `Management → <#${ch.management}>`   : 'Management → `not set`',
-    ch.teamsList  ? `Teams List → <#${ch.teamsList}>`    : 'Teams List → `not set`',
+    ch.schedule ? `**Schedule** → <#${ch.schedule}>` : '**Schedule** → `not set`',
+    ch.results  ? `**Results** → <#${ch.results}>`   : '**Results** → `not set`',
   ];
 
   // Post / Preview mode toggle
@@ -45,9 +43,11 @@ function buildPanel3(tournament) {
   const E_CUP = "<a:hashtag:1501741088736678069>";
   const inner = [];
 
-  inner.push(txt(`# ${E_CUP}  Post & Publish  —  ${t.template || t.name}`));
+  inner.push(txt(`## Publish  —  ${t.template || t.name}`));
   inner.push(SEP);
-  inner.push(txt(`**Channels**\n${chParts.join('  |  ')}`));
+  inner.push(txt('**Channels**'));
+  inner.push(SEP);
+  inner.push(txt(chParts.join('\n')));
   inner.push(SEP);
 
   // Mode + Tag toggle row
@@ -66,21 +66,25 @@ function buildPanel3(tournament) {
   inner.push(SEP);
 
   // Action buttons — gated by tournament state
+  // Row 1 (blue): Group Draw, Schedule
   inner.push({ type: 1, components: [
-    btn('Teams List', `p3_${tid}_teamslist`, actStyle, !isFull),
-    btn('Schedule',   `p3_${tid}_schedule`,  actStyle, !hasMatches),
-    btn('Results',    `p3_${tid}_results`,   actStyle, !round1Complete),
+    btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
+    btn('Schedule',   `p3_${tid}_schedule`,  1, !hasMatches),
   ]});
+  // Row 2 (green): Results, Standings
   inner.push({ type: 1, components: [
-    btn('Standings',  `p3_${tid}_standings`, actStyle, !hasGroups),
-    btn('Group Draw', `p3_${tid}_groupdraw`, 2,        !hasGroups),
-    btn('Bracket',    `p3_${tid}_bracket`,   2,        !hasKO),
+    btn('Results',    `p3_${tid}_results`,   3, !round1Complete),
+    btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
+  ]});
+  // Row 3 (red): KO Bracket alone
+  inner.push({ type: 1, components: [
+    btn('KO Bracket', `p3_${tid}_bracket`,   4, !hasKO),
   ]});
 
   inner.push(SEP);
   inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
 module.exports = { buildPanel3 };

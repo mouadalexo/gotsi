@@ -113,7 +113,7 @@ async function handleTournamentManagerInteraction(interaction) {
   }
 
   // ── New season — show template modal ──────────────────────────────────────
-  if (id === 'tmgr_new_MCL' || id === 'tmgr_new_NSEL') {
+  if (id === 'tmgr_new_MCL' || id === 'tmgr_new_EL') {
     if (!requireManager(interaction.member)) return noPermission(interaction);
     const template = id.replace('tmgr_new_', '');
     const modal = buildNewSeasonModal(template);

@@ -5,6 +5,7 @@ const {
 } = require("discord.js");
 const { db } = require("../utils/database");
 const { E } = require("../utils/embeds");
+const { fmtMatchLine, scoreSep } = require("../utils/tournamentEmbeds");
 
 const E_CUP     = "<a:cup:1501741159557500971>";
 const E_HASHTAG = "<a:hashtag:1501741088736678069>";
@@ -100,17 +101,11 @@ function buildAllResultsEmbed(tournamentId) {
 
   const entries = Object.entries(groups).sort();
   entries.forEach(([g, gMatches], gi) => {
-    const lines = gMatches.map(m => {
-      const home    = getTeam(m.home_team_id);
-      const away    = getTeam(m.away_team_id);
-      const homeWon = m.home_score > m.away_score;
-      const awayWon = m.away_score > m.home_score;
-      const draw    = m.home_score === m.away_score;
-      const icon    = draw ? "🤝" : E_FIRE;
-      const homeStr = homeWon ? `${E_CROWN} **${home.name}**` : `**${home.name}**`;
-      const awayStr = awayWon ? `**${away.name}** ${E_CROWN}` : `**${away.name}**`;
-      return `${icon}  ${homeStr}  \`${m.home_score} — ${m.away_score}\`  ${awayStr}`;
-    });
+    const lines = gMatches.map(m => fmtMatchLine(
+      getTeam(m.home_team_id).name.toUpperCase(),
+      getTeam(m.away_team_id).name.toUpperCase(),
+      scoreSep(m.home_score, m.away_score)
+    ));
     inner.push(txt(`${E_HASHTAG}  **GROUP ${g}**\n${lines.join("\n")}`));
     if (gi < entries.length - 1) inner.push(sep());
   });

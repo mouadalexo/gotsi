@@ -6,7 +6,7 @@ const { isBotolaManager } = require('../utils/permissions');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
-const VALID = /^(NSEL|MCL)$/i;
+const VALID = /^(EL|MCL)$/i;
 
 function buildBotolaListPanel() {
   const tournaments = db.get('tournaments')
@@ -19,7 +19,7 @@ function buildBotolaListPanel() {
 
   const E_CUP = '<a:cup:1501741159557500971>';
   const inner = [];
-  inner.push(txt(`# ${E_CUP}  Botola \u2014 Tournament Hub\n> Select a tournament to open its management panels.`));
+  inner.push(txt(`**${E_CUP}  Botola \u2014 Tournament Hub**\n> Select a tournament to open its management panels.`));
   inner.push(SEP);
 
   if (!tournaments.length) {

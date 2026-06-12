@@ -381,3 +381,4 @@ try {
   OK(`Removed ${n} test records — DB restored`);
   console.log('');
 }
+process.exit(0);

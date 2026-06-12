@@ -1,9 +1,8 @@
 'use strict';
-const { buildAdminPanel, buildChannelPickerPanel } = require('../panels/adminPanel');
+const { buildAdminPanel, buildChannelPickerPanel, buildTestChannelPickerPanel } = require('../panels/adminPanel');
 const { db } = require('../utils/database');
 
 async function handleAdminInteraction(interaction) {
-  // Auto-delete ephemeral replies so admin sub-panels are temporary
   const _origReply = interaction.reply.bind(interaction);
   interaction.reply = async (opts) => {
     const r = await _origReply(opts);
@@ -16,14 +15,25 @@ async function handleAdminInteraction(interaction) {
     return interaction.update(buildAdminPanel());
   }
 
-  if (id === 'adm_tch_NSEL' || id === 'adm_tch_MCL') {
+  if (id === 'adm_tch_EL' || id === 'adm_tch_MCL') {
     const template = id.replace('adm_tch_', '');
     return interaction.reply({ ...buildChannelPickerPanel(template), ephemeral: true });
   }
 
+  if (id === 'adm_tch_TEST') {
+    return interaction.reply({ ...buildTestChannelPickerPanel(), ephemeral: true });
+  }
+
+  // adm_ch_TEST_testpanel — save test channel via config
+  if (id === 'adm_ch_TEST_testpanel') {
+    const channelId = interaction.values[0] || null;
+    db.setConfig('test_channel_id', channelId);
+    return interaction.update(buildTestChannelPickerPanel());
+  }
+
   // adm_ch_{TEMPLATE}_{key}  — ChannelSelectMenu saved immediately on change
   if (id.startsWith('adm_ch_')) {
-    const parts     = id.split('_');     // ['adm','ch','NSEL','management']
+    const parts     = id.split('_');     // ['adm','ch','EL','management']
     const template  = parts[2];
     const key       = parts[3];
     const channelId = interaction.values[0] || null;

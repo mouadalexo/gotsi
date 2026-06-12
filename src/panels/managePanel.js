@@ -36,6 +36,7 @@ function buildNewSeasonModal(template) {
 
 // ── V2 Manage Panel ───────────────────────────────────────────────────────────
 function buildManagePanelV2() {
+  const testChId   = db.getConfig('test_channel_id');
   const tournaments = db.get('tournaments').sort((a, b) => {
     if (a.status === 'active' && b.status !== 'active') return -1;
     if (b.status === 'active' && a.status !== 'active') return 1;
@@ -49,30 +50,9 @@ function buildManagePanelV2() {
   const inner  = [];
 
   // Header
-  inner.push(txt(
-    `# ⚙️  NS eFootball — Manager Panel\n` +
-    `> Bot: **${botCfg.name || '24'}**  |  ` +
-    `Admins: **${admins.filter(a => a.role === 'admin').length}**  |  ` +
-    `Managers: **${admins.filter(a => a.role === 'manager').length}**`
-  ));
+  inner.push(txt(`# Admin Panel`));
   inner.push(SEP);
 
-  // Tournament list
-  if (!tournaments.length) {
-    inner.push(txt('No tournaments yet. Click **New Tournament** to create one.'));
-  } else {
-    const statusIcon = { setup: '⚙️', active: '🟢', finished: '🏁' };
-    const lines = tournaments.slice(0, 8).map(t => {
-      const roleSet = t.winner_role_id ? ' 🏆' : '';
-      return (
-        `${statusIcon[t.status] || '⚙️'}  **${t.name}**  S${t.season}  \`${t.status}\`` +
-        (t.status === 'active' ? `  —  ${db.get('tournament_teams').filter(tt => tt.tournament_id === t.id).length} teams` : '') +
-        roleSet
-      );
-    });
-    inner.push(txt(`**Tournaments** *(🏆 = winner role configured)*\n${lines.join('\n')}`));
-  }
-  inner.push(SEP);
 
   // Main action buttons
   inner.push({ type: 1, components: [

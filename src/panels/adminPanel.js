@@ -12,7 +12,6 @@ function chLine(t, key) {
   return id ? `<#${id}>` : '`not set`';
 }
 
-
 function roleLine(t, key) {
   const id = t?.[key];
   return id ? `<@&${id}>` : '`not set`';
@@ -24,18 +23,26 @@ function latestTournament(template) {
     .sort((a, b) => b.season - a.season)[0] || null;
 }
 
+function shortName(t) {
+  const name = (t.name || t.template || '').trim();
+  if (name === t.template) return name;
+  const stripped = name.replace(t.template, '').replace(/\s*S?\d+\s*/g, '').trim();
+  return stripped || name.split(' ').pop() || t.template;
+}
+
 function buildAdminPanel() {
-  const nsel = latestTournament('NSEL');
-  const mcl  = latestTournament('MCL');
+  const nsel        = latestTournament('EL');
+  const mcl         = latestTournament('MCL');
+  const testChId    = db.getConfig('test_channel_id');
 
   const inner = [
-    txt(`# ${E_CUP}  Admin Setup\nConfigure tournament channels — admin only.`),
+    txt(`# Admin Panel`),
     SEP,
   ];
 
   if (nsel) {
     inner.push(txt(
-      `${E_HASH}  **NSEL — Season ${nsel.season}**\n` +
+      `${E_HASH}  **${shortName(nsel)}**\n` +
       `Management  →  ${chLine(nsel, 'management')}\n` +
       `Schedule    →  ${chLine(nsel, 'schedule')}\n` +
       `Results     →  ${chLine(nsel, 'results')}\n` +
@@ -46,7 +53,7 @@ function buildAdminPanel() {
 
   if (mcl) {
     inner.push(txt(
-      `${E_HASH}  **MCL — Season ${mcl.season}**\n` +
+      `${E_HASH}  **${shortName(mcl)}**\n` +
       `Management  →  ${chLine(mcl, 'management')}\n` +
       `Schedule    →  ${chLine(mcl, 'schedule')}\n` +
       `Results     →  ${chLine(mcl, 'results')}\n` +
@@ -56,17 +63,24 @@ function buildAdminPanel() {
   }
 
   if (!nsel && !mcl) {
-    inner.push(txt('No NSEL or MCL tournaments found. Create one first.'));
+    inner.push(txt('No EL or MCL tournaments found. Create one first.'));
     inner.push(SEP);
   }
 
+  inner.push(txt(
+    `${E_HASH}  **AutoTest (/test)**\n` +
+    `Test Channel →  ${testChId ? `<#${testChId}>` : '`not set`'}`
+  ));
+  inner.push(SEP);
+
   inner.push({ type: 1, components: [
-    { type: 2, style: 1, label: 'Set NSEL Channels',   custom_id: 'adm_tch_NSEL',      disabled: !nsel },
-    { type: 2, style: 1, label: 'Set MCL Channels',    custom_id: 'adm_tch_MCL',       disabled: !mcl  },
-    { type: 2, style: 2, label: 'Refresh',             custom_id: 'adm_refresh'        },
+    { type: 2, style: 1, label: 'Set EL Channels',   custom_id: 'adm_tch_EL',  disabled: !nsel },
+    { type: 2, style: 1, label: 'Set MCL Channels',    custom_id: 'adm_tch_MCL',   disabled: !mcl  },
+    { type: 2, style: 1, label: 'Set TEST Channel',    custom_id: 'adm_tch_TEST'                   },
+    { type: 2, style: 2, label: 'Refresh',             custom_id: 'adm_refresh'                    },
   ]});
   inner.push({ type: 1, components: [
-    { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'NSEL Reg. Role ✓' : 'Set NSEL Reg. Role', custom_id: 'adm_setregrole_NSEL', disabled: !nsel },
+    { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'EL Reg. Role ✓' : 'Set EL Reg. Role', custom_id: 'adm_setregrole_EL', disabled: !nsel },
     { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'MCL Reg. Role ✓'  : 'Set MCL Reg. Role',  custom_id: 'adm_setregrole_MCL',  disabled: !mcl  },
   ]});
 
@@ -125,4 +139,29 @@ function buildChannelPickerPanel(template) {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
 }
 
-module.exports = { buildAdminPanel, buildChannelPickerPanel };
+function buildTestChannelPickerPanel() {
+  const testChId = db.getConfig('test_channel_id');
+  const makeDefault = id => id ? [{ id, type: 'channel' }] : [];
+
+  const inner = [
+    txt(`# ⚙️  Set Test Channel\n> Select the channel where \`/testpanel\` will post the panel.\n> Selection saves immediately.`),
+    SEP,
+    txt(`**Test Channel**  →  ${testChId ? `<#${testChId}>` : '`not set`'}`),
+    SEP,
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: 'adm_ch_TEST_testpanel',
+        placeholder: '🧪  Test panel channel…',
+        min_values: 0, max_values: 1,
+        ...(testChId ? { default_values: makeDefault(testChId) } : {}),
+      }],
+    },
+    SEP,
+    { type: 1, components: [{ type: 2, style: 2, label: '✓ Done', custom_id: 'adm_done' }] },
+  ];
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: inner }] };
+}
+
+module.exports = { buildAdminPanel, buildChannelPickerPanel, buildTestChannelPickerPanel };

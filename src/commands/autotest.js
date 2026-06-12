@@ -6,8 +6,8 @@ const { buildSettingsPanel } = require('../interactions/autotestInteractions');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('autotest')
-    .setDescription('[ADMIN] Post the permanent AutoTest control panel in this channel')
+    .setName('test')
+    .setDescription('[ADMIN] Post the AutoTest control panel in this channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
@@ -31,7 +31,7 @@ module.exports = {
     }
 
     // Post new permanent panel
-    const panel = buildSettingsPanel('NSEL', 16);
+    const panel = buildSettingsPanel(interaction.guildId);
     const msg   = await interaction.channel.send(panel);
 
     db.setConfig('autotest_panel_ref', {
