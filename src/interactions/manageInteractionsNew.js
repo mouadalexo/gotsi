@@ -681,7 +681,7 @@ async function handleMgr2Interaction(interaction) {
       new ModalBuilder().setCustomId(`mgr2_reg_role_modal_${tRR.id}`).setTitle(`Reg. Role — ${tRR.name.slice(0, 30)}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('role_id').setLabel('Registration Role ID (right-click role → Copy ID)')
+            new TextInputBuilder().setCustomId('role_id').setLabel('Role ID (right-click role → Copy ID)')
               .setStyle(TextInputStyle.Short).setValue(tRR.registration_role_id || '').setPlaceholder('1234567890123456789').setRequired(false)
           ),
         )

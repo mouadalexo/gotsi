@@ -8,7 +8,7 @@ const txt = c => ({ type: 10, content: c });
 
 const VALID = /^(EL|MCL)$/i;
 
-function buildBotolaListPanel() {
+function buildPanelsListPanel() {
   const tournaments = db.get('tournaments')
     .filter(t => VALID.test(t.template || '') || VALID.test(t.name || ''))
     .sort((a, b) => {
@@ -17,23 +17,15 @@ function buildBotolaListPanel() {
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
-  const E_CUP = '<a:cup:1501741159557500971>';
   const inner = [];
-  inner.push(txt(`**${E_CUP}  Botola \u2014 Tournament Hub**\n> Select a tournament to open its management panels.`));
+  inner.push(txt(`# Tournament Management Panels`));
+  inner.push(SEP);
+  inner.push(txt('Click on a tournament below to open its management panels.'));
   inner.push(SEP);
 
   if (!tournaments.length) {
-    inner.push(txt('No tournaments yet. Create one via `/manage \u2192 New Tournament`.'));
+    inner.push(txt('No tournaments found. Create one via `/admin`.'));
   } else {
-    const statusIcon = { setup: '\u2699\ufe0f', active: '\ud83d\udfe2', finished: '\ud83c\udfc1' };
-    const lines = tournaments.map(t =>
-      `${statusIcon[t.status] || '\u2699\ufe0f'}  **${t.name}**  \u2014  S${t.season}  \`${t.status}\``
-    );
-    inner.push(txt(lines.join('\n')));
-    inner.push(SEP);
-    inner.push(txt('-# Click a button below to open panels for that tournament in the configured channels.'));
-    inner.push(SEP);
-
     const shown = tournaments.slice(0, 20);
     for (let i = 0; i < shown.length; i += 5) {
       const chunk = shown.slice(i, i + 5);
@@ -56,16 +48,16 @@ function buildBotolaListPanel() {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('botola')
-    .setDescription('Tournament hub \u2014 open management panels for a tournament'),
+    .setName('panels')
+    .setDescription('Open management panels for a tournament'),
 
   async execute(interaction) {
     if (!isBotolaManager(interaction.member)) {
-      return interaction.reply({ content: '\u274c You need the **Manager** role to use this command.', ephemeral: true });
+      return interaction.reply({ content: '❌ You need the **Manager** role to use this command.', ephemeral: true });
     }
-    await interaction.reply({ ...buildBotolaListPanel(), ephemeral: true });
+    await interaction.reply({ ...buildPanelsListPanel(), ephemeral: true });
     setTimeout(() => interaction.deleteReply().catch(() => {}), 30_000);
   },
 
-  buildBotolaListPanel,
+  buildPanelsListPanel,
 };

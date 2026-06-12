@@ -24,16 +24,14 @@ async function handleAdminInteraction(interaction) {
     return interaction.reply({ ...buildTestChannelPickerPanel(), ephemeral: true });
   }
 
-  // adm_ch_TEST_testpanel — save test channel via config
   if (id === 'adm_ch_TEST_testpanel') {
     const channelId = interaction.values[0] || null;
     db.setConfig('test_channel_id', channelId);
     return interaction.update(buildTestChannelPickerPanel());
   }
 
-  // adm_ch_{TEMPLATE}_{key}  — ChannelSelectMenu saved immediately on change
   if (id.startsWith('adm_ch_')) {
-    const parts     = id.split('_');     // ['adm','ch','EL','management']
+    const parts     = id.split('_');
     const template  = parts[2];
     const key       = parts[3];
     const channelId = interaction.values[0] || null;
@@ -50,7 +48,6 @@ async function handleAdminInteraction(interaction) {
     return interaction.update(buildChannelPickerPanel(template));
   }
 
-  // adm_setregrole_{TEMPLATE} — open modal to enter a Role ID
   if (id.startsWith('adm_setregrole_') && !id.includes('_modal_')) {
     const template = id.replace('adm_setregrole_', '');
     const t = db.get('tournaments')
@@ -75,7 +72,6 @@ async function handleAdminInteraction(interaction) {
     );
   }
 
-  // adm_setregrole_modal_{TEMPLATE} — save registration role from modal
   if (id.startsWith('adm_setregrole_modal_')) {
     const template = id.replace('adm_setregrole_modal_', '');
     const t = db.get('tournaments')
@@ -94,6 +90,53 @@ async function handleAdminInteraction(interaction) {
       ephemeral: true,
     });
     return interaction.update(buildAdminPanel());
+  }
+
+  // ── Rename Tournament ────────────────────────────────────────────────────
+  if (id.startsWith('adm_rename_') && !id.includes('_modal_')) {
+    const template = id.replace('adm_rename_', '');
+    const t = db.get('tournaments')
+      .filter(t2 => t2.template === template)
+      .sort((a, b) => b.season - a.season)[0];
+    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+
+    const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId(`adm_rename_modal_${template}`)
+        .setTitle(`Rename ${template} Tournament`)
+        .addComponents(new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('new_name')
+            .setLabel('New tournament name')
+            .setStyle(TextInputStyle.Short)
+            .setValue(t.name)
+            .setPlaceholder('e.g. EL')
+            .setMaxLength(50)
+            .setRequired(true)
+        ))
+    );
+  }
+
+  if (id.startsWith('adm_rename_modal_')) {
+    const template = id.replace('adm_rename_modal_', '');
+    const t = db.get('tournaments')
+      .filter(t2 => t2.template === template)
+      .sort((a, b) => b.season - a.season)[0];
+    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+
+    const newName = interaction.fields.getTextInputValue('new_name').trim();
+    if (!newName) return interaction.reply({ content: '❌ Name cannot be empty.', ephemeral: true });
+
+    const oldName = t.name;
+    db.update('tournaments', t.id, { name: newName });
+
+    await interaction.deferUpdate();
+    await interaction.editReply(buildAdminPanel());
+    return interaction.followUp({
+      content: `✅ Renamed **${oldName}** → **${newName}**. All panels and posts will now use the new name.`,
+      ephemeral: true,
+    });
   }
 }
 

@@ -23,17 +23,10 @@ function latestTournament(template) {
     .sort((a, b) => b.season - a.season)[0] || null;
 }
 
-function shortName(t) {
-  const name = (t.name || t.template || '').trim();
-  if (name === t.template) return name;
-  const stripped = name.replace(t.template, '').replace(/\s*S?\d+\s*/g, '').trim();
-  return stripped || name.split(' ').pop() || t.template;
-}
-
 function buildAdminPanel() {
-  const nsel        = latestTournament('EL');
-  const mcl         = latestTournament('MCL');
-  const testChId    = db.getConfig('test_channel_id');
+  const nsel     = latestTournament('EL');
+  const mcl      = latestTournament('MCL');
+  const testChId = db.getConfig('test_channel_id');
 
   const inner = [
     txt(`# Admin Panel`),
@@ -42,7 +35,7 @@ function buildAdminPanel() {
 
   if (nsel) {
     inner.push(txt(
-      `${E_HASH}  **${shortName(nsel)}**\n` +
+      `${E_HASH}  **${nsel.name}**\n` +
       `Management  →  ${chLine(nsel, 'management')}\n` +
       `Schedule    →  ${chLine(nsel, 'schedule')}\n` +
       `Results     →  ${chLine(nsel, 'results')}\n` +
@@ -53,7 +46,7 @@ function buildAdminPanel() {
 
   if (mcl) {
     inner.push(txt(
-      `${E_HASH}  **${shortName(mcl)}**\n` +
+      `${E_HASH}  **${mcl.name}**\n` +
       `Management  →  ${chLine(mcl, 'management')}\n` +
       `Schedule    →  ${chLine(mcl, 'schedule')}\n` +
       `Results     →  ${chLine(mcl, 'results')}\n` +
@@ -74,14 +67,16 @@ function buildAdminPanel() {
   inner.push(SEP);
 
   inner.push({ type: 1, components: [
-    { type: 2, style: 1, label: 'Set EL Channels',   custom_id: 'adm_tch_EL',  disabled: !nsel },
-    { type: 2, style: 1, label: 'Set MCL Channels',    custom_id: 'adm_tch_MCL',   disabled: !mcl  },
-    { type: 2, style: 1, label: 'Set TEST Channel',    custom_id: 'adm_tch_TEST'                   },
-    { type: 2, style: 2, label: 'Refresh',             custom_id: 'adm_refresh'                    },
+    { type: 2, style: 1, label: 'Set EL Channels',  custom_id: 'adm_tch_EL',  disabled: !nsel },
+    { type: 2, style: 1, label: 'Set MCL Channels', custom_id: 'adm_tch_MCL', disabled: !mcl  },
+    { type: 2, style: 1, label: 'Set TEST Channel', custom_id: 'adm_tch_TEST'                  },
+    { type: 2, style: 2, label: 'Refresh',          custom_id: 'adm_refresh'                   },
   ]});
   inner.push({ type: 1, components: [
-    { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'EL Reg. Role ✓' : 'Set EL Reg. Role', custom_id: 'adm_setregrole_EL', disabled: !nsel },
-    { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'MCL Reg. Role ✓'  : 'Set MCL Reg. Role',  custom_id: 'adm_setregrole_MCL',  disabled: !mcl  },
+    { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'EL Reg. Role ✓' : 'Set EL Reg. Role', custom_id: 'adm_setregrole_EL',  disabled: !nsel },
+    { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'MCL Reg. Role ✓' : 'Set MCL Reg. Role', custom_id: 'adm_setregrole_MCL', disabled: !mcl  },
+    { type: 2, style: 2, label: 'Rename EL',  custom_id: 'adm_rename_EL',  disabled: !nsel },
+    { type: 2, style: 2, label: 'Rename MCL', custom_id: 'adm_rename_MCL', disabled: !mcl  },
   ]});
 
   inner.push(SEP);
