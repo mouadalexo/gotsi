@@ -4,7 +4,7 @@ const { executeTestpanel } = require('../interactions/testInteractions');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('testpanel')
+    .setName('testpost')
     .setDescription('Post all bot posts with random teams — live preview in this channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
