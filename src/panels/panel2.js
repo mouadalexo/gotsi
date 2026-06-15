@@ -27,7 +27,7 @@ function buildPanel2(tournament) {
     ? `${E_CH}  **${registered}** teams registered  \u2022  **${spotsLeft}** ${spotsLeft === 1 ? 'spot' : 'spots'} left`
     : `${E_CH}  **${registered}** teams registered`;
 
-  inner.push(txt(`## Registration \u2014 ${t.template || t.name}`));
+  inner.push(txt(`## Registration — ${t.template || t.name}`));
   inner.push(SEP);
   inner.push(txt(`**List** : ${teamListCh}\n${spotsTxt}`));
   inner.push(SEP);
@@ -44,7 +44,8 @@ function buildPanel2(tournament) {
     btn('Clear All', `p2_${tid}_clearteams`, 4, !hasTeams || regLocked),
   ]});
   inner.push({ type: 1, components: [
-    btn('Refresh', `p2_${tid}_refresh`, 2),
+    btn('Refresh',         `p2_${tid}_refresh`, 2),
+    btn('🎲 Random',      `p2_${tid}_random`,  2, regLocked),
   ]});
 
   inner.push(SEP);

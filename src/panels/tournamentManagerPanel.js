@@ -5,15 +5,13 @@ const SEP  = { type: 14, divider: true, spacing: 1 };
 const txt  = c => ({ type: 10, content: c });
 const btn  = (label, id, style, emoji) => ({ type: 2, style, label, custom_id: id, emoji: { name: emoji } });
 
-
-// Strips template prefix + season number → shows just the unique suffix
-// e.g. "EL S99 TEST" → "TEST",  "MCL" → "MCL",  "EL" → "EL"
 function shortName(t) {
   const name = (t.name || t.template || '').trim();
   if (name === t.template) return name;
   const stripped = name.replace(t.template, '').replace(/\s*S?\d+\s*/g, '').trim();
   return stripped || name.split(' ').pop() || t.template;
 }
+
 // ── Tournament list panel ─────────────────────────────────────────────────────
 function buildTournamentListPanel() {
   const all = db.get('tournaments').sort((a, b) => {
@@ -31,16 +29,13 @@ function buildTournamentListPanel() {
     inner.push(txt('No tournaments yet. Create one to get started.'));
     inner.push(SEP);
   } else {
-    // Chunk into rows of 4
     for (let i = 0; i < all.length && i < 20; i += 4) {
       const chunk = all.slice(i, i + 4);
       inner.push({
         type: 1,
         components: chunk.map(t => ({
-          type: 2,
-          style: t.status === 'active' ? 1 : 2,
-          label: shortName(t),
-          custom_id: `tmgr_t_${t.id}`,
+          type: 2, style: t.status === 'active' ? 1 : 2,
+          label: t.name.slice(0, 80), custom_id: `tmgr_t_${t.id}`,
           emoji: { name: t.status === 'active' ? '🟢' : t.status === 'finished' ? '🔒' : '⚙️' },
         })),
       });
@@ -51,8 +46,8 @@ function buildTournamentListPanel() {
   inner.push({
     type: 1,
     components: [
-      btn('New MCL Season',  'tmgr_new_MCL',  3, '⚡'),
-      btn('New EL Season', 'tmgr_new_EL', 3, '🏆'),
+      btn('New MCL Season', 'tmgr_new_MCL', 3, '⚡'),
+      btn('New EL Season',  'tmgr_new_EL',  3, '🏆'),
     ],
   });
   inner.push(SEP);
@@ -67,49 +62,44 @@ function buildTournamentSubPanel(tournamentId) {
   const t = db.findById('tournaments', tournamentId);
   if (!t) return buildTournamentListPanel();
 
-  const enrolled = db.get('tournament_teams').filter(tt => tt.tournament_id === tournamentId);
-  const matches  = db.get('matches').filter(m => m.tournament_id === tournamentId);
-  const pending  = matches.filter(m => m.status === 'pending');
-  const played   = matches.filter(m => m.status === 'played');
-  const hasGroups = enrolled.some(tt => tt.group_name);
-  const finished  = t.status === 'finished';
-
+  const enrolled    = db.get('tournament_teams').filter(tt => tt.tournament_id === tournamentId);
+  const matches     = db.get('matches').filter(m => m.tournament_id === tournamentId);
+  const pending     = matches.filter(m => m.status === 'pending');
+  const played      = matches.filter(m => m.status === 'played');
+  const hasGroups   = enrolled.some(tt => tt.group_name);
+  const finished    = t.status === 'finished';
   const statusLabel = { setup: '⚙️ Setup', active: '🟢 Active', finished: '🔒 Finished' }[t.status] || t.status;
-  const pendingRounds = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
-  const currentRound  = pendingRounds[0] ? `Round ${pendingRounds[0]}` : '—';
+  const pendRounds  = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
+  const currentRound = pendRounds[0] ? `Round ${pendRounds[0]}` : '—';
 
   const inner = [
     txt(
-      `# ${shortName(t)}\n` +
+      `# ${t.name}\n` +
       `${statusLabel}  ·  Teams **${enrolled.length}/${t.team_count || '?'}**  ·  ` +
       `Played **${played.length}**  ·  Pending **${pending.length}**  ·  Current Round **${currentRound}**`
     ),
     SEP,
-    // Row 1
     {
       type: 1,
       components: [
-        { type: 2, style: 1, label: 'Add Teams',    custom_id: `tmgr_addteams_${tournamentId}`,   emoji: { name: '👥' }, disabled: finished },
-        { type: 2, style: 2, label: 'Add Player',   custom_id: `tmgr_addplayer_${tournamentId}`,  emoji: { name: '👤' }, disabled: finished || !enrolled.length },
-        { type: 2, style: 2, label: 'Draw Groups',  custom_id: `tmgr_drawgroups_${tournamentId}`, emoji: { name: '🎲' }, disabled: finished || enrolled.length < 2 },
-        { type: 2, style: 2, label: 'Gen Matches',  custom_id: `tmgr_genmatches_${tournamentId}`, emoji: { name: '📅' }, disabled: finished || !hasGroups },
+        { type: 2, style: 1, label: 'Add Teams',   custom_id: `tmgr_addteams_${tournamentId}`,   emoji: { name: '👥' }, disabled: finished },
+        { type: 2, style: 2, label: 'Add Player',  custom_id: `tmgr_addplayer_${tournamentId}`,  emoji: { name: '👤' }, disabled: finished || !enrolled.length },
+        { type: 2, style: 2, label: 'Draw Groups', custom_id: `tmgr_drawgroups_${tournamentId}`, emoji: { name: '🎲' }, disabled: finished || enrolled.length < 2 },
+        { type: 2, style: 2, label: 'Gen Matches', custom_id: `tmgr_genmatches_${tournamentId}`, emoji: { name: '📅' }, disabled: finished || !hasGroups },
       ],
     },
-    // Row 2
     {
       type: 1,
       components: [
         { type: 2, style: 3, label: 'Post Schedule', custom_id: `tmgr_postschedule_${tournamentId}`, emoji: { name: '📤' }, disabled: !pending.length },
-        { type: 2, style: 3, label: 'Add Result',    custom_id: `tmgr_addresult_${tournamentId}`,    emoji: { name: '📊' }, disabled: !pending.length },
         { type: 2, style: 1, label: 'Knockout',      custom_id: `tmgr_knockout_${tournamentId}`,     emoji: { name: '🏆' }, disabled: finished || !!pending.find(m => m.stage === 'group') },
         { type: 2, style: 4, label: 'Close Season',  custom_id: `tmgr_closeseason_${tournamentId}`,  emoji: { name: '🔒' }, disabled: finished },
       ],
     },
-    // Row 3
     {
       type: 1,
       components: [
-        { type: 2, style: 2, label: '◀ Back to List', custom_id: 'tmgr_back',                emoji: { name: '◀️' } },
+        { type: 2, style: 2, label: '◀ Back to List', custom_id: 'tmgr_back',                    emoji: { name: '◀️' } },
         { type: 2, style: 2, label: 'Refresh',         custom_id: `tmgr_refresh_${tournamentId}`, emoji: { name: '🔄' } },
       ],
     },
@@ -121,7 +111,7 @@ function buildTournamentSubPanel(tournamentId) {
   return { flags: 32768, components: [{ type: 17, accent_color: t.status === 'active' ? 0x00C853 : t.status === 'finished' ? 0x95A5A6 : 0x5865F2, components: inner }] };
 }
 
-// ── Add-result match picker view ──────────────────────────────────────────────
+// ── Add-result match picker ───────────────────────────────────────────────────
 function buildMatchPickerPanel(tournamentId) {
   const t       = db.findById('tournaments', tournamentId);
   const matches = db.get('matches').filter(m => m.tournament_id === tournamentId && m.status === 'pending');
@@ -160,7 +150,6 @@ function buildMatchPickerPanel(tournamentId) {
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
-// ── Team search results view ──────────────────────────────────────────────────
 function buildTeamSearchResultsPanel(tournamentId, teams) {
   const inner = [
     txt(`**👥 Enroll a Team — Select one to add**`),

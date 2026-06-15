@@ -8,40 +8,50 @@ const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, cu
 const E_CUP  = '<a:cup:1501741159557500971>';
 const E_ARR  = '<a:arrow:1501741110798585927>';
 
+const PAGE_SIZE = 20;
+
 function buildTeamCrudPanel(opts = {}) {
-  const { error, info } = opts;
+  const { error, info, page = 0 } = opts;
   const teams = db.get('teams').sort((a, b) => a.name.localeCompare(b.name));
   const total = teams.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage   = Math.min(Math.max(0, page), totalPages - 1);
+  const slice      = teams.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
   const inner = [];
 
-  inner.push(txt(`# ${E_CUP}  Teams List\n> **${total}** team${total !== 1 ? 's' : ''} in the master list`));
+  inner.push(txt(`# Database Teams\n> **${total}** team${total !== 1 ? 's' : ''} in the master list`));
   if (error) inner.push(txt('> \u274c  ' + error));
   if (info)  inner.push(txt('> \u2705  ' + info));
   inner.push(SEP);
 
   if (!total) {
-    inner.push(txt('No teams yet. Click **Add Team** to add the first one.'));
+    inner.push(txt('No teams yet. Click **Add** to add the first one.'));
   } else {
-    for (let i = 0; i < teams.length; i += 15) {
-      const lines = teams.slice(i, i + 15).map((t, j) => {
-        const num = String(i + j + 1).padStart(2, ' ');
-        return `${E_ARR}  \`${num}.\`  **${t.name}**`;
-      });
-      inner.push(txt(lines.join('\n')));
-      if (i + 15 < teams.length) inner.push(SEP);
-    }
+    const lines = slice.map((t, j) => {
+      const num = String(safePage * PAGE_SIZE + j + 1).padStart(2, ' ');
+      return `${E_ARR}  \`${num}.\`  **${t.name}**`;
+    });
+    inner.push(txt(lines.join('\n')));
   }
 
   inner.push(SEP);
+  // Row 1 — Search (green)
   inner.push({ type: 1, components: [
-    btn('Add Team',       'tc_add',       1),
-    btn('Enroll',         'tc_enroll',    1),
-    btn('Delete Team',    'tc_del_start', 4, total === 0),
+    btn('Search', 'tc_search', 3),
   ]});
+  // Row 2 — Add + Delete
   inner.push({ type: 1, components: [
-    btn('Post Team List', 'tc_post_list', 2),
-    btn('Search',         'tc_search',    2),
-    btn('Refresh',        'tc_refresh',   2),
+    btn('Add',    'tc_add',       1),
+    btn('Delete', 'tc_del_start', 4, total === 0),
+  ]});
+  // Row 3 — Prev / Next (always shown, disabled when not applicable)
+  inner.push({ type: 1, components: [
+    btn(`◀ Prev  (${safePage + 1}/${totalPages})`, `tc_page_${safePage - 1}`, 2, safePage === 0 || totalPages === 1),
+    btn(`Next ▶  (${safePage + 1}/${totalPages})`, `tc_page_${safePage + 1}`, 2, safePage >= totalPages - 1 || totalPages === 1),
+  ]});
+  // Row 4 — Refresh
+  inner.push({ type: 1, components: [
+    btn('Refresh', 'tc_refresh', 2),
   ]});
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));

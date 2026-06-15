@@ -41,7 +41,7 @@ function buildTeamsListEmbed(tournamentId) {
 
   const enrolledTeams = ttRows.map(tt => ({
     team:    teams.find(t => t.id === tt.team_id) || { name: 'Unknown' },
-    players: players.filter(p => p.team_id === tt.team_id),
+    players: players.filter(p => p.team_id === tt.team_id && p.tournament_id === tournamentId),
   }));
 
   const countLabel = `The **${enrolledTeams.length}** registered teams for **${tournament.template}** **S${tournament.season}**`;

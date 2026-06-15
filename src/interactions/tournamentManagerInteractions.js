@@ -27,7 +27,7 @@ async function refreshSubPanel(client, tournamentId) {
   } catch {}
 }
 
-// Reverse a played group match's effect on standings (used when editing an existing result)
+// Reverse a played group match's effect on standings
 function _reverseGroupStandings(match, tournamentId) {
   const hs = match.home_score, as_ = match.away_score;
   if (hs == null || as_ == null) return;
@@ -52,8 +52,6 @@ function _reverseGroupStandings(match, tournamentId) {
   }
 }
 
-// Auto-advance knockout: once all matches in the current round are played,
-// generate the next round from winners (or close the tournament if the final is done).
 async function tryAdvanceKnockout(client, tid, currentRound) {
   const roundMatches = db.get('matches').filter(m =>
     m.tournament_id === tid && m.stage === 'knockout' && m.round === currentRound
@@ -62,20 +60,17 @@ async function tryAdvanceKnockout(client, tid, currentRound) {
 
   const nextRound = currentRound / 2;
 
-  // Final just finished — close the tournament
   if (nextRound < 1) {
     db.update('tournaments', tid, { status: 'finished' });
     return;
   }
 
-  // Collect winners in bracket order (preserve seeding)
   const winners = roundMatches.map(m => {
     if (m.home_score > m.away_score) return m.home_team_id;
     if (m.away_score > m.home_score) return m.away_team_id;
-    return m.pen_winner ?? m.home_team_id; // draw resolved by penalties
+    return m.pen_winner ?? m.home_team_id;
   });
 
-  // Pair consecutive winners: 1 vs 2, 3 vs 4, ...
   for (let i = 0; i + 1 < winners.length; i += 2) {
     db.insert('matches', {
       tournament_id: tid,
@@ -113,7 +108,7 @@ async function handleTournamentManagerInteraction(interaction) {
   }
 
   // ── New season — show template modal ──────────────────────────────────────
-  if (id === 'tmgr_new_MCL' || id === 'tmgr_new_EL') {
+  if (id.startsWith('tmgr_new_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
     const template = id.replace('tmgr_new_', '');
     const modal = buildNewSeasonModal(template);
@@ -124,142 +119,131 @@ async function handleTournamentManagerInteraction(interaction) {
   // ── Create season modal submit ────────────────────────────────────────────
   if (id.startsWith('tmgr_create_modal_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const template = id.replace('tmgr_create_modal_', '');
-    const name     = interaction.fields.getTextInputValue('tournament_name').trim();
-    const count    = parseInt(interaction.fields.getTextInputValue('team_count')) || 16;
-    const size     = parseInt(interaction.fields.getTextInputValue('group_size')) || 4;
-    const deadline = parseInt(interaction.fields.getTextInputValue('deadline_hours') || '0') || null;
-
-    const season = db.get('tournaments').filter(t => t.template === template).length + 1;
-    db.insert('tournaments', {
-      name, template, season, team_count: count, group_size: size,
-      round_deadline_hours: deadline, status: 'setup',
-    });
-
-    await refreshListPanel(interaction.client);
-    return interaction.reply({ content: `✅ **${name}** created.`, ephemeral: true });
+    const template     = id.replace('tmgr_create_modal_', '');
+    const name         = interaction.fields.getTextInputValue('tournament_name').trim();
+    const teamCount    = parseInt(interaction.fields.getTextInputValue('team_count'));
+    const groupSize    = parseInt(interaction.fields.getTextInputValue('group_size'));
+    const deadlineHrs  = parseInt(interaction.fields.getTextInputValue('deadline_hours') || '0') || null;
+    const seasons      = db.get('tournaments').filter(t => t.template === template).length;
+    if (isNaN(teamCount) || isNaN(groupSize)) {
+      return interaction.reply({ content: '❌ Invalid team count or group size.', ephemeral: true });
+    }
+    return interaction.reply({ content: '❌ Tournaments are pre-configured. Use /panels to manage existing tournaments.', ephemeral: true });
   }
 
   // ── Add Teams — show search modal ─────────────────────────────────────────
   if (id.startsWith('tmgr_addteams_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid = id.replace('tmgr_addteams_', '');
+    const tid = parseInt(id.replace('tmgr_addteams_', ''));
     return interaction.showModal(
       new ModalBuilder()
         .setCustomId(`tmgr_team_modal_${tid}`)
-        .setTitle('Search & Register Team')
+        .setTitle('Search Team to Add')
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('query').setLabel('Team name (or part of it)')
-              .setStyle(TextInputStyle.Short).setPlaceholder('e.g. Real, Bayern, Wydad...').setRequired(true)
-          )
+            new TextInputBuilder().setCustomId('query').setLabel('Team name or short name')
+              .setStyle(TextInputStyle.Short).setPlaceholder('e.g. Arsenal').setRequired(true)
+          ),
         )
     );
   }
 
   // ── Team search modal submit ──────────────────────────────────────────────
   if (id.startsWith('tmgr_team_modal_')) {
+    if (!requireManager(interaction.member)) return noPermission(interaction);
     const tid   = parseInt(id.replace('tmgr_team_modal_', ''));
     const query = interaction.fields.getTextInputValue('query').toLowerCase().trim();
     const enrolled = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
-    const found = db.get('teams').filter(t =>
-      t.name.toLowerCase().includes(query) && !enrolled.includes(t.id)
+    const found    = db.get('teams').filter(t =>
+      !enrolled.includes(t.id) &&
+      (t.name?.toLowerCase().includes(query) || t.short_name?.toLowerCase().includes(query))
     );
-
-    if (!found.length) {
-      await interaction.reply({ content: `❌ No teams found for "${query}".`, ephemeral: true });
-      return refreshSubPanel(interaction.client, tid);
-    }
-
     return interaction.update(buildTeamSearchResultsPanel(tid, found));
   }
 
-  // ── Enroll team select menu ───────────────────────────────────────────────
+  // ── Enroll team ───────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_enroll_sel_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
     const tid    = parseInt(id.replace('tmgr_enroll_sel_', ''));
     const teamId = parseInt(interaction.values[0]);
-    const team   = db.findById('teams', teamId);
-    if (!team) return interaction.update(buildTournamentSubPanel(tid));
-
-    const already = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === teamId);
-    if (!already) {
-      db.insert('tournament_teams', { tournament_id: tid, team_id: teamId, group_name: null, wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
-      db.update('tournaments', tid, { status: 'setup' });
+    const exists = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === teamId);
+    if (!exists) {
+      db.insert('tournament_teams', {
+        tournament_id: tid, team_id: teamId,
+        group_name: null, wins: 0, draws: 0, losses: 0,
+        goals_for: 0, goals_against: 0, points: 0,
+      });
     }
-
     return interaction.update(buildTournamentSubPanel(tid));
   }
 
   // ── Add Player — show search modal ────────────────────────────────────────
   if (id.startsWith('tmgr_addplayer_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid = id.replace('tmgr_addplayer_', '');
+    const tid = parseInt(id.replace('tmgr_addplayer_', ''));
     return interaction.showModal(
       new ModalBuilder()
         .setCustomId(`tmgr_player_modal_${tid}`)
-        .setTitle('Assign Player to Team')
+        .setTitle('Add Player to Team')
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('discord_id').setLabel('Player Discord ID or @mention')
-              .setStyle(TextInputStyle.Short).setPlaceholder('123456789012345678').setRequired(true)
+            new TextInputBuilder().setCustomId('discord_id').setLabel('Player Discord ID')
+              .setStyle(TextInputStyle.Short).setPlaceholder('1234567890123456789').setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('team_id').setLabel('Team ID (number from DB)')
-              .setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5').setRequired(true)
-          )
+            new TextInputBuilder().setCustomId('team_name').setLabel('Team name or short name')
+              .setStyle(TextInputStyle.Short).setPlaceholder('Arsenal').setRequired(true)
+          ),
         )
     );
   }
 
   // ── Player modal submit ───────────────────────────────────────────────────
   if (id.startsWith('tmgr_player_modal_')) {
+    if (!requireManager(interaction.member)) return noPermission(interaction);
     const tid      = parseInt(id.replace('tmgr_player_modal_', ''));
-    const rawId    = interaction.fields.getTextInputValue('discord_id').trim().replace(/\D/g, '');
-    const teamId   = parseInt(interaction.fields.getTextInputValue('team_id').trim());
-    const team     = db.findById('teams', teamId);
-
-    if (!team || !rawId) {
-      await interaction.reply({ content: '❌ Invalid team ID or Discord ID.', ephemeral: true });
-      return refreshSubPanel(interaction.client, tid);
+    const discordId = interaction.fields.getTextInputValue('discord_id').trim().replace(/\D/g, '');
+    const teamQuery = interaction.fields.getTextInputValue('team_name').toLowerCase().trim();
+    const enrolled  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+    const team      = enrolled
+      .map(tt => db.findById('teams', tt.team_id))
+      .filter(Boolean)
+      .find(t => t.name?.toLowerCase().includes(teamQuery) || t.short_name?.toLowerCase().includes(teamQuery));
+    if (!team) {
+      return interaction.reply({ content: `❌ Team matching "${teamQuery}" not found in this tournament.`, ephemeral: true });
     }
-
-    const existing = db.findOne('players', p => p.discord_id === rawId && p.team_id === teamId);
-    if (!existing) db.insert('players', { discord_id: rawId, team_id: teamId });
-
-    await interaction.reply({ content: `✅ <@${rawId}> assigned to **${team.name}**.`, ephemeral: true });
-    return refreshSubPanel(interaction.client, tid);
+    const existing = db.findOne('players', p => p.discord_id === discordId && p.team_id === team.id);
+    if (existing) {
+      return interaction.reply({ content: `❌ Player <@${discordId}> is already on **${team.name}**.`, ephemeral: true });
+    }
+    db.insert('players', { discord_id: discordId, team_id: team.id });
+    await interaction.reply({ content: `✅ <@${discordId}> added to **${team.name}**.`, ephemeral: true });
+    return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => {});
   }
 
   // ── Draw Groups ───────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_drawgroups_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid    = parseInt(id.replace('tmgr_drawgroups_', ''));
-    const t      = db.findById('tournaments', tid);
-    const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-    const shuffled  = [...ttRows].sort(() => Math.random() - 0.5);
-    const groupSize = t?.group_size || 4;
-    const letters   = 'ABCDEFGHIJKLMNOP';
-
+    const tid      = parseInt(id.replace('tmgr_drawgroups_', ''));
+    const t        = db.findById('tournaments', tid);
+    const ttRows   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+    const perGroup = t?.teams_per_group || 4;
+    const shuffled = [...ttRows].sort(() => Math.random() - 0.5);
+    const letters  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     shuffled.forEach((tt, i) => {
-      db.update('tournament_teams', tt.id, { group_name: letters[Math.floor(i / groupSize)] });
+      db.update('tournament_teams', tt.id, { group_name: letters[Math.floor(i / perGroup)] });
     });
-
     return interaction.update(buildTournamentSubPanel(tid));
   }
 
   // ── Generate Matches ──────────────────────────────────────────────────────
   if (id.startsWith('tmgr_genmatches_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid        = parseInt(id.replace('tmgr_genmatches_', ''));
-    const t          = db.findById('tournaments', tid);
-    const encounters = Math.max(1, t?.encounters || 1);
-    const ttRows     = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+    const tid    = parseInt(id.replace('tmgr_genmatches_', ''));
+    const t      = db.findById('tournaments', tid);
+    const ttRows = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+    const enc    = t?.encounters || 1;
 
-    // Delete existing pending group matches
-    db.deleteWhere('matches', m => m.tournament_id === tid && m.stage === 'group' && m.status === 'pending');
-
-    // Group teams by group_name
     const groups = {};
     for (const tt of ttRows) {
       const g = tt.group_name || 'A';
@@ -267,185 +251,46 @@ async function handleTournamentManagerInteraction(interaction) {
       groups[g].push(tt.team_id);
     }
 
-    // Round-robin per group using Berger rotation.
-    // Odd-n groups use a null "bye" slot so every pair is generated correctly.
-    // encounters=2 generates a return leg (home/away swapped) as extra rounds.
-    for (const [, gTeams] of Object.entries(groups)) {
-      const rawN = gTeams.length;
-      const teams = rawN % 2 === 0 ? [...gTeams] : [...gTeams, null]; // pad to even
-      const n = teams.length;
+    let existing = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+    for (const m of existing) db.delete('matches', m.id);
 
-      for (let enc = 0; enc < encounters; enc++) {
-        const roundTeams = [...teams];
-        const roundOffset = enc * (n - 1); // round numbers for 2nd encounter continue from where 1st left off
-        for (let round = 0; round < n - 1; round++) {
-          for (let i = 0; i < n / 2; i++) {
-            // Swap home/away for the return leg (enc > 0)
-            const home = enc === 0 ? roundTeams[i]         : roundTeams[n - 1 - i];
-            const away = enc === 0 ? roundTeams[n - 1 - i] : roundTeams[i];
-            if (home === null || away === null) continue; // bye — skip
+    for (const [, gTeams] of Object.entries(groups)) {
+      for (let i = 0; i < gTeams.length; i++) {
+        for (let j = i + 1; j < gTeams.length; j++) {
+          for (let leg = 1; leg <= enc; leg++) {
+            const home = leg === 1 ? gTeams[i] : gTeams[j];
+            const away = leg === 1 ? gTeams[j] : gTeams[i];
             db.insert('matches', {
               tournament_id: tid,
-              home_team_id:  home,
-              away_team_id:  away,
-              stage:         'group',
-              round:         roundOffset + round + 1,
-              status:        'pending',
-              home_score:    null,
-              away_score:    null,
+              home_team_id: home, away_team_id: away,
+              stage: 'group', round: 1, leg,
+              status: 'pending', home_score: null, away_score: null,
             });
           }
-          roundTeams.splice(1, 0, roundTeams.pop()); // Berger table rotation
         }
       }
     }
 
+    db.update('tournaments', tid, { status: 'active' });
     return interaction.update(buildTournamentSubPanel(tid));
   }
 
   // ── Post Schedule ─────────────────────────────────────────────────────────
   if (id.startsWith('tmgr_postschedule_')) {
     if (!requireManager(interaction.member)) return noPermission(interaction);
-    const tid     = parseInt(id.replace('tmgr_postschedule_', ''));
-    const t       = db.findById('tournaments', tid);
-    const pending = db.get('matches').filter(m => m.tournament_id === tid && m.status === 'pending');
-    const rounds  = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
-    const round   = rounds[0] || 1;
-
-    const scheduleCh = await getTargetChannel(interaction.guild, t.template, 'matchSchedule').catch(() => null);
-    const target     = scheduleCh || interaction.channel;
-    const payload    = makeSchedulePost(tid, round);
+    const tid   = parseInt(id.replace('tmgr_postschedule_', ''));
+    const t     = db.findById('tournaments', tid);
+    const ch    = await getTargetChannel(interaction.guild, t?.template, 'matchSchedule').catch(() => null);
+    const target = ch || interaction.channel;
+    const payload = makeSchedulePost(tid, null);
     if (payload) await target.send(payload).catch(() => {});
-
-    await interaction.reply({ content: `✅ Round ${round} schedule posted to ${scheduleCh ? `<#${scheduleCh.id}>` : 'this channel'}.`, ephemeral: true });
-    return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => {});
+    return interaction.update(buildTournamentSubPanel(tid));
   }
 
   // ── Add Result — show match picker ────────────────────────────────────────
   if (id.startsWith('tmgr_addresult_')) {
     const tid = parseInt(id.replace('tmgr_addresult_', ''));
     return interaction.update(buildMatchPickerPanel(tid));
-  }
-
-  // ── Match select menu ─────────────────────────────────────────────────────
-  if (id.startsWith('tmgr_match_sel_')) {
-    const tid     = parseInt(id.replace('tmgr_match_sel_', ''));
-    const matchId = parseInt(interaction.values[0]);
-    const match   = db.findById('matches', matchId);
-    const teams   = db.get('teams');
-    const home    = teams.find(t => t.id === match?.home_team_id)?.name || 'Home';
-    const away    = teams.find(t => t.id === match?.away_team_id)?.name || 'Away';
-    const isKO    = match?.stage === 'knockout';
-
-    const modal = new ModalBuilder()
-      .setCustomId(`tmgr_result_modal_${matchId}_${tid}`)
-      .setTitle(`${home} vs ${away}`)
-      .addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('home_score').setLabel(`${home} Score`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('away_score').setLabel(`${away} Score`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('0').setRequired(true)
-        ),
-      );
-
-    if (isKO) {
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('home_pens').setLabel(`${home} Penalties (draw only)`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank if not a draw').setRequired(false)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('away_pens').setLabel(`${away} Penalties (draw only)`)
-            .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank if not a draw').setRequired(false)
-        ),
-      );
-    }
-
-    return interaction.showModal(modal);
-  }
-
-  // ── Result modal submit ───────────────────────────────────────────────────
-  if (id.startsWith('tmgr_result_modal_')) {
-    const parts   = id.replace('tmgr_result_modal_', '').split('_');
-    const matchId = parseInt(parts[0]);
-    const tid     = parseInt(parts[1]);
-
-    const hs  = parseInt(interaction.fields.getTextInputValue('home_score'));
-    const as_ = parseInt(interaction.fields.getTextInputValue('away_score'));
-
-    if (isNaN(hs) || isNaN(as_)) {
-      return interaction.reply({ content: '❌ Invalid scores.', ephemeral: true });
-    }
-
-    const match = db.findById('matches', matchId);
-    if (!match) return interaction.reply({ content: '❌ Match not found.', ephemeral: true });
-
-    const t  = db.findById('tournaments', tid);
-    const wp = t?.win_pts  ?? 3;
-    const dp = t?.draw_pts ?? 1;
-    const lp = t?.loss_pts ?? 0;
-
-    // ── Knockout result ──────────────────────────────────────────────────
-    if (match.stage === 'knockout') {
-      if (hs === as_) {
-        let hp = NaN, ap = NaN;
-        try { hp = parseInt(interaction.fields.getTextInputValue('home_pens')); } catch {}
-        try { ap = parseInt(interaction.fields.getTextInputValue('away_pens')); } catch {}
-        if (isNaN(hp) || isNaN(ap) || hp === ap) {
-          return interaction.reply({ content: '❌ Knockout draw — fill in both Penalty fields with different scores.', ephemeral: true });
-        }
-        const penWinner = hp > ap ? match.home_team_id : match.away_team_id;
-        db.update('matches', matchId, {
-          status: 'played', home_score: hs, away_score: as_,
-          home_pens: hp, away_pens: ap, pen_winner: penWinner,
-        });
-      } else {
-        db.update('matches', matchId, {
-          status: 'played', home_score: hs, away_score: as_,
-          home_pens: null, away_pens: null, pen_winner: null,
-        });
-      }
-      await tryAdvanceKnockout(interaction.client, tid, match.round);
-      await interaction.reply({ content: `✅ KO result saved: **${hs} — ${as_}**`, ephemeral: true });
-      return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => refreshSubPanel(interaction.client, tid));
-    }
-
-    // ── Group result ─────────────────────────────────────────────────────
-    // Reverse old standings if this is an edit of an already-played match
-    if (match.status === 'played' && match.home_score != null) {
-      _reverseGroupStandings(match, tid);
-    }
-
-    db.update('matches', matchId, {
-      status: 'played', home_score: hs, away_score: as_,
-      home_pens: null, away_pens: null, pen_winner: null,
-    });
-
-    const homeWon = hs > as_, awayWon = as_ > hs, draw = hs === as_;
-    const homeTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.home_team_id);
-    const awayTT  = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === match.away_team_id);
-    if (homeTT) db.update('tournament_teams', homeTT.id, {
-      wins:          (homeTT.wins          || 0) + (homeWon ? 1 : 0),
-      draws:         (homeTT.draws         || 0) + (draw    ? 1 : 0),
-      losses:        (homeTT.losses        || 0) + (awayWon ? 1 : 0),
-      goals_for:     (homeTT.goals_for     || 0) + hs,
-      goals_against: (homeTT.goals_against || 0) + as_,
-      points:        (homeTT.points        || 0) + (homeWon ? wp : draw ? dp : lp),
-    });
-    if (awayTT) db.update('tournament_teams', awayTT.id, {
-      wins:          (awayTT.wins          || 0) + (awayWon ? 1 : 0),
-      draws:         (awayTT.draws         || 0) + (draw    ? 1 : 0),
-      losses:        (awayTT.losses        || 0) + (homeWon ? 1 : 0),
-      goals_for:     (awayTT.goals_for     || 0) + as_,
-      goals_against: (awayTT.goals_against || 0) + hs,
-      points:        (awayTT.points        || 0) + (awayWon ? wp : draw ? dp : lp),
-    });
-
-    await interaction.reply({ content: `✅ Result saved: **${hs} — ${as_}**`, ephemeral: true });
-    return interaction.message?.edit(buildTournamentSubPanel(tid)).catch(() => refreshSubPanel(interaction.client, tid));
   }
 
   // ── Start Knockout ────────────────────────────────────────────────────────
@@ -465,7 +310,6 @@ async function handleTournamentManagerInteraction(interaction) {
 
     const qualifiers = [];
     for (const gTeams of Object.values(groups)) {
-      // Sort by points → goal difference → goals scored (three-level tiebreaker)
       gTeams.sort((a, b) => {
         const pd = (b.points || 0) - (a.points || 0);
         if (pd !== 0) return pd;

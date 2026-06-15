@@ -66,15 +66,6 @@ async function refreshAll(client, tid) {
   ]);
 }
 
-async function refreshPanels23(client, tid) {
-  const t = getT(tid);
-  if (!t) return;
-  await Promise.all([
-    refreshPanel(client, t, 2),
-    refreshPanel(client, t, 3),
-  ]);
-}
-
 // ── Schedule generation ───────────────────────────────────────────────────────
 function runGroupDraw(tid) {
   const t        = getT(tid);
@@ -715,7 +706,7 @@ Groups: **${nGroups}** · Advance: **${pending.advance_per_group}/group**` },
       { type: 1, components: [
         { type: 2, style: 3, label: '💾 Save',    custom_id: `p1_${tid}_settings_save`   },
         { type: 2, style: 2, label: '🔢 Season',  custom_id: `p1_${tid}_settings_season` },
-        { type: 2, style: 2, label: 'Refresh',     custom_id: `p1_${tid}_refresh`         },
+        { type: 2, style: 2, label: '← Back',     custom_id: `p1_${tid}_refresh`         },
       ]},
     ]}],
   };
@@ -852,16 +843,16 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
       home_goals: homeForfeit ? null : effHome,
       away_goals: awayForfeit ? null : effAway,
     });
-    refreshPanels23(cli, tid).catch(() => {});
-
+    refreshAll(cli, tid).catch(() => {});
+    refreshStandingsMessage(cli, tid).catch(() => {});
   } else if (typeof hv === 'number' && typeof av === 'number') {
     if (!isKO || hv !== av) {
       // Decisive result
       updateStandings(tid, matchId, hv, av);
       db.update('matches', matchId, { home_forfeit: false, away_forfeit: false, home_goals: hv, away_goals: av });
-      refreshPanels23(cli, tid).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       if (isKO) refreshBracketMessage(cli, tid).catch(() => {});
-
+      else refreshStandingsMessage(cli, tid).catch(() => {});
     } else if (typeof hp === 'number' && typeof ap === 'number' && hp !== ap) {
       // KO draw with valid penalties
       const penWinner = hp > ap ? match.home_team_id : match.away_team_id;
@@ -871,7 +862,7 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
         home_forfeit: false, away_forfeit: false,
         home_goals: hv, away_goals: av,
       });
-      refreshPanels23(cli, tid).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       refreshBracketMessage(cli, tid).catch(() => {});
     }
     // KO equal pens or pens not set yet — no save, just show updated panel
@@ -982,8 +973,6 @@ async function handleBotolaInteraction(interaction) {
       // Generate schedule if no matches
       const hasMatches = db.get('matches').some(m => m.tournament_id === tid);
       if (!hasMatches) generateGroupSchedule(tid);
-      // Initialise active round tracker (all group rounds are pre-generated)
-      db.setConfig('group_round_' + tid, 1);
       // Activate
       db.update('tournaments', tid, { status: 'active' });
       await refreshAll(cli, tid);
@@ -1015,7 +1004,6 @@ async function handleBotolaInteraction(interaction) {
       const tmpTeamIdsR = ttRowsR.filter(tt => db.findById('teams', tt.team_id)?.temporary).map(tt => tt.team_id);
       if (tmpTeamIdsR.length) db.deleteWhere('teams', t2 => tmpTeamIdsR.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
-      db.setConfig('group_round_' + tid, null);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
       await refreshAll(cli, tid);
       return;
@@ -1076,11 +1064,11 @@ async function handleBotolaInteraction(interaction) {
             db.deleteWhere('players', p => p.team_id === _tt.team_id && p.tournament_id === tid);
           }
         }
-        refreshPanels23(cli, tid).catch(() => {});
+        refreshAll(cli, tid).catch(() => {});
       }
       const updatedT = db.findById('tournaments', tid);
       await interaction.update(buildPanel1(updatedT));
-      return interaction.followUp({ content: '✅ Settings saved.', flags: 64 });
+      return interaction.followUp({ content: '✅ Settings saved.', ephemeral: true });
     }
 
     // Settings — change season number
@@ -1216,7 +1204,9 @@ async function handleBotolaInteraction(interaction) {
         const allGM_adv     = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
         const pendingGM_adv = allGM_adv.filter(m => m.status !== 'played');
         const allRds_adv    = [...new Set(allGM_adv.map(m => m.round))].sort((a, b) => a - b);
-        const curRound_adv  = db.getConfig('group_round_' + tid) || allRds_adv[0] || 1;
+        const curRound_adv  = pendingGM_adv.length
+          ? Math.min(...pendingGM_adv.map(m => m.round))
+          : allRds_adv[allRds_adv.length - 1];
 
         // Guard: current round must be fully played
         const stillPendingInRound = allGM_adv.filter(m => m.round === curRound_adv && m.status !== 'played');
@@ -1264,8 +1254,6 @@ async function handleBotolaInteraction(interaction) {
           }
         }
 
-        // Advance the stored active round so panel knows we moved forward
-        db.setConfig('group_round_' + tid, curRound_adv + 1);
         await refreshAll(cli, tid);
         await refreshStandingsMessage(cli, tid);
         return;
@@ -1548,7 +1536,7 @@ async function handleBotolaInteraction(interaction) {
       away_goals:   awayGoals,
     });
     await refreshAll(cli, match.tournament_id);
-
+    await refreshStandingsMessage(cli, match.tournament_id);
 
     const isEdit = match.status === 'played';
     const tid    = match.tournament_id;
@@ -1579,50 +1567,6 @@ async function handleBotolaInteraction(interaction) {
     if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
     if (action === 'refresh') return interaction.update(buildPanel2(t));
-
-    // ── Random Fill (admin-only test helper) ─────────────────────────────────
-    if (action === 'random') {
-      const { PermissionFlagsBits } = require('discord.js');
-      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: [
-          { type: 10, content: '\u274c **Random Fill** is only available to server administrators.' },
-          SEP,
-          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_refresh` }] },
-        ]}] });
-      }
-      const enrolled_r  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
-      const spotsLeft_r = t.team_count ? t.team_count - enrolled_r.length : 0;
-      if (spotsLeft_r <= 0) {
-        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [
-          { type: 10, content: '\u26a0\ufe0f Tournament is already full \u2014 nothing to fill.' },
-          SEP,
-          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_refresh` }] },
-        ]}] });
-      }
-      // Pick random available teams
-      const enrolledIds_r = new Set(enrolled_r.map(tt => tt.team_id));
-      const available_r   = db.get('teams').filter(tm => !enrolledIds_r.has(tm.id));
-      if (!available_r.length) {
-        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [
-          { type: 10, content: '\u26a0\ufe0f No available teams left to add.' },
-          SEP,
-          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_refresh` }] },
-        ]}] });
-      }
-      const toEnroll_r = [...available_r].sort(() => Math.random() - 0.5).slice(0, spotsLeft_r);
-      // Enroll teams only — no player assignment (test fill)
-      for (const team_r of toEnroll_r) {
-        const already_r = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === team_r.id);
-        if (!already_r) {
-          db.insert('tournament_teams', {
-            tournament_id: tid, team_id: team_r.id, group_name: null,
-            wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0,
-          });
-        }
-      }
-      refreshAll(cli, tid).catch(() => {});
-      return interaction.update(buildPanel2(getT(tid)));
-    }
 
     // ── Add Team: Step 1 — show user picker ──────────────────────────────────
     if (action === 'addteam') {
@@ -2137,7 +2081,7 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'previewlist') {
       const { buildTeamsListEmbed: _buildTLE } = require('../panels/teamListPanel');
       const _previewPayload = _buildTLE(tid);
-      return interaction.reply({ ..._previewPayload, flags: (_previewPayload.flags || 0) | 64 });
+      return interaction.reply({ ..._previewPayload, ephemeral: true });
     }
 
     if (action === 'postlist') {
@@ -2302,8 +2246,7 @@ async function handleBotolaInteraction(interaction) {
       if (!allGM_.length) return p3SmallReply(interaction, '\u274c No matches generated yet.');
       const pendingGM_ = allGM_.filter(m => m.status !== 'played');
       const allRds_    = [...new Set(allGM_.map(m => m.round))].sort((a, b) => a - b);
-      const _p3CfgRound = db.getConfig('group_round_' + tid);
-      const round      = _p3CfgRound || (pendingGM_.length ? Math.min(...pendingGM_.map(m => m.round)) : allRds_[allRds_.length - 1]);
+      const round      = pendingGM_.length ? Math.min(...pendingGM_.map(m => m.round)) : allRds_[allRds_.length - 1];
       const schedPayload = makeSchedulePost(tid, round);
       if (!schedPayload) return p3SmallReply(interaction, '\u274c Failed to build schedule.');
       if (t.preview_mode) return interaction.reply({ ...schedPayload, ephemeral: true });
@@ -2330,12 +2273,10 @@ async function handleBotolaInteraction(interaction) {
       const allGM_r = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
       if (!allGM_r.length) return p3SmallReply(interaction, '\u274c No matches yet.');
       const allRds_r = [...new Set(allGM_r.map(m => m.round))].sort((a, b) => a - b);
-      const _p3CfgRoundR = db.getConfig('group_round_' + tid) || 1;
       let round_r = null;
       for (let i = allRds_r.length - 1; i >= 0; i--) {
         const r = allRds_r[i];
-        if (r < _p3CfgRoundR &&
-            allGM_r.filter(m => m.round === r && m.status !== 'played').length === 0 &&
+        if (allGM_r.filter(m => m.round === r && m.status !== 'played').length === 0 &&
             allGM_r.filter(m => m.round === r && m.status === 'played').length > 0) {
           round_r = r; break;
         }

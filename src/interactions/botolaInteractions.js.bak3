@@ -66,15 +66,6 @@ async function refreshAll(client, tid) {
   ]);
 }
 
-async function refreshPanels23(client, tid) {
-  const t = getT(tid);
-  if (!t) return;
-  await Promise.all([
-    refreshPanel(client, t, 2),
-    refreshPanel(client, t, 3),
-  ]);
-}
-
 // ── Schedule generation ───────────────────────────────────────────────────────
 function runGroupDraw(tid) {
   const t        = getT(tid);
@@ -852,14 +843,14 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
       home_goals: homeForfeit ? null : effHome,
       away_goals: awayForfeit ? null : effAway,
     });
-    refreshPanels23(cli, tid).catch(() => {});
+    refreshAll(cli, tid).catch(() => {});
 
   } else if (typeof hv === 'number' && typeof av === 'number') {
     if (!isKO || hv !== av) {
       // Decisive result
       updateStandings(tid, matchId, hv, av);
       db.update('matches', matchId, { home_forfeit: false, away_forfeit: false, home_goals: hv, away_goals: av });
-      refreshPanels23(cli, tid).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       if (isKO) refreshBracketMessage(cli, tid).catch(() => {});
 
     } else if (typeof hp === 'number' && typeof ap === 'number' && hp !== ap) {
@@ -871,7 +862,7 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
         home_forfeit: false, away_forfeit: false,
         home_goals: hv, away_goals: av,
       });
-      refreshPanels23(cli, tid).catch(() => {});
+      refreshAll(cli, tid).catch(() => {});
       refreshBracketMessage(cli, tid).catch(() => {});
     }
     // KO equal pens or pens not set yet — no save, just show updated panel
@@ -1076,11 +1067,11 @@ async function handleBotolaInteraction(interaction) {
             db.deleteWhere('players', p => p.team_id === _tt.team_id && p.tournament_id === tid);
           }
         }
-        refreshPanels23(cli, tid).catch(() => {});
+        refreshAll(cli, tid).catch(() => {});
       }
       const updatedT = db.findById('tournaments', tid);
       await interaction.update(buildPanel1(updatedT));
-      return interaction.followUp({ content: '✅ Settings saved.', flags: 64 });
+      return interaction.followUp({ content: '✅ Settings saved.', ephemeral: true });
     }
 
     // Settings — change season number

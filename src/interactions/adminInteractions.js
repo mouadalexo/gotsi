@@ -2,13 +2,14 @@
 const { buildAdminPanel, buildChannelPickerPanel, buildTestChannelPickerPanel } = require('../panels/adminPanel');
 const { db } = require('../utils/database');
 
+// Auto-delete a short text feedback reply after 5 s
+async function admTextReply(interaction, content) {
+  const msg = await interaction.reply({ content, ephemeral: true });
+  setTimeout(() => interaction.deleteReply().catch(() => {}), 5_000);
+  return msg;
+}
+
 async function handleAdminInteraction(interaction) {
-  const _origReply = interaction.reply.bind(interaction);
-  interaction.reply = async (opts) => {
-    const r = await _origReply(opts);
-    if (opts && opts.ephemeral) setTimeout(() => interaction.deleteReply().catch(() => {}), 5_000);
-    return r;
-  };
   const id = interaction.customId;
 
   if (id === 'adm_refresh' || id === 'adm_done') {
@@ -39,7 +40,7 @@ async function handleAdminInteraction(interaction) {
     const t = db.get('tournaments')
       .filter(t2 => t2.template === template)
       .sort((a, b) => b.season - a.season)[0];
-    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+    if (!t) return admTextReply(interaction, `❌ No ${template} tournament found.`);
 
     db.update('tournaments', t.id, {
       channels: { ...(t.channels || {}), [key]: channelId },
@@ -53,7 +54,7 @@ async function handleAdminInteraction(interaction) {
     const t = db.get('tournaments')
       .filter(t2 => t2.template === template)
       .sort((a, b) => b.season - a.season)[0];
-    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+    if (!t) return admTextReply(interaction, `❌ No ${template} tournament found.`);
 
     const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
     return interaction.showModal(
@@ -77,18 +78,15 @@ async function handleAdminInteraction(interaction) {
     const t = db.get('tournaments')
       .filter(t2 => t2.template === template)
       .sort((a, b) => b.season - a.season)[0];
-    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+    if (!t) return admTextReply(interaction, `❌ No ${template} tournament found.`);
 
     const raw    = interaction.fields.getTextInputValue('role_id').trim();
     const roleId = raw.replace(/\D/g, '') || null;
     db.update('tournaments', t.id, { registration_role_id: roleId });
 
-    await interaction.reply({
-      content: roleId
+    await admTextReply(interaction, roleId
         ? `✅ **${template}** registration role set to <@&${roleId}>. Players will receive it on enrollment.`
-        : `✅ **${template}** registration role cleared.`,
-      ephemeral: true,
-    });
+        : `✅ **${template}** registration role cleared.`);
     return interaction.update(buildAdminPanel());
   }
 
@@ -98,7 +96,7 @@ async function handleAdminInteraction(interaction) {
     const t = db.get('tournaments')
       .filter(t2 => t2.template === template)
       .sort((a, b) => b.season - a.season)[0];
-    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+    if (!t) return admTextReply(interaction, `❌ No ${template} tournament found.`);
 
     const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
     return interaction.showModal(
@@ -123,10 +121,10 @@ async function handleAdminInteraction(interaction) {
     const t = db.get('tournaments')
       .filter(t2 => t2.template === template)
       .sort((a, b) => b.season - a.season)[0];
-    if (!t) return interaction.reply({ content: `❌ No ${template} tournament found.`, ephemeral: true });
+    if (!t) return admTextReply(interaction, `❌ No ${template} tournament found.`);
 
     const newName = interaction.fields.getTextInputValue('new_name').trim();
-    if (!newName) return interaction.reply({ content: '❌ Name cannot be empty.', ephemeral: true });
+    if (!newName) return admTextReply(interaction, '❌ Name cannot be empty.');
 
     const oldName = t.name;
     db.update('tournaments', t.id, { name: newName });

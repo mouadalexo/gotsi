@@ -19,7 +19,7 @@ const TEAM_IDS = [
   'custom_team_modal', 'team_add_player', 'team_select', 'team_remove', 'team_remove_select',
 ];
 
-const TEST_IDS = ['tp_refresh', 'test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw', 'test_bracket'];
+const TEST_IDS = ['tp_refresh', 'test_back', 'test_teams_list', 'test_standings', 'test_schedule', 'test_results', 'test_groupdraw', 'test_bracket', 'test_winner_ann'];
 
 module.exports = {
   name: 'interactionCreate',
@@ -28,7 +28,7 @@ module.exports = {
       // Drop stale component interactions (expired tokens replayed after bot downtime)
       // Slash commands and autocomplete are always fresh — skip the guard for them
       if (!interaction.isChatInputCommand() && !interaction.isAutocomplete() &&
-          Date.now() - interaction.createdTimestamp > 2500) return;
+          Date.now() - interaction.createdTimestamp > 5000) return;
       // ── Slash commands ─────────────────────────────────────────────────────
       if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
@@ -41,34 +41,6 @@ module.exports = {
         const command = client.commands.get(interaction.commandName);
         if (command?.autocomplete) await command.autocomplete(interaction);
         return;
-      }
-
-      // ── /addteam player modal ─────────────────────────────────────────────
-      if (interaction.isModalSubmit() && interaction.customId.startsWith('addteam_player_')) {
-        const { db }          = require('../utils/database');
-        const { buildPanel2 } = require('../panels/panel2');
-        const [, , tidStr, teamIdStr] = interaction.customId.split('_');
-        const tid    = parseInt(tidStr);
-        const teamId = parseInt(teamIdStr);
-        const rawId  = interaction.fields.getTextInputValue('discord_id').trim().replace(/\D/g, '');
-        if (rawId) {
-          const exists = db.findOne('players', p => p.discord_id === rawId && p.team_id === teamId);
-          if (!exists) db.insert('players', { discord_id: rawId, team_id: teamId, tournament_id: tid });
-        }
-        // Refresh Panel 2 if reference exists
-        const t = db.findById('tournaments', tid);
-        if (t?.panel2_ref) {
-          try {
-            const ch  = await client.channels.fetch(t.panel2_ref.channelId);
-            const msg = await ch.messages.fetch(t.panel2_ref.messageId);
-            await msg.edit(buildPanel2(t));
-          } catch {}
-        }
-        const team = db.findById('teams', teamId);
-        return await interaction.reply({
-          content: `✅ **${team?.name || 'Team'}** enrolled${rawId ? ` — player <@${rawId}> assigned` : ''}`,
-          ephemeral: true,
-        });
       }
 
       const id = interaction.customId || '';
@@ -89,7 +61,7 @@ module.exports = {
 
 
       // ── AutoTest step buttons ─────────────────────────────────────────────────
-      if (id.startsWith("at_next_") || id.startsWith("at_end_") || id.startsWith("at_tmpl_") || id.startsWith("at_size_") || id.startsWith("at_auto_") || id === "at_start") {
+      if (id.startsWith("at_next_") || id.startsWith("at_end_") || id.startsWith("at_tmpl_") || id.startsWith("at_size_") || id.startsWith("at_auto_") || id.startsWith("at_ch_") || id === "at_start" || id === "at_set_channels") {
         return await handleAutotestInteraction(interaction, client);
       }
 
@@ -162,6 +134,7 @@ module.exports = {
         id.startsWith('enr_team_fuzzy_modal_')||
         id.startsWith('enr_team_fuzzy_sel_')  ||
         id.startsWith('enr_player_sel_')      ||
+        id.startsWith('enr_players_duo_')     ||
         id.startsWith('enr_edit_team_')       ||
         id.startsWith('enr_edit_team_modal_') ||
         id.startsWith('enr_remove_team_')     ||
@@ -250,7 +223,7 @@ module.exports = {
 
     } catch (err) {
       console.error('[Interaction Error] customId=%s', interaction.customId || 'n/a', err?.stack || err);
-      const payload = { embeds: [errorEmbed('Something went wrong', err.message)], ephemeral: true };
+      const payload = { embeds: [errorEmbed('Something went wrong', err.message)], flags: 64 };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});
       } else {

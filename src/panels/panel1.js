@@ -30,7 +30,7 @@ function buildPanel1(tournament) {
 
   const inner = [];
 
-  inner.push(txt(`## Settings  \u2014  ${t.template || t.name}`));
+  inner.push(txt(`## Settings  —  ${t.template || t.name}`));
   inner.push(SEP);
 
   if (stage === 'setup') {
@@ -62,45 +62,88 @@ function buildPanel1(tournament) {
     ]});
 
   } else if (stage === 'group') {
-    const allGroupDone = pendingGroup === 0 && groupMatches.length > 0;
-    const groups = [...new Set(ttRows.map(tt => tt.group_name).filter(Boolean))].sort().join(', ') || 'not drawn';
-    const allRounds_p1   = [...new Set(groupMatches.map(m => m.round))].sort((a, b) => a - b);
+    // ── Group stage ──────────────────────────────────────────────────────────
+    const groups        = [...new Set(ttRows.map(tt => tt.group_name).filter(Boolean))].sort().join(', ') || 'not drawn';
+    const allRounds_p1  = [...new Set(groupMatches.map(m => m.round))].sort((a, b) => a - b);
     const totalRounds_p1 = allRounds_p1.length;
-    const pendingGM_p1   = groupMatches.filter(m => m.status !== 'played');
-    const curRound_p1    = pendingGM_p1.length ? Math.min(...pendingGM_p1.map(m => m.round)) : totalRounds_p1;
+
+    // Current round = lowest round with any pending match
+    const pendingGM_p1  = groupMatches.filter(m => m.status !== 'played');
+    const curRound_p1   = db.getConfig('group_round_' + tid) || allRounds_p1[0] || 1;
     const roundPending_p1 = groupMatches.filter(m => m.round === curRound_p1 && m.status !== 'played').length;
+    const roundPlayed_p1  = groupMatches.filter(m => m.round === curRound_p1 && m.status === 'played').length;
 
     inner.push(txt(
       `> **Status:** Group Stage  |  **Groups:** ${groups}\n` +
       `> **Matches:** ${playedGroup} played  /  ${pendingGroup} pending`
     ));
     inner.push(SEP);
-    inner.push(txt(
-      allGroupDone
-        ? '\u2705 All group matches done. Click **Advance to Knockout** to generate the bracket.'
-        : `\u23f3 **Round ${curRound_p1}/${totalRounds_p1}** — **${roundPending_p1}** result${roundPending_p1 !== 1 ? 's' : ''} to add this round  •  **${pendingGroup}** total remaining`
-    ));
+
+    // "Next" unlocks when ALL matches in the current round are played
+    const roundDone_p1 = roundPending_p1 === 0 && roundPlayed_p1 > 0;
+
+    // Status line shows current round progress
+    const statusLine = roundDone_p1
+      ? `\u2705 **Round ${curRound_p1}/${totalRounds_p1} complete!** Click **Next** to continue.`
+      : roundPlayed_p1 > 0
+        ? `\u23f3 **Round ${curRound_p1}/${totalRounds_p1}** — **${roundPending_p1}** result${roundPending_p1 !== 1 ? 's' : ''} remaining`
+        : `\u23f3 **Round ${curRound_p1}/${totalRounds_p1}** — **${roundPending_p1}** result${roundPending_p1 !== 1 ? 's' : ''} to add`;
+
+    inner.push(txt(statusLine));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('Add Result',          `p1_${tid}_addresult`, 1, pendingGroup === 0),
-      btn('Advance to Knockout', `p1_${tid}_advance`,   3, !allGroupDone),
-      btn('Refresh',             `p1_${tid}_refresh`,   2, false),
-      btn('End Tournament',      `p1_${tid}_end`,       4, false),
+      btn('Add Result',     `p1_${tid}_addresult`, 1, false),
+      btn('Next',           `p1_${tid}_advance`,   3, !roundDone_p1),
+      btn('Refresh',        `p1_${tid}_refresh`,   2, false),
+      btn('End Tournament', `p1_${tid}_end`,       4, false),
     ]});
 
   } else if (stage === 'knockout') {
+    // ── Knockout stage ────────────────────────────────────────────────────────
+    const ROUND_LABELS = { 1: 'Final', 2: 'Semi-Finals', 4: 'Quarter-Finals', 8: 'Round of 16', 16: 'Round of 32' };
+
+    // 2-leg Final detection
+    const r1All          = knockoutMatches.filter(m => m.round === 1);
+    const r1Leg1         = r1All.filter(m => !m.leg || m.leg === 1);
+    const r1Leg2         = r1All.filter(m => m.leg === 2);
+    const r1Leg1AllPlayed  = r1Leg1.length > 0 && r1Leg1.every(m => m.status === 'played');
+    const r1Leg2Exists   = r1Leg2.length > 0;
+    const r1Leg2AllPlayed  = r1Leg2.length > 0 && r1Leg2.every(m => m.status === 'played');
+
+    // Active round: highest round# with pending matches (highest# = earliest KO stage)
     const allKORounds  = [...new Set(knockoutMatches.map(m => m.round))].sort((a, b) => b - a);
     const pendingKORds = knockoutMatches.filter(m => m.status === 'pending').map(m => m.round);
-    // Active round = highest round# that still has pending matches (highest# = earliest KO stage)
-    // If all done, fall back to the minimum round# = Final
-    const curRound    = pendingKORds.length
+    const curRound     = pendingKORds.length
       ? Math.max(...pendingKORds)
       : (allKORounds[allKORounds.length - 1] || 1);
-    const curPending  = knockoutMatches.filter(m => m.round === curRound && m.status === 'pending').length;
-    const curPlayed   = knockoutMatches.filter(m => m.round === curRound && m.status === 'played').length;
-    const ROUND_LABELS = { 1: 'Final', 2: 'Semi-Finals', 4: 'Quarter-Finals', 8: 'Round of 16', 16: 'Round of 32' };
-    const roundLabel  = ROUND_LABELS[curRound] || `Round ${curRound}`;
-    const allKODone   = curPending === 0 && curPlayed > 0;
+
+    const curPending = knockoutMatches.filter(m => m.round === curRound && m.status === 'pending').length;
+    const curPlayed  = knockoutMatches.filter(m => m.round === curRound && m.status === 'played').length;
+
+    // Determine display state — handle 2-leg Final specially
+    let roundLabel, allKODone, canAdv;
+
+    if (curRound === 1 && r1Leg1AllPlayed && !r1Leg2Exists) {
+      // Final (Home) played, Final (Away) not yet created
+      roundLabel = 'Final (Home)';
+      allKODone  = true;
+      canAdv     = true;
+    } else if (curRound === 1 && r1Leg2Exists && !r1Leg2AllPlayed) {
+      // Final (Away) in progress
+      roundLabel = 'Final (Away)';
+      allKODone  = false;
+      canAdv     = false;
+    } else if (curRound === 1 && r1Leg2AllPlayed) {
+      // Both Final legs done — ready to wrap up
+      roundLabel = 'Final (Away)';
+      allKODone  = true;
+      canAdv     = true;
+    } else {
+      // Normal KO round (QF, SF, R16, etc.)
+      roundLabel = ROUND_LABELS[curRound] || `Round ${curRound}`;
+      allKODone  = curPending === 0 && curPlayed > 0;
+      canAdv     = allKODone;
+    }
 
     inner.push(txt(
       `> **Status:** Knockout  |  **Stage:** ${roundLabel}\n` +
@@ -109,53 +152,48 @@ function buildPanel1(tournament) {
     inner.push(SEP);
     inner.push(txt(
       allKODone
-        ? '\u2705 **' + roundLabel + '** complete! Click **Next Round** to advance winners.'
+        ? `\u2705 **${roundLabel}** complete! Click **Next** to continue.`
         : `\u23f3 **${roundLabel}** \u2014 **${curPending}** result${curPending !== 1 ? 's' : ''} to add`
     ));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('Add Result',     `p1_${tid}_addresult`, 1, curPending === 0),
-      btn('Next Round',     `p1_${tid}_advance`,   3, !allKODone),
+      btn('Add Result',     `p1_${tid}_addresult`, 1, false),
+      btn('Next',           `p1_${tid}_advance`,   3, !canAdv),
       btn('Refresh',        `p1_${tid}_refresh`,   2, false),
       btn('End Tournament', `p1_${tid}_end`,       4, false),
     ]});
 
   } else {
-    // finished
+    // ── Finished ──────────────────────────────────────────────────────────────
     const playedKO   = knockoutMatches.filter(m => m.status === 'played');
     const finalRound = playedKO.length ? Math.min(...playedKO.map(m => m.round)) : null;
-    const finalMatch = finalRound !== null ? playedKO.find(m => m.round === finalRound) : null;
-    let winnerName   = '?';
-    if (finalMatch) {
-      const winId = finalMatch.home_score > finalMatch.away_score
-        ? finalMatch.home_team_id : finalMatch.away_team_id;
-      winnerName = db.findById('teams', winId)?.name || 'Unknown';
+    const finalMatches = finalRound !== null ? playedKO.filter(m => m.round === finalRound) : [];
+    let winnerName = '?';
+    if (finalMatches.length) {
+      const leg1 = finalMatches.find(m => !m.leg || m.leg === 1);
+      const leg2 = finalMatches.find(m => m.leg === 2);
+      if (leg1 && leg2) {
+        const hAgg = (leg1.home_score || 0) + (leg2.away_score || 0);
+        const aAgg = (leg1.away_score || 0) + (leg2.home_score || 0);
+        const winId = hAgg >= aAgg ? leg1.home_team_id : leg1.away_team_id;
+        winnerName = db.findById('teams', winId)?.name || 'Unknown';
+      } else if (leg1) {
+        const winId = leg1.home_score > leg1.away_score ? leg1.home_team_id : leg1.away_team_id;
+        winnerName = db.findById('teams', winId)?.name || 'Unknown';
+      }
     }
-    const confirmedWinner = db.findOne('winners', w => w.tournament_id === tid && w.season === t.season);
 
     inner.push(txt(
       `> **Status:** FINISHED  |  **Season ${t.season} Complete**\n` +
-      `> 🏆  **Champion: ${winnerName}**` +
-      (confirmedWinner ? `\n> ✅  **Winner confirmed & role assigned**` : '')
+      `> 🏆  **Champion: ${winnerName}**`
     ));
     inner.push(SEP);
-
-    if (!confirmedWinner) {
-      inner.push(txt('⚠️ Winner not yet confirmed. Click **Confirm Winner** to assign the role.'));
-      inner.push(SEP);
-      inner.push({ type: 1, components: [
-        btn('🏆 Confirm Winner', `p1_${tid}_confirm_winner`, 1, false),
-        btn('New Edition',       `p1_${tid}_newedition`,     2, false),
-        btn('Refresh',           `p1_${tid}_refresh`,        2, false),
-      ]});
-    } else {
-      inner.push(txt('Season officially complete! Click **New Edition** to start the next season.'));
-      inner.push(SEP);
-      inner.push({ type: 1, components: [
-        btn('New Edition', `p1_${tid}_newedition`, 1, false),
-        btn('Refresh',     `p1_${tid}_refresh`,    2, false),
-      ]});
-    }
+    inner.push(txt('Season complete! Click **End Season** to start the next season.'));
+    inner.push(SEP);
+    inner.push({ type: 1, components: [
+      btn('End Season', `p1_${tid}_newedition`, 1, false),
+      btn('Refresh',    `p1_${tid}_refresh`,    2, false),
+    ]});
   }
 
   inner.push(SEP);

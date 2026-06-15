@@ -15,7 +15,7 @@ const E = {
   arrow:      '<a:arrow:1501741110798585927>',
   smallarrow: '<a:smallarrow:1472222559645863936>',
   fire:       '<a:fire:1472250580583059611>',
-  crown:      '<:crownn:1501741176296964277>',
+  crown:      '<a:crown:1501741170668077127>',
   hashtag:    '<a:hashtag:1501741088736678069>',
   channel:    '<a:channelutility:1501741046734786600>',
   yeaaaah:    '<a:yeaaaah:1472250648966987858>',

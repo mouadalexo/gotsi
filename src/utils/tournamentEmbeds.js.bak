@@ -31,7 +31,7 @@ function fmtMatchLine(home, away, sep) {
 
 const E_CUP   = '<a:cup:1501741159557500971>';
 const E_HASH  = '<a:hashtag:1501741088736678069>';
-const E_CROWN = '<a:crown:1501741170668077127>';
+const E_CROWN = '<:crownn:1501741176296964277>';
 const E_FIRE  = '<a:fire:1472250580583059611>';
 const E_ARR   = '<a:smallarrow:1472222559645863936>';
 
@@ -291,11 +291,17 @@ function makeBracketPost(tid) {
         } else {
           const hAgg = (leg1.home_score || 0) + (leg2?.away_score || 0);
           const aAgg = (leg1.away_score || 0) + (leg2?.home_score || 0);
-          inner.push(txt('**HOME:**\n' + fmtMatchLine(hName, aName, scoreSep(leg1.home_score, leg1.away_score))
-                       + '\n\n**AWAY:**\n' + fmtMatchLine(aName, hName, scoreSep(leg2.home_score, leg2.away_score))));
-          inner.push(SEP);
-          inner.push(txt('**TOTAL:**\n' + fmtMatchLine(hName, aName, scoreSep(hAgg, aAgg))));
-          matchText = null;
+          matchText  = '**HOME:**\n' + fmtMatchLine(hName, aName, scoreSep(leg1.home_score, leg1.away_score));
+          matchText += '\n**AWAY:**\n' + fmtMatchLine(aName, hName, scoreSep(leg2.home_score, leg2.away_score));
+          matchText += '\n**TOTAL:**\n' + fmtMatchLine(hName, aName, scoreSep(hAgg, aAgg));
+          if (hAgg > aAgg) {
+            matchText += `\n${E_CROWN}  **${hName} WINS**`;
+          } else if (aAgg > hAgg) {
+            matchText += `\n${E_CROWN}  **${aName} WINS**`;
+          } else if (leg2?.pen_winner) {
+            const penTeam = getTeam(leg2.pen_winner);
+            matchText += `\n${E_CROWN}  **${penTeam.name.toUpperCase()} WINS (PENALTIES)**`;
+          }
         }
       }
     } else {
@@ -316,27 +322,12 @@ function makeBracketPost(tid) {
       }
     }
 
-    if (matchText !== null) inner.push(txt(matchText));
+    inner.push(txt(matchText));
   }
 
   inner.push(SEP);
   inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
   return box(BLUE, inner);
-}
-
-
-// ── Champion / Winner Announcement post ──────────────────────────────────────
-function makeChampionPost(tournamentName, season, winnerTeamName) {
-  return {
-    flags: 32768,
-    components: [{ type: 17, accent_color: GOLD, components: [
-      txt(`${E_CUP}  **The ${tournamentName} S${season} winner**`),
-      SEP,
-      txt(`${E_CROWN}  **${winnerTeamName.toUpperCase()}**`),
-      SEP,
-      txt('-# © 24 2026  |  Goatsi Bot'),
-    ]}],
-  };
 }
 
 module.exports = {
@@ -348,7 +339,6 @@ module.exports = {
   makeStandingsPost,
   makeGroupDrawPost,
   makeBracketPost,
-  makeChampionPost,
   // Legacy no-ops (kept for any old callers)
   makeScheduleEmbed:          () => null,
   makeResultEmbed:            () => null,

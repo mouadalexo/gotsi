@@ -23,6 +23,12 @@ function buildPanel3(tournament) {
   const round1Matches  = groupMatches.filter(m => m.round === 1);
   const round1Complete = round1Matches.length > 0 && round1Matches.every(m => m.status === 'played');
 
+  // Winner Ann: only when both Final legs (Home + Away) are played
+  const koMatches   = matches.filter(m => m.stage === 'knockout');
+  const finalLeg1   = koMatches.find(m => m.round === 1 && (!m.leg || m.leg === 1));
+  const finalLeg2   = koMatches.find(m => m.round === 1 && m.leg === 2);
+  const bothFinalsDone = finalLeg1?.status === 'played' && finalLeg2?.status === 'played';
+
   const ch = t.channels || {};
   const chParts = [
     ch.schedule ? `**Schedule** → <#${ch.schedule}>` : '**Schedule** → `not set`',
@@ -40,7 +46,6 @@ function buildPanel3(tournament) {
   const tagLabel  = tagOn ? '🔔  Tag: ON' : '🔕  Tag: OFF';
   const tagStyle  = tagOn ? 3 : 2;
 
-  const E_CUP = "<a:hashtag:1501741088736678069>";
   const inner = [];
 
   inner.push(txt(`## Publish  —  ${t.template || t.name}`));
@@ -76,9 +81,10 @@ function buildPanel3(tournament) {
     btn('Results',    `p3_${tid}_results`,   3, !round1Complete),
     btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
   ]});
-  // Row 3 (red): KO Bracket alone
+  // Row 3 (red): KO Bracket + Winner Ann
   inner.push({ type: 1, components: [
-    btn('KO Bracket', `p3_${tid}_bracket`,   4, !hasKO),
+    btn('KO Bracket',  `p3_${tid}_bracket`,    4, !hasKO),
+    btn('Winner Ann',  `p3_${tid}_winner_ann`, 4, !(bothFinalsDone || stage === 'finished')),
   ]});
 
   inner.push(SEP);

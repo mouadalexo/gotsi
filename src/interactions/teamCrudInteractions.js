@@ -180,8 +180,12 @@ async function handleTeamCrudInteraction(interaction) {
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
-  if (id === 'tc_refresh' || id.startsWith('tc_refresh_') || id.startsWith('tc_page_')) {
+  if (id === 'tc_refresh' || id.startsWith('tc_refresh_')) {
     return interaction.update(buildTeamCrudPanel());
+  }
+  if (id.startsWith('tc_page_')) {
+    const page = parseInt(id.replace('tc_page_', '')) || 0;
+    return interaction.update(buildTeamCrudPanel({ page }));
   }
 }
 

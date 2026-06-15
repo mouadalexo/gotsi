@@ -2,16 +2,13 @@
 const { db } = require('../utils/database');
 const {
   makeSchedulePost, makeResultsPost, makeStandingsPost,
-  makeGroupDrawPost, makeBracketPost,
+  makeGroupDrawPost, makeBracketPost, makeChampionPost,
 } = require('../utils/tournamentEmbeds');
 const { buildTeamsListEmbed } = require('../panels/teamListPanel');
 
 const SEP    = { type: 14, divider: true, spacing: 1 };
 const txt    = c => ({ type: 10, content: c });
-const E_CUP  = '<a:cup:1501741159557500971>';
-const E_CROWN= '<:crownn:1501741176296964277>';
 const DARK   = 2829617;
-const GOLD   = 0xFFD700;
 
 // ── Random team pool ──────────────────────────────────────────────────────────
 const _POOL = [
@@ -119,10 +116,14 @@ function buildAllDemoPosts() {
     }
     const [fhs, fas] = _koScore();
     koRecords.push({ tournament_id: ids.tid, home_team_id: sfWinners[0], away_team_id: sfWinners[1], stage: 'knockout', round: 1, leg: 1, status: 'played', home_score: fhs, away_score: fas });
+    const [f2hs, f2as] = _koScore();
+    koRecords.push({ tournament_id: ids.tid, home_team_id: sfWinners[1], away_team_id: sfWinners[0], stage: 'knockout', round: 1, leg: 2, status: 'played', home_score: f2hs, away_score: f2as });
     const insertedKO = db.insertMany('matches', koRecords);
     ids.matches.push(...insertedKO.map(m => m.id));
 
-    const champId = fhs > fas ? sfWinners[0] : sfWinners[1];
+    const hAgg = fhs + f2as;
+    const aAgg = fas + f2hs;
+    const champId = hAgg >= aAgg ? sfWinners[0] : sfWinners[1];
     const chTeam  = db.get('teams').find(tm => tm.id === champId) || { name: 'Unknown' };
 
     // ── Build teams list post using the real builder (while DB records exist) ──
@@ -135,16 +136,7 @@ function buildAllDemoPosts() {
       resultsR1:  makeResultsPost(ids.tid, 1),
       standings:  makeStandingsPost(ids.tid),
       bracket:    makeBracketPost(ids.tid),
-      champion: {
-        flags: 32768,
-        components: [{ type: 17, accent_color: GOLD, components: [
-          txt(`${E_CUP}  **TOURNAMENT CHAMPION  —  TEST**`),
-          SEP,
-          txt(`${E_CROWN}  **${chTeam.name.toUpperCase()}**`),
-          SEP,
-          txt('-# Night Stars  •  Test Mode'),
-        ]}],
-      },
+      champion: makeChampionPost('Test', 1, chTeam.name),
     };
   } finally {
     db.deleteWhere('matches',          m  => ids.matches.includes(m.id));
@@ -161,20 +153,25 @@ function buildPanel() {
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: DARK, components: [
-      txt(`# ${E_CUP}  Test Panel\n> Every preview uses the **exact same builders** as live channel posts.\n> Using: **${label}**`),
+      txt(`# Test Panel\n> Every preview uses the **exact same builders** as live channel posts.\n> Using: **${label}**`),
       SEP,
       { type: 1, components: [
         { type: 2, style: 1, label: '📋 Teams List', custom_id: 'test_teams_list' },
+        { type: 2, style: 1, label: '🎲 Group Draw', custom_id: 'test_groupdraw' },
+      ]},
+      { type: 1, components: [
         { type: 2, style: 1, label: '📅 Schedule',   custom_id: 'test_schedule' },
         { type: 2, style: 1, label: '⚽ Results',    custom_id: 'test_results' },
       ]},
       { type: 1, components: [
         { type: 2, style: 1, label: '📊 Standings',  custom_id: 'test_standings' },
-        { type: 2, style: 1, label: '🎲 Group Draw', custom_id: 'test_groupdraw' },
         { type: 2, style: 1, label: '🏆 Bracket',   custom_id: 'test_bracket' },
       ]},
+      { type: 1, components: [
+        { type: 2, style: 1, label: '🥇 Winner Ann', custom_id: 'test_winner_ann' },
+      ]},
       SEP,
-      txt('-# Night Stars  •  Test Mode — previews are ephemeral, only you can see them'),
+      txt('-# © 24 2026  |  Goatsi Bot'),
     ]}],
   };
 }
@@ -182,7 +179,7 @@ function buildPanel() {
 // ── Button handler — each click sends ephemeral preview, deletes after 15s ───
 async function handleTestInteraction(interaction) {
   const id = interaction.customId;
-  const valid = ['test_teams_list','test_schedule','test_results','test_standings','test_groupdraw','test_bracket'];
+  const valid = ['test_teams_list','test_schedule','test_results','test_standings','test_groupdraw','test_bracket','test_winner_ann'];
   if (!valid.includes(id)) return;
 
   // deferReply already called in interactionCreate router before dispatch
@@ -194,6 +191,7 @@ async function handleTestInteraction(interaction) {
     test_standings:  posts.standings,
     test_groupdraw:  posts.groupDraw,
     test_bracket:    posts.bracket,
+    test_winner_ann: posts.champion,
   };
 
   const payload = map[id];
@@ -202,7 +200,7 @@ async function handleTestInteraction(interaction) {
   setTimeout(() => interaction.deleteReply().catch(() => {}), 15_000);
 }
 
-// ── Called by /testpanel slash command ───────────────────────────────────────
+// ── Called by /testpost slash command ────────────────────────────────────────
 async function executeTestpanel(interaction) {
   await interaction.deferReply({ ephemeral: true });
 

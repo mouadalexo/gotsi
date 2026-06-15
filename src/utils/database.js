@@ -18,6 +18,7 @@ function load() {
     if (fs.existsSync(DB_PATH)) {
       try {
         _db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        try { fs.copyFileSync(DB_PATH, DB_PATH + '.bak'); } catch (_) {}
         for (const key of Object.keys(DEFAULT_DB)) {
           if (_db[key] === undefined) _db[key] = DEFAULT_DB[key];
         }
@@ -53,7 +54,11 @@ function load() {
   return _db;
 }
 
-function save() { fs.writeFileSync(DB_PATH, JSON.stringify(_db)); }
+function save() {
+  const tmp = DB_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(_db));
+  fs.renameSync(tmp, DB_PATH);
+}
 function nextId(table) {
   const d = load();
   if (!d._nextId[table]) d._nextId[table] = 1;

@@ -36,38 +36,29 @@ function buildNewSeasonModal(template) {
 
 // ── V2 Manage Panel ───────────────────────────────────────────────────────────
 function buildManagePanelV2() {
-  const catId = db.getConfig('winners_history_category');
-
   const inner = [];
 
   inner.push(txt(`# Admin Panel`));
   inner.push(SEP);
 
   inner.push({ type: 1, components: [
-    btn('New Tournament', 'mgr2_newtournament',  1),
-    btn('Set Channels',   'mgr2_channels_start', 2),
+    btn('Create Tournament',   'mgr2_newtournament',  1),
+    btn('Set Channels',        'mgr2_channels_start', 2),
   ]});
 
   inner.push({ type: 1, components: [
-    btn('🏆 Winners Setup', 'mgr2_winners',        1),
-    btn('Set Role',          'mgr2_reg_role_start', 2),
-    btn('⚙️ Format Config',  'mgr2_tpl_cfg',        2),
+    btn('Set Role',            'mgr2_reg_role_start', 2),
+    btn('Tournament Settings', 'mgr2_tournsettings',  2),
   ]});
 
   inner.push(SEP);
-
-  if (catId) {
-    inner.push(txt(`**Winners History Category:** <#${catId}>`));
-  } else {
-    inner.push(txt('**Winners History Category:** _Not configured_ — use **🏆 Winners Setup** to configure.'));
-  }
-
-  inner.push(SEP);
-  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   inner.push({ type: 1, components: [
     btn('Refresh', 'mgr2_refresh', 2),
   ]});
+
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
@@ -105,90 +96,8 @@ function buildAdminsSubPanel() {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
 }
 
-// ── Winners Setup — tournament selector ───────────────────────────────────────
-function buildWinnersSubPanel() {
-  const tournaments = db.get('tournaments').filter(t => t.template !== 'TEST');
-  const catId       = db.getConfig('winners_history_category');
-  const inner       = [];
-
-  inner.push(txt(
-    `# 🏆  Winners Setup\n` +
-    `> **Category:** ${catId ? `<#${catId}>` : '`Not configured`'}`
-  ));
-  inner.push(SEP);
-
-  if (!tournaments.length) {
-    inner.push(txt('No tournaments found.'));
-    inner.push(SEP);
-    inner.push({ type: 1, components: [
-      btn('Set Category', 'mgr2_winners_setup', 2),
-      btn('Back',         'mgr2_refresh',       2),
-    ]});
-  } else {
-    inner.push(txt('Select a tournament to manage its winner role and history.'));
-    inner.push(SEP);
-    inner.push({ type: 1, components: [{
-      type: 3, custom_id: 'mgr2_winners_sel', placeholder: 'Select tournament…',
-      options: tournaments.slice(0, 25).map(t => ({
-        label: t.name.slice(0, 100),
-        value: String(t.id),
-        description: `Season ${t.season} · ${t.winner_role_id ? 'Role ✅' : 'Role not set'} · ${t.winners_history_ref ? 'History ✅' : 'History not set'}`,
-      })),
-    }]},);
-    inner.push(SEP);
-    inner.push({ type: 1, components: [
-      btn('Set Category', 'mgr2_winners_setup', 2),
-      btn('Back',         'mgr2_refresh',       2),
-    ]});
-  }
-
-  inner.push(SEP);
-  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
-
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xFFD700, components: inner }] };
-}
-
-// ── Per-tournament winners sub-panel ─────────────────────────────────────────
-function buildWinnersForTournament(tid) {
-  const t = db.findById('tournaments', tid);
-  if (!t) return buildWinnersSubPanel();
-
-  const catId  = db.getConfig('winners_history_category');
-  const ref    = t.winners_history_ref || {};
-  const inner  = [];
-
-  inner.push(txt(
-    `# 🏆  Winners — ${t.name}\n` +
-    `> Season **${t.season}**`
-  ));
-  inner.push(SEP);
-  inner.push(txt(
-    `**Category:**       ${catId ? `<#${catId}>` : '`Not set`'}\n` +
-    `**Winner Role:**    ${t.winner_role_id ? `✅ <@&${t.winner_role_id}>` : '`Not set`'}\n` +
-    `**History Channel:**${ref.channelId ? ` ✅ <#${ref.channelId}>` : ' `Not set`'}\n` +
-    `**History Message:**${ref.messageId ? ' ✅ Linked' : ' `Not set`'}`
-  ));
-  inner.push(SEP);
-
-  inner.push({ type: 1, components: [
-    btn('Set Winner Role',   `mgr2_wt_role_${tid}`,   2),
-    btn('Set History Ref',   `mgr2_wt_ref_${tid}`,    2),
-    btn('Re-post History',   `mgr2_wt_repost_${tid}`, 1, !ref.channelId),
-  ]});
-  inner.push({ type: 1, components: [
-    btn('Back', 'mgr2_winners', 2),
-  ]});
-
-  inner.push(SEP);
-  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
-
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xFFD700, components: inner }] };
-}
-
 module.exports = {
   buildNewSeasonModal,
   buildManagePanelV2,
   buildAdminsSubPanel,
-  buildWinnersSubPanel,
-  buildWinnersForTournament,
 };

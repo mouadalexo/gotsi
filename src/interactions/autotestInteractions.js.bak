@@ -7,7 +7,6 @@ const {
   makeResultsPost,
   makeStandingsPost,
   makeBracketPost,
-  makeChampionPost,
 } = require('../utils/tournamentEmbeds');
 
 function getOrCreateTestTid() {
@@ -26,6 +25,9 @@ function getOrCreateTestTid() {
 }
 const SEP      = { type: 14, divider: true, spacing: 1 };
 const txt      = c => ({ type: 10, content: c });
+const E_CUP    = '<a:cup:1501741159557500971>';
+const E_CROWN  = '<:crownn:1501741176296964277>';
+const GOLD     = 0xFFD700;
 const BLUE     = 0x2563EB;
 
 // ── Per-guild session state ───────────────────────────────────────────────────
@@ -349,16 +351,6 @@ function buildSteps({ results, schedule }, teamCount, mode = "auto") {
           db.update('matches', m.id, { status: 'played', home_score: hs, away_score: as_ });
           winners.push(hs > as_ ? m.home_team_id : m.away_team_id);
         }
-        if (isLast && roundMatches.length === 1) {
-          const leg1m = db.findById('matches', roundMatches[0].id);
-          const [l2hs, l2as] = rndScore(true);
-          db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 1, leg: 2,
-            home_team_id: roundMatches[0].away_team_id, away_team_id: roundMatches[0].home_team_id,
-            status: 'played', home_score: l2hs, away_score: l2as });
-          const hAgg = (leg1m.home_score || 0) + l2as;
-          const aAgg = (leg1m.away_score || 0) + l2hs;
-          winners[0] = hAgg >= aAgg ? roundMatches[0].home_team_id : roundMatches[0].away_team_id;
-        }
         if (!isLast) {
           const nextRound = Math.floor(koCurrentRound / 2);
           for (let i = 0; i < winners.length; i += 2) {
@@ -372,7 +364,14 @@ function buildSteps({ results, schedule }, teamCount, mode = "auto") {
         else if (results) bracketMsgKo = await results.send(bp);
         if (isLast) {
           const champTeam = db.get('teams').find(t => t.id === winners[0]) || { name: 'Unknown' };
-          if (results) await results.send(makeChampionPost('Test', 1, champTeam.name));
+          if (results) await results.send({
+            flags: 32768,
+            components: [{ type: 17, accent_color: GOLD, components: [
+              txt(`${E_CUP}  **TOURNAMENT CHAMPION  —  TEST**`),
+              SEP, txt(`${E_CROWN}  **${champTeam.name.toUpperCase()}**`), SEP,
+              txt('-# © 24 2026  |  Goatsi Bot'),
+            ]}],
+          });
         }
       });
     }
@@ -415,21 +414,23 @@ function buildSteps({ results, schedule }, teamCount, mode = "auto") {
 
       const nextRound = Math.floor(currentRound / 2);
       if (nextRound === 0) {
-        if (roundMatches.length === 1) {
-          const leg1m = db.findById('matches', roundMatches[0].id);
-          const [l2hs, l2as] = rndScore(true);
-          db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 1, leg: 2,
-            home_team_id: roundMatches[0].away_team_id, away_team_id: roundMatches[0].home_team_id,
-            status: 'played', home_score: l2hs, away_score: l2as });
-          const hAgg = (leg1m.home_score || 0) + l2as;
-          const aAgg = (leg1m.away_score || 0) + l2hs;
-          winners[0] = hAgg >= aAgg ? roundMatches[0].home_team_id : roundMatches[0].away_team_id;
-        }
         // Auto mode: send the completed bracket once now
         if (mode === 'auto' && results) await results.send(makeBracketPost(tid));
         // Post champion
         const champTeam = db.get('teams').find(t => t.id === winners[0]) || { name: 'Unknown' };
-        if (results) await results.send(makeChampionPost('Test', 1, champTeam.name));
+        if (results) await results.send({
+          flags: 32768,
+          components: [{
+            type: 17, accent_color: GOLD,
+            components: [
+              txt(`${E_CUP}  **TOURNAMENT CHAMPION  —  TEST**`),
+              SEP,
+              txt(`${E_CROWN}  **${champTeam.name.toUpperCase()}**`),
+              SEP,
+              txt('-# © 24 2026  |  Goatsi Bot'),
+            ],
+          }],
+        });
         break;
       }
 

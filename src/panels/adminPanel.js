@@ -4,7 +4,6 @@ const { db } = require('../utils/database');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
-const E_CUP  = '<a:cup:1501741159557500971>';
 const E_HASH = '<a:hashtag:1501741088736678069>';
 
 function chLine(t, key) {
@@ -139,7 +138,7 @@ function buildTestChannelPickerPanel() {
   const makeDefault = id => id ? [{ id, type: 'channel' }] : [];
 
   const inner = [
-    txt(`# ⚙️  Set Test Channel\n> Select the channel where \`/testpanel\` will post the panel.\n> Selection saves immediately.`),
+    txt(`# ⚙️  Set Test Channel\n> Select the channel where \`/testpost\` will post the panel.\n> Selection saves immediately.`),
     SEP,
     txt(`**Test Channel**  →  ${testChId ? `<#${testChId}>` : '`not set`'}`),
     SEP,

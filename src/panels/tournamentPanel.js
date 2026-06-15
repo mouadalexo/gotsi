@@ -39,7 +39,6 @@ function buildTournamentButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('tournament_create').setLabel('Create Tournament').setStyle(ButtonStyle.Primary).setEmoji('➕'),
     new ButtonBuilder().setCustomId('tournament_manage').setLabel('Manage').setStyle(ButtonStyle.Secondary).setEmoji('⚙️'),
-    new ButtonBuilder().setCustomId('tournament_results').setLabel('Add Result').setStyle(ButtonStyle.Success).setEmoji('📊'),
     new ButtonBuilder().setCustomId('tournament_bracket').setLabel('View Bracket').setStyle(ButtonStyle.Secondary).setEmoji('📋'),
   );
 }
