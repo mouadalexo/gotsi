@@ -2,8 +2,8 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { makeStandingsPost, makeBracketPost } = require('../utils/tournamentEmbeds');
 
-function buildGroupStandingsEmbed(tournamentId) {
-  return makeStandingsPost(tournamentId);
+function buildGroupStandingsEmbed(tournamentId, upToRound = null) {
+  return makeStandingsPost(tournamentId, upToRound);
 }
 
 function buildStandingsRow(tournamentId) {

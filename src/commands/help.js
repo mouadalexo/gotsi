@@ -31,14 +31,14 @@ function buildPage1() {
         txt(
           `${E_HASH}  **\`/admin\` — One-Time Admin Setup**\n\n` +
           `**New Tournament**\n` +
-          `${E_ARR}  Click **New Tournament** → choose template (EL or MCL)\n` +
+          `${E_ARR}  Click **New Tournament** → choose template (EL or CL)\n` +
           `${E_ARR}  Enter the **Season Number** (e.g. \`3\`) → tournament created as \`EL S3\`\n\n` +
           `**Set Channels**\n` +
           `${E_ARR}  Assign channels per tournament: Management, Results, Schedule, Teams List\n\n` +
           `**⚙️ Template Config**\n` +
           `${E_ARR}  Controls which options managers see in the Settings panel\n` +
           `${E_ARR}  EL defaults: Teams \`16/32/64\`, Groups of \`4\`, Advance \`2\`, Solo 1v1\n` +
-          `${E_ARR}  MCL defaults: Teams \`8/16/32\`, Groups of \`4\`, Advance \`2\`, Duo 2v2\n\n` +
+          `${E_ARR}  CL defaults: Teams \`8/16/32\`, Groups of \`4\`, Advance \`2\`, Duo 2v2\n\n` +
           `**🎟️ Reg. Role** — auto-gives a Discord role when a team enrolls\n` +
           `**🏆 Winners Setup** — winner role, history channel and message link`
         ),
@@ -80,7 +80,7 @@ function buildPage2() {
           `${E_FIRE}  **Panel 2 — Team Registration**\n\n` +
           `${E_ARR}  **Add Team** → type name → pick from 5 closest matches (last option = your exact text)\n` +
           `${E_ARR}  After selecting → assign player(s) via Discord member search\n` +
-          `   • EL (1v1): 1 player  |  MCL (2v2): 2 players (two separate pickers)\n` +
+          `   • EL (1v1): 1 player  |  CL (2v2): 2 players (two separate pickers)\n` +
           `${E_ARR}  **✏️ Edit Team** — rename an enrolled team\n` +
           `${E_ARR}  **🗑️ Remove Team** — unenroll (removes Reg. Role from players automatically)`
         ),
@@ -115,7 +115,7 @@ function buildPage2() {
           `${E_ARR}  Results **auto-post** when every match in a round is entered\n` +
           `${E_ARR}  Teams List **auto-updates** after every enroll / unenroll\n` +
           `${E_ARR}  Post Schedule **one round at a time** — you control when each round is revealed\n` +
-          `${E_ARR}  Season numbers are **unique per template** — EL S3 and MCL S3 can coexist\n` +
+          `${E_ARR}  Season numbers are **unique per template** — EL S3 and CL S3 can coexist\n` +
           `${E_ARR}  **Template Config** in \`/admin\` controls which select menus managers see\n` +
           `${E_ARR}  Use **Refresh** on any panel to reload the latest data\n\n` +
           `-# © 24 2026  |  Goatsi Bot`

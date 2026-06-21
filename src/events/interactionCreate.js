@@ -7,9 +7,11 @@ const { handleManageInteraction }             = require('../interactions/manageI
 const { handleMgr2Interaction }              = require('../interactions/manageInteractionsNew');
 const { handleTestInteraction }               = require('../interactions/testInteractions');
 const { handleAdminInteraction }              = require('../interactions/adminInteractions');
+const { handleWHInteraction }                 = require('../interactions/whInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
 const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
+const { handleSettingsInteraction }           = require('../interactions/settingsInteractions');
 const { handleEnrollInteraction }             = require("../interactions/enrollInteractions");
 const { handleAutotestInteraction }           = require("../interactions/autotestInteractions");
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
@@ -72,8 +74,12 @@ module.exports = {
       }
 
       // ── Admin panel ────────────────────────────────────────────────────────
-      if (id === 'adm_refresh' || id === 'adm_done' || id.startsWith('adm_tch_') || id.startsWith('adm_ch_')) {
-        return await handleAdminInteraction(interaction);
+      if (id.startsWith('wh_')) {
+        return await handleWHInteraction(interaction, client);
+      }
+
+      if (id.startsWith('adm_')) {
+        return await handleAdminInteraction(interaction, client);
       }
 
       // ── Tournament manager panel (legacy tmgr_*) ───────────────────────────
@@ -144,9 +150,15 @@ module.exports = {
         return await handleEnrollInteraction(interaction, client);
       }
 
+      // ── Settings panel (stp_*) ───────────────────────────────────────────────
+      if (id.startsWith('stp_')) {
+        return await handleSettingsInteraction(interaction);
+      }
+
       // ── Botola + Panel 1/2/3 ──────────────────────────────────────────────
       if (
         id.startsWith('bot_t_')           ||
+        id === 'bot_sel_t'                ||
         id.startsWith('p1_')              ||
         id.startsWith('p2_')              ||
         id.startsWith('p3_')

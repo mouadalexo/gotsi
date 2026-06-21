@@ -17,7 +17,7 @@ const _box = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_
  * flags: 32768 | accent_color: 0x2b2d31 | type-17 container | max 40 components total
  * Header:  # <cup>  {TEMPLATE}  Team List / <channelutility> The N registered teams ...
  * EL slot: **N    Team name <arrow> name** / <@id>
- * MCL slot:  **N   Team name <arrow> name** / <@id1> / <@id2>
+ * CL slot:  **N   Team name <arrow> name** / <@id1> / <@id2>
  * Padding: >=10 teams = single digit 4 spaces / double digit 3 spaces. <10 = always 3 spaces
  * If teams > 18: groups multiple teams per slot to stay within 40-component Discord limit
  * Footer: -# © 24 2026  |  Goatsi Bot
@@ -35,8 +35,8 @@ function buildTeamsListEmbed(tournamentId) {
   const E_CHANNEL = '<a:channelutility:1501741046734786600>';
   const SEP       = { type: 14, divider: true, spacing: 1 };
 
-  const isMCL          = tournament.template === 'MCL';
-  const playersPerTeam = isMCL ? 2 : 1;
+  const isCL          = tournament.template === 'CL';
+  const playersPerTeam = isCL ? 2 : 1;
   const needsPad       = ttRows.length >= 10;
 
   const enrolledTeams = ttRows.map(tt => ({

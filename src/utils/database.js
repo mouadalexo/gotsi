@@ -7,8 +7,8 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 const DEFAULT_DB = {
   teams: [], players: [], tournaments: [], tournament_teams: [], matches: [],
-  admins: [], winners: [], config: {},
-  _nextId: { teams: 1, players: 1, tournaments: 1, tournament_teams: 1, matches: 1, admins: 1, winners: 1 },
+  admins: [], winners: [], wh_tournaments: [], config: {},
+  _nextId: { teams: 1, players: 1, tournaments: 1, tournament_teams: 1, matches: 1, admins: 1, winners: 1, wh_tournaments: 1 },
 };
 
 let _db = null;

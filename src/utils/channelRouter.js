@@ -9,7 +9,7 @@ const CHANNEL_MAP = {
     groupDraw:      '1462982363267993672',
     category:       '1462982041703547023',
   },
-  MCL: {
+  CL: {
     teamsList:      '1463154002660429885',
     results:        '1463162354656088188',
     matchSchedule:  '1463153753078108180',

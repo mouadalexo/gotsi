@@ -46,7 +46,7 @@ function buildTournamentListPanel() {
   inner.push({
     type: 1,
     components: [
-      btn('New MCL Season', 'tmgr_new_MCL', 3, '⚡'),
+      btn('New CL Season', 'tmgr_new_CL', 3, '⚡'),
       btn('New EL Season',  'tmgr_new_EL',  3, '🏆'),
     ],
   });

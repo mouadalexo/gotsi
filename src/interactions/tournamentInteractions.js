@@ -187,12 +187,12 @@ async function handleTournamentInteraction(interaction, client) {
     const shuffled = [...qualifiers].sort(() => Math.random() - 0.5);
     const numMatches = Math.floor(shuffled.length / 2);
     const round = numMatches;
-    const isFinal = numMatches === 1;
+    const isSF = numMatches === 2;
     const t = db.findById('tournaments', tournamentId);
 
     for (let i = 0; i + 1 < shuffled.length; i += 2) {
       db.insert('matches', { tournament_id: tournamentId, home_team_id: shuffled[i], away_team_id: shuffled[i + 1], stage: 'knockout', round, leg: 1, status: 'pending', home_score: null, away_score: null });
-      if (isFinal) {
+      if (isSF) {
         db.insert('matches', { tournament_id: tournamentId, home_team_id: shuffled[i + 1], away_team_id: shuffled[i], stage: 'knockout', round, leg: 2, status: 'pending', home_score: null, away_score: null });
       }
     }

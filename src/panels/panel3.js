@@ -20,14 +20,16 @@ function buildPanel3(tournament) {
   // Gating logic
   const isFull         = t.team_count > 0 && ttRows.length >= t.team_count;
   const groupMatches   = matches.filter(m => m.stage === 'group');
-  const round1Matches  = groupMatches.filter(m => m.round === 1);
-  const round1Complete = round1Matches.length > 0 && round1Matches.every(m => m.status === 'played');
+
+  // Round selector state
+  const _allGrpRds  = [...new Set(groupMatches.map(m => m.round))].sort((a, b) => a - b);
+  const _savedRd    = db.getConfig('p3_round_' + tid);
+  const _activeRd   = (_savedRd && _allGrpRds.includes(_savedRd)) ? _savedRd : (_allGrpRds[0] || 1);
 
   // Winner Ann: only when both Final legs (Home + Away) are played
   const koMatches   = matches.filter(m => m.stage === 'knockout');
-  const finalLeg1   = koMatches.find(m => m.round === 1 && (!m.leg || m.leg === 1));
-  const finalLeg2   = koMatches.find(m => m.round === 1 && m.leg === 2);
-  const bothFinalsDone = finalLeg1?.status === 'played' && finalLeg2?.status === 'played';
+  const finalMatch  = koMatches.find(m => m.round === 1 && (!m.leg || m.leg === 1));
+  const finalDone   = finalMatch?.status === 'played';
 
   const ch = t.channels || {};
   const chParts = [
@@ -48,7 +50,7 @@ function buildPanel3(tournament) {
 
   const inner = [];
 
-  inner.push(txt(`## Publish  —  ${t.template || t.name}`));
+  inner.push(txt(`## 3 : Publish  —  ${t.template || t.name}`));
   inner.push(SEP);
   inner.push(txt('**Channels**'));
   inner.push(SEP);
@@ -70,6 +72,21 @@ function buildPanel3(tournament) {
   ));
   inner.push(SEP);
 
+  // Round selector (only shown when group matches exist)
+  if (_allGrpRds.length > 0) {
+    inner.push({ type: 1, components: [{
+      type: 3,
+      custom_id: `p3_${tid}_roundsel`,
+      placeholder: 'Pick Round…',
+      options: _allGrpRds.map(r => ({
+        label: 'Round ' + r,
+        value: String(r),
+        default: r === _activeRd,
+      })),
+    }]});
+    inner.push(SEP);
+  }
+
   // Action buttons — gated by tournament state
   // Row 1 (blue): Group Draw, Schedule
   inner.push({ type: 1, components: [
@@ -78,13 +95,13 @@ function buildPanel3(tournament) {
   ]});
   // Row 2 (green): Results, Standings
   inner.push({ type: 1, components: [
-    btn('Results',    `p3_${tid}_results`,   3, !round1Complete),
+    btn('Results',    `p3_${tid}_results`,   3, !hasMatches),
     btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
   ]});
   // Row 3 (red): KO Bracket + Winner Ann
   inner.push({ type: 1, components: [
     btn('KO Bracket',  `p3_${tid}_bracket`,    4, !hasKO),
-    btn('Winner Ann',  `p3_${tid}_winner_ann`, 4, !(bothFinalsDone || stage === 'finished')),
+    btn('Winner Ann',  `p3_${tid}_winner_ann`, 4, !(finalDone || stage === 'finished')),
   ]});
 
   inner.push(SEP);

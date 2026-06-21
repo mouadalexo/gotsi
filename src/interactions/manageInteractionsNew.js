@@ -161,7 +161,7 @@ function _buildTsEditPanel(tid) {
     components: [{ type: 17, accent_color: 0x5865F2, components: [
       { type: 10, content:
         `**⚙️ Tournament Settings — ${t.name}**\n` +
-        `-# Tag: \`${t.template}\` · Groups: **${nGroups}** · Advance: **${t.advance_per_group}/group**`
+        `-# Tag: \`${t.template}\` · Groups: **${nGroups}** · Advance: **${t.advance_per_group}/group** · Info: ${t.info_channel ? `<#${t.info_channel}>` : '\`not set\`'}`
       },
       SEP,
       mkSel('Format',           'type',              FORMAT_OPTS,          t.type || 'group_knockout'),
@@ -176,6 +176,7 @@ function _buildTsEditPanel(tid) {
       { type: 1, components: [
         { type: 2, style: 1, label: '✏️ Edit Name', custom_id: `mgr2_ts_name_${tid}` },
         { type: 2, style: 1, label: '🏷️ Edit Tag',  custom_id: `mgr2_ts_tag_${tid}` },
+        { type: 2, style: 1, label: '📡 Info Channel', custom_id: `mgr2_ts_infochan_${tid}` },
         { type: 2, style: 2, label: '◀ Back',       custom_id: 'mgr2_tournsettings' },
       ]},
     ]}],
@@ -281,7 +282,7 @@ async function handleMgr2Interaction(interaction) {
           ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('template')
-              .setLabel('Initialism Tag (e.g. EL, MCL, NSF, UCL)')
+              .setLabel('Initialism Tag (e.g. EL, CL, NSF, UCL)')
               .setStyle(TextInputStyle.Short).setPlaceholder('EL').setMaxLength(10).setRequired(true)
           ),
         )
@@ -355,6 +356,46 @@ async function handleMgr2Interaction(interaction) {
   }
 
   // ── Tournament Settings — edit name button ────────────────────────────────
+  // ── Tournament Settings — set info channel button ──────────────────────────────
+  if (id.startsWith('mgr2_ts_infochan_') && !id.startsWith('mgr2_ts_infochan_modal_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(id.replace('mgr2_ts_infochan_', ''));
+    const t   = db.findById('tournaments', tid);
+    if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
+    return interaction.showModal(
+      new ModalBuilder()
+        .setCustomId(`mgr2_ts_infochan_modal_${tid}`)
+        .setTitle(`Info Channel — ${t.name.slice(0, 35)}`)
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('channel_id')
+              .setLabel('Info Channel ID')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('Paste the channel ID (right-click channel → Copy ID)')
+              .setValue(t.info_channel || '')
+              .setRequired(false)
+          )
+        )
+    );
+  }
+
+  // ── Tournament Settings — info channel modal submitted ──────────────────────────
+  if (id.startsWith('mgr2_ts_infochan_modal_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(id.replace('mgr2_ts_infochan_modal_', ''));
+    const raw = interaction.fields.getTextInputValue('channel_id').trim();
+    const channelId = raw.replace(/[^0-9]/g, '') || null;
+    db.update('tournaments', tid, { info_channel: channelId || null });
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(
+      channelId
+        ? `✅ Info channel set to <#${channelId}>.`
+        : '✅ Info channel cleared.'
+    );
+    return;
+  }
+
   if (id.startsWith('mgr2_ts_name_') && !id.startsWith('mgr2_ts_name_modal_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const tid = parseInt(id.replace('mgr2_ts_name_', ''));
@@ -393,7 +434,7 @@ async function handleMgr2Interaction(interaction) {
       new ModalBuilder().setCustomId(`mgr2_ts_tag_modal_${tid}`).setTitle(`Edit Tag — ${t.name.slice(0, 30)}`)
         .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('tag').setLabel('Initialism Tag (e.g. EL, MCL)')
+            new TextInputBuilder().setCustomId('tag').setLabel('Initialism Tag (e.g. EL, CL)')
               .setStyle(TextInputStyle.Short).setValue(t.template).setMaxLength(10).setRequired(true)
           )
         )

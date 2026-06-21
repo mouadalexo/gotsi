@@ -162,7 +162,7 @@ function buildMgrPage3() {
         `${E_ARR}  Buttons are **greyed out** when the action isn\u2019t available yet (no matches, etc.)\n` +
         `${E_ARR}  Use **Refresh** on any panel to reload the latest data at any time\n` +
         `${E_ARR}  Editing a result is the same as entering one \u2014 just pick the match again\n` +
-        `${E_ARR}  Season numbers are unique per template \u2014 EL S3 and MCL S3 can coexist\n\n` +
+        `${E_ARR}  Season numbers are unique per template \u2014 EL S3 and CL S3 can coexist\n\n` +
         `-# \u00a9 24 2026  |  Goatsi Bot`
       ),
       SEP,

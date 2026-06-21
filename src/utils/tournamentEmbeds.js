@@ -4,7 +4,9 @@ const { db } = require('./database');
 const RED    = 0xCC0000;
 const GOLD   = 0xFFD700;
 const BLUE   = 0x2563EB;
-const ORANGE = 0xF97316;
+const ORANGE = 0xFF3600;
+const PURPLE = 0x8B5CF6;
+const GREEN  = 0x43FF00;
 
 // Truncate + right-pad to exactly n chars (monospace alignment helper)
 const tPad = (s, n) => { const x = s.length > n ? s.slice(0, n - 3) + '...' : s; return x.padEnd(n); };
@@ -18,7 +20,9 @@ const VS_SEP  = ' vs '; // 4 chars — nameMax = (36-4)/2 = 16 per side
 
 // Fixed-width score separator: "  H — A  " always 11 chars
 // " H" = padStart(2), "A " = padEnd(2) → 2+2+3+2+2 = 11
-const scoreSep = (h, a) => ' ' + String(h).padStart(2) + '-' + String(a).padEnd(2) + ' ';
+const scoreSep  = (h, a) => ' ' + String(h).padStart(2) + '-' + String(a).padEnd(2) + ' ';
+const fmtSc     = (v, forf) => forf ? '\u00D8' : String(v ?? '?');
+const scoreSepF = (h, a, hf, af) => ' ' + fmtSc(h, hf).padStart(2) + '-' + fmtSc(a, af).padEnd(2) + ' ';
 
 // Format one match line — never wraps on mobile, equal space both sides.
 // Left name right-aligned toward center, right name left-aligned from center.
@@ -100,7 +104,7 @@ function makeSchedulePost(tid, round) {
 
   inner.push(SEP);
   inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(RED, inner);
+  return box(PURPLE, inner);
 }
 
 // ── 2. Results Post ───────────────────────────────────────────────────────────
@@ -123,7 +127,7 @@ function makeResultsPost(tid, round) {
   entries.forEach(([g, gm], i) => {
     const lines = gm.map(m => fmtMatchLine(
       m.homeName.toUpperCase(), m.awayName.toUpperCase(),
-      scoreSep(m.home_score, m.away_score)
+      scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit)
     ));
     inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${lines.join('\n')}`));
     if (i < entries.length - 1) inner.push(SEP);
@@ -131,34 +135,75 @@ function makeResultsPost(tid, round) {
 
   inner.push(SEP);
   inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(RED, inner);
+  return box(ORANGE, inner);
 }
 
-// ── 3. Standings Post ─────────────────────────────────────────────────────────
-function makeStandingsPost(tid) {
+// ── 3. Standings Post ──────────────────────────────────────────────────────────────────────────────
+// upToRound: if set, only count matches with round <= upToRound
+function makeStandingsPost(tid, upToRound = null) {
   const { t, teams, ttRows } = getContext(tid);
   if (!t) return null;
-  const advance = t.advance_per_group || 2;
-  const label   = `${t.template || t.name} S${t.season}`;
-  const NW      = 18;
+  const label = `${t.template || t.name} S${t.season}`;
+  const NW    = 18;
 
+  // Compute stats from actual played matches (never trust pre-stored totals)
+  const init    = () => ({ w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
+  const stats   = {};
+  const played  = db.get('matches').filter(m =>
+    m.tournament_id === tid &&
+    m.stage         === 'group' &&
+    m.status        === 'played' &&
+    (upToRound === null || m.round <= upToRound)
+  );
+
+  for (const m of played) {
+    if (!stats[m.home_team_id]) stats[m.home_team_id] = init();
+    if (!stats[m.away_team_id]) stats[m.away_team_id] = init();
+    const hs = stats[m.home_team_id];
+    const as = stats[m.away_team_id];
+
+    if (m.home_forfeit && m.away_forfeit) {
+      hs.l++; as.l++; continue;
+    }
+    if (m.home_forfeit) {
+      hs.l++; hs.ga += 3;
+      as.w++; as.gf += 3; as.pts += 3; continue;
+    }
+    if (m.away_forfeit) {
+      as.l++; as.ga += 3;
+      hs.w++; hs.gf += 3; hs.pts += 3; continue;
+    }
+
+    const hg = m.home_score || 0;
+    const ag = m.away_score || 0;
+    hs.gf += hg; hs.ga += ag;
+    as.gf += ag; as.ga += hg;
+    if (hg > ag)      { hs.w++; hs.pts += 3; as.l++; }
+    else if (hg < ag) { as.w++; as.pts += 3; hs.l++; }
+    else              { hs.d++; hs.pts += 1; as.d++; as.pts += 1; }
+  }
+
+  // Group teams
   const groups = {};
   for (const tt of ttRows.filter(tt => tt.group_name)) {
     const g    = tt.group_name;
     const team = teams.find(tm => tm.id === tt.team_id) || { name: 'Unknown' };
+    const s    = stats[tt.team_id] || init();
     if (!groups[g]) groups[g] = [];
-    groups[g].push({ ...tt, name: team.name });
+    groups[g].push({ name: team.name, played: s.w + s.d + s.l, ...s });
   }
+
   for (const g of Object.keys(groups)) {
     groups[g].sort((a, b) => {
-      const pd = (b.points || 0) - (a.points || 0);
+      const pd = b.pts - a.pts;
       if (pd !== 0) return pd;
-      return ((b.goals_for || 0) - (b.goals_against || 0)) - ((a.goals_for || 0) - (a.goals_against || 0));
+      return (b.gf - b.ga) - (a.gf - a.ga);
     });
   }
 
+  const roundLabel = upToRound !== null ? `ROUND ${upToRound}  —  ` : '';
   const inner = [
-    txt(`${E_CUP}  **STANDINGS  —  ${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **STANDINGS  —  ${roundLabel}${label.toUpperCase()}**`),
     SEP,
   ];
 
@@ -168,19 +213,17 @@ function makeStandingsPost(tid) {
     const rows   = gTeams.map((tm, i) => {
       const pos  = i + 1;
       const name = trunc(tm.name, NW).padEnd(NW);
-      const p    = (tm.wins || 0) + (tm.draws || 0) + (tm.losses || 0);
-      const gd   = (tm.goals_for || 0) - (tm.goals_against || 0);
-      const pts  = tm.points || 0;
+      const gd   = tm.gf - tm.ga;
       const dif  = (gd >= 0 ? '+' : '') + gd;
-      return `\`${String(pos).padEnd(2)} ${name}  ${String(p).padStart(1)}  ${dif.padStart(3)}  ${String(pts).padStart(3)}\``;
+      return `\`${String(pos).padEnd(2)} ${name}  ${String(tm.played).padStart(1)}  ${dif.padStart(3)}  ${String(tm.pts).padStart(3)}\``;
     });
     inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${header}\n${rows.join('\n')}`));
     inner.push(SEP);
   });
 
   inner.pop();
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(ORANGE, inner);
+  inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
+  return box(GREEN, inner);
 }
 
 // ── 4. Group Draw Post ────────────────────────────────────────────────────────
@@ -217,7 +260,7 @@ function makeGroupDrawPost(tid) {
 
   inner.push(SEP);
   inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
-  return box(GOLD, inner);
+  return box(BLUE, inner);
 }
 
 // ── 5. Bracket Post ───────────────────────────────────────────────────────────
@@ -243,7 +286,7 @@ function makeBracketPost(tid) {
     inner.push(txt(`⏳  No knockout bracket yet.`));
     inner.push(SEP);
     inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-    return box(BLUE, inner);
+    return box(RED, inner);
   }
 
   const roundList = [];
@@ -264,52 +307,58 @@ function makeBracketPost(tid) {
 
     // ── type 14 separator + round label ────────────────────────────────────
     inner.push(SEP);
-    inner.push(txt(`**${rName}**`));
+    inner.push(txt(`${E_ARR}  **${rName}**`));
 
     let matchText = '';
 
-    if (round === 1) {
-      // ── FINAL — 2 legs ────────────────────────────────────────────────────
-      const leg1 = rMatches.find(m => !m.leg || m.leg === 1);
-      const leg2 = rMatches.find(m => m.leg === 2);
-
-      if (!leg1) {
-        matchText  = '**1ST LEG:**\n' + fmtMatchLine('TBD', 'TBD', VS_SEP);
-        matchText += '\n**2ND LEG:**\n' + fmtMatchLine('TBD', 'TBD', VS_SEP);
-      } else {
-        const hName  = getTeam(leg1.home_team_id).name.toUpperCase();
-        const aName  = getTeam(leg1.away_team_id).name.toUpperCase();
-        const l1Done = leg1.status === 'played';
-        const l2Done = leg2?.status === 'played';
-
-        if (!l1Done) {
-          matchText  = '**1ST LEG:**\n' + fmtMatchLine(hName, aName, VS_SEP);
-          matchText += '\n**2ND LEG:**\n' + fmtMatchLine(aName, hName, VS_SEP);
-        } else if (l1Done && !l2Done) {
-          matchText  = '**HOME:**\n' + fmtMatchLine(hName, aName, scoreSep(leg1.home_score, leg1.away_score));
-          matchText += '\n**AWAY:**\n' + fmtMatchLine(aName, hName, VS_SEP);
+    if (round === 2) {
+      // ── SEMI-FINALS — 2 legs ─────────────────────────────────────────────
+      const sfLeg1s = rMatches.filter(m => !m.leg || m.leg === 1);
+      const sfLeg2s = rMatches.filter(m => m.leg === 2);
+      const sfParts = [];
+      const numSF   = sfLeg1s.length || 2;
+      for (let idx = 0; idx < numSF; idx++) {
+        const leg1  = sfLeg1s[idx];
+        const lines = [];
+        if (numSF > 1) lines.push('***SF' + (idx + 1) + '***');
+        if (!leg1) {
+          lines.push('-# 1ST LEG:\n' + fmtMatchLine('TBD', 'TBD', VS_SEP));
+          lines.push('-# 2ND LEG:\n' + fmtMatchLine('TBD', 'TBD', VS_SEP));
         } else {
-          const hAgg = (leg1.home_score || 0) + (leg2?.away_score || 0);
-          const aAgg = (leg1.away_score || 0) + (leg2?.home_score || 0);
-          inner.push(txt('**HOME:**\n' + fmtMatchLine(hName, aName, scoreSep(leg1.home_score, leg1.away_score))
-                       + '\n\n**AWAY:**\n' + fmtMatchLine(aName, hName, scoreSep(leg2.home_score, leg2.away_score))));
-          inner.push(SEP);
-          inner.push(txt('**TOTAL:**\n' + fmtMatchLine(hName, aName, scoreSep(hAgg, aAgg))));
-          matchText = null;
+          const hName  = getTeam(leg1.home_team_id).name.toUpperCase();
+          const aName  = getTeam(leg1.away_team_id).name.toUpperCase();
+          const l1Done = leg1.status === 'played';
+          const leg2   = sfLeg2s.find(m => m.home_team_id === leg1.away_team_id && m.away_team_id === leg1.home_team_id);
+          const l2Done = leg2?.status === 'played';
+          if (!l1Done) {
+            lines.push('-# 1ST LEG:\n' + fmtMatchLine(hName, aName, VS_SEP));
+            lines.push('-# 2ND LEG:\n' + fmtMatchLine(aName, hName, VS_SEP));
+          } else if (!l2Done) {
+            lines.push('-# HOME:\n' + fmtMatchLine(hName, aName, scoreSepF(leg1.home_score, leg1.away_score, leg1.home_forfeit, leg1.away_forfeit)));
+            lines.push('-# AWAY:\n' + fmtMatchLine(aName, hName, VS_SEP));
+          } else {
+            const hAgg = (leg1.home_score || 0) + (leg2.away_score || 0);
+            const aAgg = (leg1.away_score || 0) + (leg2.home_score || 0);
+            lines.push('-# HOME:\n' + fmtMatchLine(hName, aName, scoreSepF(leg1.home_score, leg1.away_score, leg1.home_forfeit, leg1.away_forfeit)));
+            lines.push('-# AWAY:\n' + fmtMatchLine(aName, hName, scoreSepF(leg2.home_score, leg2.away_score, leg2.home_forfeit, leg2.away_forfeit)));
+            lines.push('-# TOTAL:\n' + fmtMatchLine(hName, aName, scoreSep(hAgg, aAgg)));
+          }
         }
+        sfParts.push(lines.join('\n'));
       }
+      matchText = sfParts.join('\n\n');
     } else {
-      // ── QF / SF / earlier rounds — single leg ─────────────────────────────
+      // ── Final + earlier rounds — single leg ───────────────────────────────
       if (!rMatches.length) {
         const lines = [];
         for (let i = 0; i < round; i++) lines.push(fmtMatchLine('TBD', 'TBD', VS_SEP));
         matchText = lines.join('\n');
       } else {
-        const lines = rMatches.map(m => {
+        const lines = rMatches.filter(m => !m.leg || m.leg === 1).map(m => {
           const hName = m.home_team_id ? getTeam(m.home_team_id).name.toUpperCase() : 'TBD';
           const aName = m.away_team_id ? getTeam(m.away_team_id).name.toUpperCase() : 'TBD';
           return m.status === 'played'
-            ? fmtMatchLine(hName, aName, scoreSep(m.home_score, m.away_score))
+            ? fmtMatchLine(hName, aName, scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit))
             : fmtMatchLine(hName, aName, VS_SEP);
         });
         matchText = lines.join('\n');
@@ -321,7 +370,7 @@ function makeBracketPost(tid) {
 
   inner.push(SEP);
   inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(BLUE, inner);
+  return box(RED, inner);
 }
 
 
@@ -344,6 +393,7 @@ module.exports = {
   fmtMatchLine,
   VS_SEP,
   scoreSep,
+  scoreSepF,
   makeResultsPost,
   makeStandingsPost,
   makeGroupDrawPost,

@@ -24,7 +24,7 @@ function latestTournament(template) {
 
 function buildAdminPanel() {
   const nsel     = latestTournament('EL');
-  const mcl      = latestTournament('MCL');
+  const mcl      = latestTournament('CL');
   const testChId = db.getConfig('test_channel_id');
 
   const inner = [
@@ -55,7 +55,7 @@ function buildAdminPanel() {
   }
 
   if (!nsel && !mcl) {
-    inner.push(txt('No EL or MCL tournaments found. Create one first.'));
+    inner.push(txt('No EL or CL tournaments found. Create one first.'));
     inner.push(SEP);
   }
 
@@ -67,15 +67,15 @@ function buildAdminPanel() {
 
   inner.push({ type: 1, components: [
     { type: 2, style: 1, label: 'Set EL Channels',  custom_id: 'adm_tch_EL',  disabled: !nsel },
-    { type: 2, style: 1, label: 'Set MCL Channels', custom_id: 'adm_tch_MCL', disabled: !mcl  },
+    { type: 2, style: 1, label: 'Set CL Channels', custom_id: 'adm_tch_CL', disabled: !mcl  },
     { type: 2, style: 1, label: 'Set TEST Channel', custom_id: 'adm_tch_TEST'                  },
     { type: 2, style: 2, label: 'Refresh',          custom_id: 'adm_refresh'                   },
   ]});
   inner.push({ type: 1, components: [
     { type: 2, style: nsel?.registration_role_id ? 1 : 2, label: nsel?.registration_role_id ? 'EL Reg. Role ✓' : 'Set EL Reg. Role', custom_id: 'adm_setregrole_EL',  disabled: !nsel },
-    { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'MCL Reg. Role ✓' : 'Set MCL Reg. Role', custom_id: 'adm_setregrole_MCL', disabled: !mcl  },
+    { type: 2, style: mcl?.registration_role_id  ? 1 : 2, label: mcl?.registration_role_id  ? 'CL Reg. Role ✓' : 'Set CL Reg. Role', custom_id: 'adm_setregrole_CL', disabled: !mcl  },
     { type: 2, style: 2, label: 'Rename EL',  custom_id: 'adm_rename_EL',  disabled: !nsel },
-    { type: 2, style: 2, label: 'Rename MCL', custom_id: 'adm_rename_MCL', disabled: !mcl  },
+    { type: 2, style: 2, label: 'Rename CL', custom_id: 'adm_rename_CL', disabled: !mcl  },
   ]});
 
   inner.push(SEP);

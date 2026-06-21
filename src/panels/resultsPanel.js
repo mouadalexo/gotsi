@@ -5,7 +5,7 @@ const {
 } = require("discord.js");
 const { db } = require("../utils/database");
 const { E } = require("../utils/embeds");
-const { fmtMatchLine, scoreSep } = require("../utils/tournamentEmbeds");
+const { fmtMatchLine, scoreSep, scoreSepF } = require("../utils/tournamentEmbeds");
 
 const E_CUP     = "<a:cup:1501741159557500971>";
 const E_HASHTAG = "<a:hashtag:1501741088736678069>";
@@ -104,7 +104,7 @@ function buildAllResultsEmbed(tournamentId) {
     const lines = gMatches.map(m => fmtMatchLine(
       getTeam(m.home_team_id).name.toUpperCase(),
       getTeam(m.away_team_id).name.toUpperCase(),
-      scoreSep(m.home_score, m.away_score)
+      scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit)
     ));
     inner.push(txt(`${E_HASHTAG}  **GROUP ${g}**\n${lines.join("\n")}`));
     if (gi < entries.length - 1) inner.push(sep());

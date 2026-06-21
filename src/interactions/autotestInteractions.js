@@ -349,15 +349,20 @@ function buildSteps({ results, schedule }, teamCount, mode = "auto") {
           db.update('matches', m.id, { status: 'played', home_score: hs, away_score: as_ });
           winners.push(hs > as_ ? m.home_team_id : m.away_team_id);
         }
-        if (isLast && roundMatches.length === 1) {
-          const leg1m = db.findById('matches', roundMatches[0].id);
-          const [l2hs, l2as] = rndScore(true);
-          db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 1, leg: 2,
-            home_team_id: roundMatches[0].away_team_id, away_team_id: roundMatches[0].home_team_id,
-            status: 'played', home_score: l2hs, away_score: l2as });
-          const hAgg = (leg1m.home_score || 0) + l2as;
-          const aAgg = (leg1m.away_score || 0) + l2hs;
-          winners[0] = hAgg >= aAgg ? roundMatches[0].home_team_id : roundMatches[0].away_team_id;
+        if (koCurrentRound === 2) {
+          // SF: create leg 2 for each match, determine winners by aggregate
+          const sfWinners = [];
+          for (const m of roundMatches) {
+            const [l2hs, l2as] = rndScore(true);
+            db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 2, leg: 2,
+              home_team_id: m.away_team_id, away_team_id: m.home_team_id,
+              status: 'played', home_score: l2hs, away_score: l2as });
+            const leg1 = db.findById('matches', m.id);
+            const hAgg = (leg1.home_score || 0) + l2as;
+            const aAgg = (leg1.away_score || 0) + l2hs;
+            sfWinners.push(hAgg >= aAgg ? m.home_team_id : m.away_team_id);
+          }
+          winners.splice(0, winners.length, ...sfWinners);
         }
         if (!isLast) {
           const nextRound = Math.floor(koCurrentRound / 2);
@@ -413,18 +418,23 @@ function buildSteps({ results, schedule }, teamCount, mode = "auto") {
         else if (results) bracketMsg = await results.send(bracketPayload);
       }
 
+      if (currentRound === 2) {
+        // SF: create leg 2 for each match, determine winners by aggregate
+        const sfWinners = [];
+        for (const m of roundMatches) {
+          const [l2hs, l2as] = rndScore(true);
+          db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 2, leg: 2,
+            home_team_id: m.away_team_id, away_team_id: m.home_team_id,
+            status: 'played', home_score: l2hs, away_score: l2as });
+          const leg1 = db.findById('matches', m.id);
+          const hAgg = (leg1.home_score || 0) + l2as;
+          const aAgg = (leg1.away_score || 0) + l2hs;
+          sfWinners.push(hAgg >= aAgg ? m.home_team_id : m.away_team_id);
+        }
+        winners.splice(0, winners.length, ...sfWinners);
+      }
       const nextRound = Math.floor(currentRound / 2);
       if (nextRound === 0) {
-        if (roundMatches.length === 1) {
-          const leg1m = db.findById('matches', roundMatches[0].id);
-          const [l2hs, l2as] = rndScore(true);
-          db.insert('matches', { tournament_id: tid, stage: 'knockout', round: 1, leg: 2,
-            home_team_id: roundMatches[0].away_team_id, away_team_id: roundMatches[0].home_team_id,
-            status: 'played', home_score: l2hs, away_score: l2as });
-          const hAgg = (leg1m.home_score || 0) + l2as;
-          const aAgg = (leg1m.away_score || 0) + l2hs;
-          winners[0] = hAgg >= aAgg ? roundMatches[0].home_team_id : roundMatches[0].away_team_id;
-        }
         // Auto mode: send the completed bracket once now
         if (mode === 'auto' && results) await results.send(makeBracketPost(tid));
         // Post champion

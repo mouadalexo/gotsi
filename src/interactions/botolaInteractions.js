@@ -15,7 +15,7 @@ const {
 const { buildAllResultsEmbed } = require('../panels/resultsPanel');
 const {
   makeSchedulePost, makeResultsPost, makeGroupDrawPost, makeBracketPost,
-  makeScheduleEmbed,
+  makeScheduleEmbed, makeChampionPost,
 } = require('../utils/tournamentEmbeds');
 const { buildWinnersHistoryPayload } = require('../utils/winnersHistory');
 const { buildTeamsListEmbed } = require('../panels/teamListPanel');
@@ -46,8 +46,11 @@ async function refreshPanel(client, t, panelNum) {
   try {
     const ref = t[`panel${panelNum}_ref`];
     if (!ref) return;
-    const ch  = await client.channels.fetch(ref.channelId).catch(() => null);
-    const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
+    const ch  = client.channels.cache.get(ref.channelId)
+              ?? await client.channels.fetch(ref.channelId).catch(() => null);
+    if (!ch) return;
+    const msg = ch.messages.cache.get(ref.messageId)
+              ?? await ch.messages.fetch(ref.messageId).catch(() => null);
     if (!msg) return;
     const payload = panelNum === 1 ? buildPanel1(t)
                   : panelNum === 2 ? buildPanel2(t)
@@ -56,9 +59,53 @@ async function refreshPanel(client, t, panelNum) {
   } catch {}
 }
 
+// Re-post all 3 panels in order (1->2->3) to the management channel.
+// Called when any panel message is missing or stale.
+async function repostPanels(client, t) {
+  const mgmtId = t.channels?.management;
+  if (!mgmtId) return;
+  const mgmtCh = client.channels.cache.get(mgmtId)
+               ?? await client.channels.fetch(mgmtId).catch(() => null);
+  if (!mgmtCh) return;
+  for (const key of ['panel1_ref', 'panel2_ref', 'panel3_ref']) {
+    const ref = t[key];
+    if (!ref?.messageId) continue;
+    const ch = client.channels.cache.get(ref.channelId)
+             ?? await client.channels.fetch(ref.channelId).catch(() => null);
+    if (ch) {
+      const m = await ch.messages.fetch(ref.messageId).catch(() => null);
+      if (m) await m.delete().catch(() => {});
+    }
+  }
+  db.update('tournaments', t.id, { panel1_ref: null, panel2_ref: null, panel3_ref: null });
+  const msg1 = await mgmtCh.send(buildPanel1(t)).catch(() => null);
+  const msg2 = await mgmtCh.send(buildPanel2(t)).catch(() => null);
+  const msg3 = await mgmtCh.send(buildPanel3(t)).catch(() => null);
+  db.update('tournaments', t.id, {
+    panel1_ref: msg1 ? { channelId: mgmtCh.id, messageId: msg1.id } : null,
+    panel2_ref: msg2 ? { channelId: mgmtCh.id, messageId: msg2.id } : null,
+    panel3_ref: msg3 ? { channelId: mgmtCh.id, messageId: msg3.id } : null,
+  });
+}
+
 async function refreshAll(client, tid) {
   const t = getT(tid);
   if (!t) return;
+  const mgmtId = t.channels?.management;
+  if (mgmtId) {
+    // If any panel message is missing or stale, re-post all 3 in order.
+    for (const key of ['panel1_ref', 'panel2_ref', 'panel3_ref']) {
+      const ref = t[key];
+      if (!ref?.messageId) { await repostPanels(client, t); return; }
+      const ch = client.channels.cache.get(ref.channelId)
+               ?? await client.channels.fetch(ref.channelId).catch(() => null);
+      if (!ch) { await repostPanels(client, t); return; }
+      const msg = ch.messages.cache.get(ref.messageId)
+                ?? await ch.messages.fetch(ref.messageId).catch(() => null);
+      if (!msg) { await repostPanels(client, t); return; }
+    }
+  }
+  // All messages exist -- edit them in parallel
   await Promise.all([
     refreshPanel(client, t, 1),
     refreshPanel(client, t, 2),
@@ -246,24 +293,47 @@ function advanceKnockout(tid) {
   const curRound  = completedRounds[0];               // lowest = most advanced stage
   const curPlayed = matches.filter(m => m.round === curRound && m.status === 'played');
 
-  // ── 2-leg Final (round === 1) ─────────────────────────────────────────────
-  if (curRound === 1) {
-    const leg2 = matches.filter(m => m.round === 1 && m.leg === 2);
-    if (!leg2.length) {
-      // Final (Home) just finished — create Final (Away): reverse home/away
-      const leg1 = curPlayed.find(m => !m.leg || m.leg === 1);
-      if (leg1) {
+  // ── 2-leg Semi-Finals (round === 2) ───────────────────────────────────────
+  if (curRound === 2) {
+    const sfLeg1s = matches.filter(m => m.round === 2 && (!m.leg || m.leg === 1));
+    const sfLeg2s = matches.filter(m => m.round === 2 && m.leg === 2);
+    if (!sfLeg2s.length) {
+      // SF Leg 1s just finished — create Leg 2 for each (reverse home/away)
+      for (const leg1 of sfLeg1s) {
         db.insert('matches', {
           tournament_id: tid,
           home_team_id: leg1.away_team_id,
           away_team_id: leg1.home_team_id,
-          stage: 'knockout', round: 1, leg: 2,
+          stage: 'knockout', round: 2, leg: 2,
           status: 'pending', home_score: null, away_score: null,
         });
-        return 'leg2';
       }
+      return 'leg2';
     }
-    // Both legs exist and played — tournament is finished
+    // Both legs played — determine SF winners by aggregate, create single-leg Final
+    if (matches.some(m => m.round === 1)) return false;
+    const sfWinners = [];
+    for (const leg1 of sfLeg1s) {
+      const leg2 = sfLeg2s.find(m => m.home_team_id === leg1.away_team_id && m.away_team_id === leg1.home_team_id);
+      if (!leg2) continue;
+      const hAgg = (leg1.home_score || 0) + (leg2.away_score || 0);
+      const aAgg = (leg1.away_score || 0) + (leg2.home_score || 0);
+      sfWinners.push(hAgg !== aAgg ? (hAgg > aAgg ? leg1.home_team_id : leg1.away_team_id)
+                                   : (leg2.pen_winner || leg1.pen_winner || leg1.away_team_id));
+    }
+    for (let i = 0; i + 1 < sfWinners.length; i += 2) {
+      db.insert('matches', {
+        tournament_id: tid,
+        home_team_id: sfWinners[i], away_team_id: sfWinners[i + 1],
+        stage: 'knockout', round: 1, leg: 1,
+        status: 'pending', home_score: null, away_score: null,
+      });
+    }
+    return 1;
+  }
+
+  // ── Single-leg Final (round === 1) ────────────────────────────────────────
+  if (curRound === 1) {
     db.update('tournaments', tid, { status: 'finished' });
     return 'finished';
   }
@@ -384,7 +454,8 @@ function buildGroupSelectorPanel(tid) {
   if (!allGM.length) return null;
   const pendingGM  = allGM.filter(m => m.status !== 'played');
   const allRounds  = [...new Set(allGM.map(m => m.round))].sort((a, b) => a - b);
-  const curRound   = pendingGM.length ? Math.min(...pendingGM.map(m => m.round)) : allRounds[allRounds.length - 1];
+  const _cfgRound  = db.getConfig('group_round_' + tid);
+  const curRound   = _cfgRound || (pendingGM.length ? Math.min(...pendingGM.map(m => m.round)) : allRounds[allRounds.length - 1]);
   const totalRounds = allRounds.length;
   const curPending  = allGM.filter(m => m.round === curRound && m.status !== 'played').length;
   const curPlayed   = allGM.filter(m => m.round === curRound && m.status === 'played').length;
@@ -408,6 +479,58 @@ function buildGroupSelectorPanel(tid) {
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` },
   ]});
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
+}
+
+
+function buildRoundMatchesPanel(tid, round) {
+  const allGM = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+  if (!allGM.length) return null;
+  const allRounds   = [...new Set(allGM.map(m => m.round))].sort((a, b) => a - b);
+  const totalRounds = allRounds.length;
+  const ttRows  = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+  const teams   = db.get('teams');
+  const getTeam = id => teams.find(t2 => t2.id === id) || { name: 'Unknown' };
+  const getGrp  = id => ttRows.find(tt => tt.team_id === id)?.group_name;
+
+  const roundMatches = allGM.filter(m => m.round === round);
+  if (!roundMatches.length) return null;
+
+  const groups  = [...new Set(roundMatches.map(m => getGrp(m.home_team_id)).filter(Boolean))].sort();
+  const played  = roundMatches.filter(m => m.status === 'played').length;
+  const total   = roundMatches.length;
+  const allDone = played === total && total > 0;
+
+  const inner = [
+    txt(`**\u1F4CA Add Result \u2014 Round ${round}/${totalRounds}**`),
+    SEP,
+    txt(`**${played}/${total}** matches played this round` + (allDone ? ' \u2014 all done, go back to advance.' : '')),
+    SEP,
+  ];
+
+  for (const g of groups) {
+    const gMatches = roundMatches.filter(m => getGrp(m.home_team_id) === g);
+    inner.push(txt(`**Group ${g}**`));
+    for (const m of gMatches) {
+      const home = getTeam(m.home_team_id).name;
+      const away = getTeam(m.away_team_id).name;
+      let label;
+      if (m.status === 'played') {
+        const hs  = m.home_forfeit ? '\u00d8' : String(m.home_goals ?? m.home_score ?? '?');
+        const as_ = m.away_forfeit ? '\u00d8' : String(m.away_goals ?? m.away_score ?? '?');
+        label = `\u2705  ${home}  ${hs} \u2014 ${as_}  ${away}`;
+      } else {
+        label = `\u23f3  ${home}  vs  ${away}`;
+      }
+      inner.push({ type: 1, components: [{ type: 2, style: m.status === 'played' ? 2 : 1, label: label.slice(0, 80), custom_id: `p1_${tid}_matchbtn_${m.id}` }] });
+    }
+    inner.push(SEP);
+  }
+
+  inner.push({ type: 1, components: [
+    { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_addresult` },
+  ]});
+
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
@@ -634,8 +757,33 @@ async function postWithPing(client, channelId, roleId, payload) {
   if (!channelId) return null;
   const ch = await client.channels.fetch(channelId).catch(() => null);
   if (!ch) return null;
-  if (roleId) await ch.send({ content: '<@&' + roleId + '>' }).catch(() => {});
-  return ch.send(payload).catch(() => null);
+  let merged = payload;
+  if (roleId) {
+    // Component V2 messages (flags 32768) ignore the content field 
+    // inject the mention as the first text component inside the container
+    const isV2 = (payload.flags & 32768) && Array.isArray(payload.components);
+    if (isV2) {
+      const container = payload.components[0];
+      if (container && container.type === 17 && Array.isArray(container.components)) {
+        merged = {
+          ...payload,
+          components: [
+            {
+              ...container,
+              components: [
+                { type: 10, content: '<@&' + roleId + '>' },
+                ...container.components,
+              ],
+            },
+            ...payload.components.slice(1),
+          ],
+        };
+      }
+    } else {
+      merged = { ...payload, content: '<@&' + roleId + '>' + (payload.content ? '\n' + payload.content : '') };
+    }
+  }
+  return ch.send(merged).catch(() => null);
 }
 
 // Small component v2 ephemeral reply that auto-deletes after 5 s (publish panel feedback)
@@ -664,15 +812,33 @@ async function refreshBracketMessage(client, tid) {
 }
 
 async function refreshStandingsMessage(client, tid) {
+  const t = getT(tid);
+  if (!t) return;
+  const payload = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid) : null;
+  if (!payload) return;
   const ref = db.getConfig('standings_ref_' + tid);
-  if (!ref) return;
-  try {
-    const ch  = await client.channels.fetch(ref.channelId).catch(() => null);
-    const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
-    if (!msg) return;
-    const payload = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid) : null;
-    if (payload) await msg.edit(payload).catch(() => {});
-  } catch {}
+  if (ref) {
+    // Update existing standings post (cache-first)
+    try {
+      const ch  = client.channels.cache.get(ref.channelId)
+                ?? await client.channels.fetch(ref.channelId).catch(() => null);
+      if (!ch) return;
+      const msg = ch.messages.cache.get(ref.messageId)
+                ?? await ch.messages.fetch(ref.messageId).catch(() => null);
+      if (!msg) return;
+      await msg.edit(payload).catch(() => {});
+    } catch {}
+  } else {
+    // No existing post — auto-post to results channel on Next
+    const _ch = t.channels || {};
+    const postCh = _ch.results || _ch.management;
+    if (!postCh) return;
+    try {
+      const _role = t.tag_on ? t.registration_role_id : null;
+      const posted = await postWithPing(client, postCh, _role, payload).catch(() => null);
+      if (posted) db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id });
+    } catch {}
+  }
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -741,7 +907,10 @@ function buildBotolaScorePicker(tid, matchId, state) {
 
   // Status line
   let statusLine, accent;
-  if (homeForfeit && typeof av === 'number') {
+  if (homeForfeit && awayForfeit) {
+    statusLine = 'Result saved: **\u00D8 \u2014 \u00D8**  \u2022  Both teams forfeit';
+    accent = 0xED4245;
+  } else if (homeForfeit && typeof av === 'number') {
     statusLine = 'Result saved: **\u00D8 \u2014 ' + av + '**  \u2022  ' + home + ' forfeits';
     accent = 0xED4245;
   } else if (awayForfeit && typeof hv === 'number') {
@@ -770,10 +939,13 @@ function buildBotolaScorePicker(tid, matchId, state) {
       default: sel === i || sel === String(i),
     })),
   ];
-  const minThreeOpts = (sel) => Array.from({ length: 18 }, (_, i) => ({
-    label: String(i + 3), value: String(i + 3),
-    default: sel === (i + 3) || sel === String(i + 3),
-  }));
+  const minThreeOpts = (sel) => [
+    { label: 'Forfeit', value: 'forfeit', default: sel === 'forfeit' },
+    ...Array.from({ length: 18 }, (_, i) => ({
+      label: String(i + 3), value: String(i + 3),
+      default: sel === (i + 3) || sel === String(i + 3),
+    })),
+  ];
   const penOpts = (sel) => Array.from({ length: 21 }, (_, i) => ({
     label: String(i), value: String(i),
     default: sel === i || sel === String(i),
@@ -806,20 +978,16 @@ function buildBotolaScorePicker(tid, matchId, state) {
     inner.push({ type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_ap_' + matchId, placeholder: away + ' penalties\u2026', options: penOpts(ap) }] });
   }
 
-  // Back button: for group matches return to exact group+round picker; for KO go to KO picker
+  // Back button: for group matches return to round match list; for KO go to KO picker
   const _backMatch = db.findById('matches', matchId);
   let _backId = 'p1_' + tid + '_addresult';
   if (_backMatch && _backMatch.stage !== 'knockout') {
-    const _ttRows2 = db.get('tournament_teams');
-    const _grpRow  = _ttRows2.find(tt => tt.tournament_id === tid && tt.team_id === _backMatch.home_team_id);
-    if (_grpRow?.group_name) {
-      _backId = 'p1_' + tid + '_grpsel_' + _grpRow.group_name + '_' + (_backMatch.round || 1);
-    }
+    _backId = 'p1_' + tid + '_roundback_' + (_backMatch.round || 1);
   }
   inner.push(SEP);
   inner.push({ type: 1, components: [
-    { type: 2, style: 2, label: '\u2190 Back',    custom_id: _backId },
-    { type: 2, style: 2, label: '\ud83d\udd04 Refresh', custom_id: 'p1_' + tid + '_refresh' },
+    { type: 2, style: 2, label: '\u2190 Back', custom_id: _backId },
+    { type: 2, style: 2, label: 'Refresh',    custom_id: 'p1_' + tid + '_refresh' },
   ]});
   inner.push(SEP);
   inner.push(txt('-# \u00a9 24 2026  |  Goatsi Bot'));
@@ -841,17 +1009,35 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
   const isKO        = match.stage === 'knockout';
 
   if (homeForfeit || awayForfeit) {
-    // Group forfeit — non-forfeit side gets their entered score (min 3)
-    const effHome = homeForfeit ? 0 : (typeof hv === 'number' ? hv : 3);
-    const effAway = awayForfeit ? 0 : (typeof av === 'number' ? av : 3);
-    if (homeForfeit) state.away = effAway;
-    if (awayForfeit) state.home = effHome;
-    updateStandings(tid, matchId, effHome, effAway);
-    db.update('matches', matchId, {
-      home_forfeit: homeForfeit, away_forfeit: awayForfeit,
-      home_goals: homeForfeit ? null : effHome,
-      away_goals: awayForfeit ? null : effAway,
-    });
+    if (homeForfeit && awayForfeit) {
+      // Double forfeit — both teams get 0 points (both count as a loss, no goals added)
+      const _m0 = db.findById('matches', matchId);
+      if (_m0 && _m0.status === 'played' && _m0.home_score != null && _m0.stage === 'group') {
+        _reverseTTStandings(tid, _m0);
+      }
+      const _lp0 = getT(tid)?.loss_pts ?? 0;
+      const _htt = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === _m0.home_team_id);
+      const _att = db.findOne('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === _m0.away_team_id);
+      if (_htt) db.update('tournament_teams', _htt.id, { losses: (_htt.losses || 0) + 1, points: (_htt.points || 0) + _lp0 });
+      if (_att) db.update('tournament_teams', _att.id, { losses: (_att.losses || 0) + 1, points: (_att.points || 0) + _lp0 });
+      db.update('matches', matchId, {
+        status: 'played', home_score: 0, away_score: 0,
+        home_forfeit: true, away_forfeit: true,
+        home_goals: null, away_goals: null,
+      });
+    } else {
+      // Single forfeit — non-forfeit side gets their score (min 3)
+      const effHome = homeForfeit ? 0 : (typeof hv === 'number' ? hv : 3);
+      const effAway = awayForfeit ? 0 : (typeof av === 'number' ? av : 3);
+      if (homeForfeit) state.away = effAway;
+      if (awayForfeit) state.home = effHome;
+      updateStandings(tid, matchId, effHome, effAway);
+      db.update('matches', matchId, {
+        home_forfeit: homeForfeit, away_forfeit: awayForfeit,
+        home_goals: homeForfeit ? null : effHome,
+        away_goals: awayForfeit ? null : effAway,
+      });
+    }
     refreshPanels23(cli, tid).catch(() => {});
 
   } else if (typeof hv === 'number' && typeof av === 'number') {
@@ -944,6 +1130,37 @@ async function handleBotolaInteraction(interaction) {
     return interaction.editReply({ content: `✅ Panels sent to <#${ch.management}>.` });
   }
 
+  // /panels select menu - tournament chosen
+  if (id === 'bot_sel_t') {
+    if (!isBotolaManager(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(interaction.values[0]);
+    const t   = getT(tid);
+    if (!t) return interaction.reply({ content: '\u274c Tournament not found.', ephemeral: true });
+    const ch = t.channels || {};
+    if (!ch.management) {
+      return interaction.reply({ content: '\u274c No management channel configured.\nUse /manage to set channels first.', ephemeral: true });
+    }
+    await interaction.deferReply({ ephemeral: true });
+    const mgmtCh2 = await cli.channels.fetch(ch.management).catch(() => null);
+    if (!mgmtCh2) return interaction.editReply({ content: '\u274c Management channel not found.' });
+    await Promise.all(['panel1_ref', 'panel2_ref', 'panel3_ref'].map(async refKey => {
+      const ref = t[refKey];
+      if (!ref?.messageId) return;
+      const old = await mgmtCh2.messages.fetch(ref.messageId).catch(() => null);
+      if (old) await old.delete().catch(() => {});
+    }));
+    db.update('tournaments', tid, { panel1_ref: null, panel2_ref: null, panel3_ref: null });
+    const msg1 = await mgmtCh2.send(buildPanel1(t)).catch(() => null);
+    const msg2 = await mgmtCh2.send(buildPanel2(t)).catch(() => null);
+    const msg3 = await mgmtCh2.send(buildPanel3(t)).catch(() => null);
+    db.update('tournaments', tid, {
+      panel1_ref: msg1 ? { channelId: mgmtCh2.id, messageId: msg1.id } : null,
+      panel2_ref: msg2 ? { channelId: mgmtCh2.id, messageId: msg2.id } : null,
+      panel3_ref: msg3 ? { channelId: mgmtCh2.id, messageId: msg3.id } : null,
+    });
+    return interaction.editReply({ content: `\u2705 Panels sent to <#${ch.management}>.` });
+  }
+
   // ── Extract tid from p1/p2/p3 IDs ────────────────────────────────────────
   const p1Match = id.match(/^p1_(\d+)_(.+)$/);
   const p2Match = id.match(/^p2_(\d+)_(.+)$/);
@@ -986,8 +1203,8 @@ async function handleBotolaInteraction(interaction) {
       db.setConfig('group_round_' + tid, 1);
       // Activate
       db.update('tournaments', tid, { status: 'active' });
-      await refreshAll(cli, tid);
-      return;
+      refreshPanels23(cli, tid).catch(() => {});
+      return interaction.editReply(buildPanel1(getT(tid)));
     }
 
     // End Tournament (full reset to setup)
@@ -1017,8 +1234,8 @@ async function handleBotolaInteraction(interaction) {
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.setConfig('group_round_' + tid, null);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
-      await refreshAll(cli, tid);
-      return;
+      refreshPanels23(cli, tid).catch(() => {});
+      return interaction.editReply(buildPanel1(getT(tid)));
     }
 
     // Settings — show inline panel with select menus
@@ -1128,9 +1345,39 @@ async function handleBotolaInteraction(interaction) {
         if (!panel) return interaction.reply({ content: '\u274c No pending matches found.', ephemeral: true });
         return interaction.update(panel);
       }
-      // Group stage: show group selector
-      const panel = buildGroupSelectorPanel(tid);
-      if (!panel) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
+      // Group stage: show round selector or jump straight to match list
+      const allGM_ar = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      if (!allGM_ar.length) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
+      const allRds_ar = [...new Set(allGM_ar.map(m => m.round))].sort((a, b) => a - b);
+      if (allRds_ar.length === 1) {
+        const panel = buildRoundMatchesPanel(tid, allRds_ar[0]);
+        if (!panel) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
+        return interaction.update(panel);
+      }
+      const pendingByRound = allRds_ar.map(r => ({
+        r,
+        pending: allGM_ar.filter(m => m.round === r && m.status !== 'played').length,
+      }));
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: '**Add Result \u2014 Select a round**' },
+        { type: 14, divider: true, spacing: 1 },
+        { type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
+          placeholder: 'Select round...',
+          options: pendingByRound.map(({ r, pending }) => ({
+            label: `Round ${r}`,
+            description: pending > 0 ? `${pending} match${pending !== 1 ? 'es' : ''} pending` : 'All played',
+            value: String(r),
+          })),
+        }]},
+        { type: 14, divider: true, spacing: 1 },
+        { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` }]},
+      ]}] });
+    }
+
+    if (action === 'addresult_sel') {
+      const round_ar = parseInt(interaction.values[0]);
+      const panel    = buildRoundMatchesPanel(tid, round_ar);
+      if (!panel) return interaction.reply({ content: '\u274c No matches found for this round.', ephemeral: true });
       return interaction.update(panel);
     }
 
@@ -1150,8 +1397,33 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update(panel);
     }
 
+    // Back from score picker -> return to round match list
+    if (action.startsWith('roundback_')) {
+      const roundNum = parseInt(action.slice(10));
+      const panel = buildRoundMatchesPanel(tid, roundNum);
+      if (!panel) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
+      return interaction.update(panel);
+    }
+
     // Match selected → show score picker (no modal)
-    if (action === 'result_sel') {
+    // Match button clicked directly -> open score picker
+    if (action.startsWith('matchbtn_')) {
+      const matchId = parseInt(action.slice(9));
+      const match2  = db.findById('matches', matchId);
+      let initState = { home: null, away: null, hp: null, ap: null };
+      if (match2?.status === 'played') {
+        initState.home = match2.home_forfeit ? 'forfeit' : (match2.home_goals ?? match2.home_score ?? null);
+        initState.away = match2.away_forfeit ? 'forfeit' : (match2.away_goals ?? match2.away_score ?? null);
+        if (match2.home_pens != null) initState.hp = match2.home_pens;
+        if (match2.away_pens != null) initState.ap = match2.away_pens;
+      }
+      tmpSet('p1rs_' + matchId, initState);
+      const panel = buildBotolaScorePicker(tid, matchId, initState);
+      if (!panel) return interaction.reply({ content: '\u274c Match not found.', ephemeral: true });
+      return interaction.update(panel);
+    }
+
+        if (action === 'result_sel') {
       const matchId = parseInt(interaction.values[0]);
       const match2  = db.findById('matches', matchId);
       let initState = { home: null, away: null, hp: null, ap: null };
@@ -1173,7 +1445,7 @@ async function handleBotolaInteraction(interaction) {
       const state   = tmpGet('p1rs_' + matchId) || { home: null, away: null, hp: null, ap: null };
       const raw     = interaction.values[0];
       state.home    = raw === 'forfeit' ? 'forfeit' : parseInt(raw);
-      if (state.home === 'forfeit' && !(typeof state.away === 'number' && state.away >= 3)) state.away = 3;
+      if (state.home === 'forfeit' && state.away !== 'forfeit' && !(typeof state.away === 'number' && state.away >= 3)) state.away = 3;
       return _saveBotolaScore(cli, tid, matchId, state, interaction);
     }
 
@@ -1183,7 +1455,7 @@ async function handleBotolaInteraction(interaction) {
       const state   = tmpGet('p1rs_' + matchId) || { home: null, away: null, hp: null, ap: null };
       const raw     = interaction.values[0];
       state.away    = raw === 'forfeit' ? 'forfeit' : parseInt(raw);
-      if (state.away === 'forfeit' && !(typeof state.home === 'number' && state.home >= 3)) state.home = 3;
+      if (state.away === 'forfeit' && state.home !== 'forfeit' && !(typeof state.home === 'number' && state.home >= 3)) state.home = 3;
       return _saveBotolaScore(cli, tid, matchId, state, interaction);
     }
 
@@ -1230,45 +1502,14 @@ async function handleBotolaInteraction(interaction) {
         await interaction.deferUpdate();
 
         const isLastRound = curRound_adv === allRds_adv[allRds_adv.length - 1];
-        const _ch = t.channels || {};
-
-        // Post results for the completed round
-        if (_ch.results) {
-          const _resPayload = makeResultsPost(tid, curRound_adv);
-          if (_resPayload) {
-            const _resRole = t.tag_on ? t.registration_role_id : null;
-            await postWithPing(cli, _ch.results, _resRole, _resPayload).catch(() => {});
-          }
-        }
-
-        if (isLastRound) {
-          // Last group round → generate KO bracket and post it
-          generateKnockoutBracket(tid);
-          const _bCh = _ch.results || _ch.management;
-          if (_bCh && !db.getConfig('bracket_ref_' + tid)) {
-            const _bp = makeBracketPost(tid);
-            if (_bp) {
-              const _pm = await postToChannel(cli, _bCh, _bp);
-              if (_pm) db.setConfig('bracket_ref_' + tid, { channelId: _bCh, messageId: _pm.id });
-            }
-          }
-        } else {
-          // Intermediate round → post next round's schedule
-          const nextRound = curRound_adv + 1;
-          if (_ch.schedule) {
-            const _schedPayload = makeSchedulePost(tid, nextRound);
-            if (_schedPayload) {
-              const _schedRole = t.tag_on ? t.registration_role_id : null;
-              await postWithPing(cli, _ch.schedule, _schedRole, _schedPayload).catch(() => {});
-            }
-          }
-        }
+        // Last group round → generate KO bracket (post manually via panel 3)
+        if (isLastRound) generateKnockoutBracket(tid);
 
         // Advance the stored active round so panel knows we moved forward
         db.setConfig('group_round_' + tid, curRound_adv + 1);
-        await refreshAll(cli, tid);
-        await refreshStandingsMessage(cli, tid);
-        return;
+        refreshPanels23(cli, tid).catch(() => {});
+        refreshStandingsMessage(cli, tid).catch(() => {});
+        return interaction.editReply(buildPanel1(getT(tid)));
       } else if (stage === 'knockout') {
         advanceKnockout(tid);
         await refreshAll(cli, tid);
@@ -1459,8 +1700,8 @@ async function handleBotolaInteraction(interaction) {
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       const newSeason = (t.season || 1) + 1;
       db.update('tournaments', tid, { status: 'setup', season: newSeason, preview_mode: false, tag_on: false });
-      await refreshAll(cli, tid);
-      return;
+      refreshPanels23(cli, tid).catch(() => {});
+      return interaction.editReply(buildPanel1(getT(tid)));
     }
   }
 
@@ -1643,8 +1884,8 @@ async function handleBotolaInteraction(interaction) {
       const mgr_a = interaction.user.id;
       const { set: _tmpSetA } = require('../utils/tempState');
       _tmpSetA(`p2_adding_${tid}_${mgr_a}`, { pendingUsers: [], entries: [] }, 600000);
-      const isMCL_a = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
-      if (isMCL_a) {
+      const isCL_a = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
+      if (isCL_a) {
         return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: [
           txt(`**Add Team \u2014 ${t.template || t.name}**\nSelect both players for this team.`),
           SEP,
@@ -1670,7 +1911,7 @@ async function handleBotolaInteraction(interaction) {
       const mgr_u1 = interaction.user.id;
       const { get: _tmpGetU1, set: _tmpSetU1 } = require('../utils/tempState');
       const state_u1 = _tmpGetU1(`p2_adding_${tid}_${mgr_u1}`) || { pendingUsers: [], entries: [] };
-      const isMCL_u1 = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const isCL_u1 = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
       const queueTxt_u1 = state_u1.entries.length
         ? state_u1.entries.map(e => `\u2705  <@${e.userIds[0]}>${e.userIds[1] ? ` & <@${e.userIds[1]}>` : ''} \u2192 ${e.teamName}`).join('\n') + '\n\n'
         : '';
@@ -1678,10 +1919,10 @@ async function handleBotolaInteraction(interaction) {
         state_u1.pendingUsers = [];
         _tmpSetU1(`p2_adding_${tid}_${mgr_u1}`, state_u1, 600000);
         return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: [
-          txt(`${queueTxt_u1}**Add Team \u2014 ${t.template || t.name}**\nSelect the ${isMCL_u1 ? 'first ' : ''}player for this team.`),
+          txt(`${queueTxt_u1}**Add Team \u2014 ${t.template || t.name}**\nSelect the ${isCL_u1 ? 'first ' : ''}player for this team.`),
           SEP,
           { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_addteam_u1`,
-            placeholder: isMCL_u1 ? '\uD83D\uDC64  Player 1 \u2014 search member...' : '\uD83D\uDC64  Select player...', min_values: 0, max_values: 1 }] },
+            placeholder: isCL_u1 ? '\uD83D\uDC64  Player 1 \u2014 search member...' : '\uD83D\uDC64  Select player...', min_values: 0, max_values: 1 }] },
           SEP,
           { type: 1, components: state_u1.entries.length
             ? [{ type: 2, style: 3, label: 'Done', custom_id: `p2_${tid}_addteam_done` }, { type: 2, style: 2, label: '\u2190 Cancel', custom_id: `p2_${tid}_refresh` }]
@@ -1709,7 +1950,7 @@ async function handleBotolaInteraction(interaction) {
       }
       state_u1.pendingUsers = [userId_u1];
       _tmpSetU1(`p2_adding_${tid}_${mgr_u1}`, state_u1, 600000);
-      if (isMCL_u1) {
+      if (isCL_u1) {
         return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: [
           txt(`${queueTxt_u1}**Add Team \u2014 ${t.template || t.name}**\nPlayer 1: <@${userId_u1}>\nNow select Player 2.`),
           SEP,
@@ -1722,7 +1963,7 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update(buildTeamSearchStep2(tid, '', state_u1.entries));
     }
 
-    // ── addteam_u2: user 2 picked (MCL only) ──────────────────────────────────
+    // ── addteam_u2: user 2 picked (CL only) ──────────────────────────────────
     if (action === 'addteam_u2') {
       const userId_u2 = interaction.values?.[0];
       const mgr_u2 = interaction.user.id;
@@ -1764,7 +2005,7 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update(buildTeamSearchStep2(tid, '', state_u2.entries));
     }
 
-    // ── addteam_duo: both players picked at once (MCL/duo) ────────────────────
+    // ── addteam_duo: both players picked at once (CL/duo) ────────────────────
     if (action === 'addteam_duo') {
       const [userId_d1, userId_d2] = interaction.values;
       const mgr_d = interaction.user.id;
@@ -1837,7 +2078,7 @@ async function handleBotolaInteraction(interaction) {
       _tmpSetTS(`p2_adding_${tid}_${mgr_ts}`, state_ts, 600000);
       const enrolledCount_ts = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).length;
       const isFull_ts = t.team_count && (enrolledCount_ts + state_ts.entries.length) >= t.team_count;
-      const isMCL_ts = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const isCL_ts = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
       const queueTxt_ts = state_ts.entries.map(e =>
         `\u2705  <@${e.userIds[0]}>${e.userIds[1] ? ` & <@${e.userIds[1]}>` : ''} \u2192 ${e.teamName}`
       ).join('\n');
@@ -1855,7 +2096,7 @@ async function handleBotolaInteraction(interaction) {
         txt(`${queueTxt_ts}\n\n**Select player for next team** \u2014 or click **Done** to add all.`),
         SEP,
         { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_addteam_u1`,
-          placeholder: isMCL_ts ? '\uD83D\uDC64  Player 1 for next team...' : '\uD83D\uDC64  Select player for next team...', min_values: 0, max_values: 1 }] },
+          placeholder: isCL_ts ? '\uD83D\uDC64  Player 1 for next team...' : '\uD83D\uDC64  Select player for next team...', min_values: 0, max_values: 1 }] },
         SEP,
         { type: 1, components: [
           { type: 2, style: 1, label: 'Done', custom_id: `p2_${tid}_addteam_done` },
@@ -1913,13 +2154,13 @@ async function handleBotolaInteraction(interaction) {
       const teamId    = parseInt(interaction.values[0]);
       const team      = db.findById('teams', teamId);
       if (!team) return p3SmallReply(interaction, '\u274c Team not found.');
-      const isMCL     = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
-      const reqPlayers = t.players_per_team || (isMCL ? 2 : 1);
+      const isCL     = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
+      const reqPlayers = t.players_per_team || (isCL ? 2 : 1);
       const SEP_U     = { type: 14, divider: true, spacing: 1 };
       // Start draft — team is NOT enrolled until Add is clicked
       const { set: _tmpSet } = require('../utils/tempState');
       _tmpSet('p2_draft_' + tid + '_' + teamId, { players: {}, required: reqPlayers }, 600000);
-      const rows = isMCL
+      const rows = isCL
         ? [
             { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
             { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -1930,7 +2171,7 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update({
         flags: 32768,
         components: [{ type: 17, accent_color: 0x5865F2, components: [
-          { type: 10, content: `**Assign ${isMCL ? '2 Players' : 'Player'} \u2014 ${team.name}**\nSelect the Discord user${isMCL ? 's' : ''} for this team, then click **\u2705 Add**.` },
+          { type: 10, content: `**Assign ${isCL ? '2 Players' : 'Player'} \u2014 ${team.name}**\nSelect the Discord user${isCL ? 's' : ''} for this team, then click **\u2705 Add**.` },
           SEP,
           ...rows,
           SEP,
@@ -1949,7 +2190,7 @@ async function handleBotolaInteraction(interaction) {
       const slot    = parts[1] !== undefined ? parseInt(parts[1]) : 0;
       const userId  = interaction.values && interaction.values[0];
       const SEP_U   = { type: 14, divider: true, spacing: 1 };
-      const isMCL_p = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const isCL_p = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
       const { get: _tmpGet, set: _tmpSet2 } = require('../utils/tempState');
       const draftKey = 'p2_draft_' + tid + '_' + teamId;
       const draft    = _tmpGet(draftKey);
@@ -1958,7 +2199,7 @@ async function handleBotolaInteraction(interaction) {
         // ── DRAFT MODE: save to temp, never touch DB yet ──────────────────
         if (userId) draft.players[slot] = userId;
         else delete draft.players[slot];
-        const reqPl = draft.required || (isMCL_p ? 2 : 1);
+        const reqPl = draft.required || (isCL_p ? 2 : 1);
         // Dupe check: one team per user per season.
         // A player is a duplicate only if they appear on a DIFFERENT team
         // that is currently enrolled in THIS tournament (ignores old seasons).
@@ -1973,7 +2214,7 @@ async function handleBotolaInteraction(interaction) {
             delete draft.players[slot];
             _tmpSet2(draftKey, draft, 600000);
             const dupTeam = db.findById('teams', dupe.team_id);
-            const eRows   = isMCL_p
+            const eRows   = isCL_p
               ? [
                   { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
                   { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -2001,7 +2242,7 @@ async function handleBotolaInteraction(interaction) {
           const uid = draft.players[i];
           statuses.push(uid ? `\u2705 P${reqPl > 1 ? i+1 : ''}: <@${uid}>`.replace('P: ', 'Player: ') : `\u274c P${reqPl > 1 ? i+1 : ''}: not assigned`.replace('P: ', 'Player: '));
         }
-        const pRows = isMCL_p
+        const pRows = isCL_p
           ? [
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -2010,7 +2251,7 @@ async function handleBotolaInteraction(interaction) {
         return interaction.update({
           flags: 32768,
           components: [{ type: 17, accent_color: canAdd ? 0x57F287 : 0x5865F2, components: [
-            { type: 10, content: `**Assign ${isMCL_p ? '2 Players' : 'Player'} \u2014 ${team_p?.name}**\n> ${statuses.join('  \u00b7  ')}${canAdd ? '\n> \u2705 Ready \u2014 click **Add** to confirm.' : ''}` },
+            { type: 10, content: `**Assign ${isCL_p ? '2 Players' : 'Player'} \u2014 ${team_p?.name}**\n> ${statuses.join('  \u00b7  ')}${canAdd ? '\n> \u2705 Ready \u2014 click **Add** to confirm.' : ''}` },
             SEP, ...pRows, SEP,
             { type: 1, components: [
               { type: 2, style: 1, label: '\u2705 Add', custom_id: `p2_${tid}_add_confirm_${teamId}`, disabled: !canAdd },
@@ -2030,7 +2271,7 @@ async function handleBotolaInteraction(interaction) {
       );
       if (dupePlayer) {
         const dupTeam = db.findById('teams', dupePlayer.team_id);
-        const errRows = isMCL_p
+        const errRows = isCL_p
           ? [
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -2058,12 +2299,12 @@ async function handleBotolaInteraction(interaction) {
       const draftKey2 = 'p2_draft_' + tid + '_' + teamId2;
       const draft2    = _tmpGet2(draftKey2);
       const SEP_U2    = { type: 14, divider: true, spacing: 1 };
-      const isMCL_ac  = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'MCL';
+      const isCL_ac  = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL';
       if (!draft2) return interaction.update(buildPanel2(getT(tid)));
-      const reqPl2  = draft2.required || (isMCL_ac ? 2 : 1);
+      const reqPl2  = draft2.required || (isCL_ac ? 2 : 1);
       const filled2 = Object.keys(draft2.players).filter(k => draft2.players[k]).length;
       if (filled2 < reqPl2) {
-        const acRows = isMCL_ac
+        const acRows = isCL_ac
           ? [
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId2}_0`, placeholder: '\u{1F464}  Player 1 \u2014 search member...', min_values: 0, max_values: 1 }] },
               { type: 1, components: [{ type: 5, custom_id: `p2_${tid}_player_user_${teamId2}_1`, placeholder: '\u{1F464}  Player 2 \u2014 search member...', min_values: 0, max_values: 1 }] },
@@ -2266,6 +2507,14 @@ async function handleBotolaInteraction(interaction) {
 
     if (action === 'refresh') return interaction.update(buildPanel3(t));
 
+    // Round selector  save chosen round and re-render panel
+    if (action === 'roundsel') {
+      const selRound = parseInt(interaction.values?.[0]);
+      if (!isNaN(selRound)) db.setConfig('p3_round_' + tid, selRound);
+      return interaction.update(buildPanel3(getT(tid)));
+    }
+
+
     // Toggle post / preview mode
     if (action === 'togglemode') {
       db.update('tournaments', tid, { preview_mode: !t.preview_mode });
@@ -2298,20 +2547,20 @@ async function handleBotolaInteraction(interaction) {
 
     // ── Post Schedule — auto current round ────────────────────────────────
     if (action === 'schedule') {
-      const allGM_ = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-      if (!allGM_.length) return p3SmallReply(interaction, '\u274c No matches generated yet.');
-      const pendingGM_ = allGM_.filter(m => m.status !== 'played');
-      const allRds_    = [...new Set(allGM_.map(m => m.round))].sort((a, b) => a - b);
-      const _p3CfgRound = db.getConfig('group_round_' + tid);
-      const round      = _p3CfgRound || (pendingGM_.length ? Math.min(...pendingGM_.map(m => m.round)) : allRds_[allRds_.length - 1]);
-      const schedPayload = makeSchedulePost(tid, round);
-      if (!schedPayload) return p3SmallReply(interaction, '\u274c Failed to build schedule.');
+      const allGM_s = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
+      if (!allGM_s.length) return p3SmallReply(interaction, '\u274c No matches generated yet.');
+      const savedRd_s = db.getConfig('p3_round_' + tid);
+      const allRds_s  = [...new Set(allGM_s.map(m => m.round))].sort((a, b) => a - b);
+      const round_s   = (savedRd_s && allRds_s.includes(savedRd_s)) ? savedRd_s : (allRds_s[0] || 1);
+      const schedPayload = makeSchedulePost(tid, round_s);
+      if (!schedPayload) return p3SmallReply(interaction, '\u274c Failed to build schedule for Round ' + round_s + '.');
       if (t.preview_mode) return interaction.reply({ ...schedPayload, ephemeral: true });
       if (!ch.schedule) return p3SmallReply(interaction, '\u274c No schedule channel configured.');
       const _schedRole = t.tag_on ? t.registration_role_id : null;
       await postWithPing(cli, ch.schedule, _schedRole, schedPayload);
-      return p3SmallReply(interaction, `\u2705 Round ${round} schedule posted to <#${ch.schedule}>.`);
+      return p3SmallReply(interaction, `\u2705 Round ${round_s} schedule posted to <#${ch.schedule}>.`);
     }
+
 
     // Post Schedule for a specific round
     if (action.startsWith('schedule_r') && !isNaN(parseInt(action.slice(10)))) {
@@ -2329,26 +2578,18 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'results') {
       const allGM_r = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
       if (!allGM_r.length) return p3SmallReply(interaction, '\u274c No matches yet.');
-      const allRds_r = [...new Set(allGM_r.map(m => m.round))].sort((a, b) => a - b);
-      const _p3CfgRoundR = db.getConfig('group_round_' + tid) || 1;
-      let round_r = null;
-      for (let i = allRds_r.length - 1; i >= 0; i--) {
-        const r = allRds_r[i];
-        if (r < _p3CfgRoundR &&
-            allGM_r.filter(m => m.round === r && m.status !== 'played').length === 0 &&
-            allGM_r.filter(m => m.round === r && m.status === 'played').length > 0) {
-          round_r = r; break;
-        }
-      }
-      if (round_r === null) return p3SmallReply(interaction, '\u274c No fully completed rounds yet.');
+      const savedRd_r = db.getConfig('p3_round_' + tid);
+      const allRds_r  = [...new Set(allGM_r.map(m => m.round))].sort((a, b) => a - b);
+      const round_r   = (savedRd_r && allRds_r.includes(savedRd_r)) ? savedRd_r : (allRds_r[0] || 1);
       const resultsPayload = makeResultsPost(tid, round_r);
-      if (!resultsPayload) return p3SmallReply(interaction, '\u274c Failed to build results.');
+      if (!resultsPayload) return p3SmallReply(interaction, `\u274c No played matches in Round ${round_r} yet.`);
       if (t.preview_mode) return interaction.reply({ ...resultsPayload, ephemeral: true });
       if (!ch.results) return p3SmallReply(interaction, '\u274c No results channel configured.');
       const _resRole = t.tag_on ? t.registration_role_id : null;
       await postWithPing(cli, ch.results, _resRole, resultsPayload);
       return p3SmallReply(interaction, `\u2705 Round ${round_r} results posted to <#${ch.results}>.`);
     }
+
 
     // Post Results for a specific round
     // Post Results for a specific round
@@ -2365,18 +2606,18 @@ async function handleBotolaInteraction(interaction) {
 
     // ── Standings ────────────────────────────────────────────────────────
     if (action === 'standings') {
-      const standEmbed = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid) : null;
-      if (!standEmbed) return p3SmallReply(interaction, '❌ No standings to display yet.');
-      if (t.preview_mode) {
-        return interaction.reply({ ...standEmbed, ephemeral: true });
-      }
+      const savedRd_st = db.getConfig('p3_round_' + tid) || null;
+      const standEmbed = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid, savedRd_st) : null;
+      if (!standEmbed) return p3SmallReply(interaction, '\u274c No standings to display yet.');
+      if (t.preview_mode) return interaction.reply({ ...standEmbed, ephemeral: true });
       const postCh = ch.results || ch.management;
-      if (!postCh) return p3SmallReply(interaction, '❌ No results channel configured. Set it via `/admin`.');
+      if (!postCh) return p3SmallReply(interaction, '\u274c No results channel configured. Set it via `/admin`.');
       const _standRole = t.tag_on ? t.registration_role_id : null;
       const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
       if (posted) db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id });
-      return p3SmallReply(interaction, `✅ Standings posted to <#${postCh}> — it will update live as results are added.`);
+      return p3SmallReply(interaction, `\u2705 Standings (Round ${savedRd_st || 'all'}) posted to <#${postCh}>.`);
     }
+
 
     if (action === 'standings_confirm') {
       return interaction.update(buildPanel3(t));

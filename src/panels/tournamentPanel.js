@@ -7,7 +7,7 @@ const { COLORS } = require('../utils/embeds');
 
 const TEMPLATES = {
   EL:   { name: 'EL',   description: 'Solo | Group Stage + Knockout | Finals Home & Away', type: 'solo',   emoji: '🏆' },
-  MCL:    { name: 'MCL',    description: 'Duo | Group Stage + Knockout | Finals Home & Away',  type: 'duo',    emoji: '⚡' },
+  CL:    { name: 'CL',    description: 'Duo | Group Stage + Knockout | Finals Home & Away',  type: 'duo',    emoji: '⚡' },
   NSLIGA: { name: 'NSLIGA', description: 'Official league system (expandable)',                 type: 'league', emoji: '🥇' },
   NSF:    { name: 'NSF',    description: 'Official cup system (expandable)',                    type: 'cup',    emoji: '🏅' },
 };

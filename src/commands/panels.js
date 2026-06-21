@@ -6,7 +6,7 @@ const { isBotolaManager } = require('../utils/permissions');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
-const VALID = /^(EL|MCL)$/i;
+const VALID = /^(EL|CL)$/i;
 
 function buildPanelsListPanel() {
   const tournaments = db.get('tournaments')
@@ -18,29 +18,28 @@ function buildPanelsListPanel() {
     });
 
   const inner = [];
-  inner.push(txt(`# Tournament Management Panels`));
+  inner.push(txt(`## Management Panels`));
   inner.push(SEP);
-  inner.push(txt('Click on a tournament below to open its management panels.'));
+  inner.push(txt('Select a tournament below to open its management panels.'));
   inner.push(SEP);
 
   if (!tournaments.length) {
     inner.push(txt('No tournaments found. Create one via `/admin`.'));
   } else {
-    const shown = tournaments.slice(0, 20);
-    for (let i = 0; i < shown.length; i += 5) {
-      const chunk = shown.slice(i, i + 5);
-      inner.push({
-        type: 1,
-        components: chunk.map(t => ({
-          type: 2,
-          style: t.status === 'active' ? 1 : 2,
-          label: t.name.slice(0, 20),
-          custom_id: `bot_t_${t.id}`,
-        })),
-      });
-    }
+    const options = tournaments.slice(0, 25).map(t => {
+      const statusLabel = t.status === 'active' ? 'Active' : t.status === 'finished' ? 'Finished' : 'Setup';
+      return {
+        label: t.name.slice(0, 100),
+        description: (`${statusLabel} — ${t.template || t.name}`).slice(0, 100),
+        value: String(t.id),
+      };
+    });
+    inner.push({ type: 1, components: [{ type: 3, custom_id: 'bot_sel_t', placeholder: 'Select a tournament…', options }] });
   }
 
+  inner.push({ type: 1, components: [
+    { type: 2, style: 2, label: '⚙️  Settings Panel', custom_id: 'stp_open' },
+  ]});
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
@@ -49,7 +48,7 @@ function buildPanelsListPanel() {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('panels')
-    .setDescription('Open management panels for a tournament'),
+    .setDescription('Select a tournament to open its management panels'),
 
   async execute(interaction) {
     if (!isBotolaManager(interaction.member)) {

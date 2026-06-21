@@ -58,6 +58,8 @@ function buildManagePanelV2() {
   ]});
 
   inner.push(SEP);
+
+  inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };

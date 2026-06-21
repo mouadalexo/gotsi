@@ -60,11 +60,11 @@ function buildTeamCrudPanel(opts = {}) {
 }
 
 // ── Post Team List picker ─────────────────────────────────────────────────────
-// Shows EL and MCL as options (one permanent list per tournament type,
+// Shows EL and CL as options (one permanent list per tournament type,
 // shared across all seasons — the same message gets edited forever).
 function buildPostListPickerPanel(opts = {}) {
   const { error } = opts;
-  const TEMPLATES = ['EL', 'MCL'];
+  const TEMPLATES = ['EL', 'CL'];
 
   const options = TEMPLATES
     .filter(tmpl => {

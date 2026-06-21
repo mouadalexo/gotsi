@@ -83,7 +83,7 @@ async function handleTeamCrudInteraction(interaction) {
     return interaction.update(buildPostListPickerPanel());
   }
 
-  // tc_post_list_sel: template selected (e.g. "EL" or "MCL")
+  // tc_post_list_sel: template selected (e.g. "EL" or "CL")
   if (id === 'tc_post_list_sel') {
     const template = interaction.values[0];
 
