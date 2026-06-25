@@ -4,9 +4,8 @@ const { db } = require('../utils/database');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
-const E_CUP = '<a:cup:1501741159557500971>';
-const E_ARR = '<a:smallarrow:1472222559645863936>';
-const BLUE  = 0x2563EB;
+const E_ARR = '<a:arrow:1501741110798585927>';
+const GREEN  = 0x00FF76;
 
 const DEFAULTS = {
   matchTime:    10,
@@ -25,26 +24,29 @@ function getSettings(uid) {
   return Object.assign({}, DEFAULTS, saved || {});
 }
 
-// Toggle button: green (3) when ON, red (4) when OFF
-// custom_id encodes the NEXT value so the handler knows what to set
-function togBtn(uid, field, currentVal) {
+// Name is embedded in the button label so we don't need a separate txt component
+function togBtn(uid, field, label, currentVal) {
   if (currentVal) {
-    // Currently ON — button is green, click will turn OFF
-    return { type: 2, style: 3, label: '✅  On',  custom_id: `stp_tog_${uid}_${field}_off` };
+    return { type: 2, style: 3, label: `✅ ${label}`, custom_id: `stp_tog_${uid}_${field}_off` };
   } else {
-    // Currently OFF — button is red, click will turn ON
-    return { type: 2, style: 4, label: '❌  Off', custom_id: `stp_tog_${uid}_${field}_on` };
+    return { type: 2, style: 4, label: `❌ ${label}`, custom_id: `stp_tog_${uid}_${field}_on` };
   }
 }
 
+// Component budget: 40 total (container + direct children + nested inside ActionRows)
+// Container:  1
+// Direct:    28  (txt×8, SEP×11, ActionRow×9)
+// Nested:    11  (2 title-btns + 4 selects + 4 toggle-btns + 1 post-select)
+// Total:     40 ✅
 function buildSettingsPanel(uid) {
   const s = getSettings(uid);
   const inner = [];
 
+  // 1 txt + 1 SEP
   inner.push(txt(`## ⚙️  Settings Panel`));
   inner.push(SEP);
 
-  // Title + action buttons
+  // 1 txt + 1 ActionRow(2 btns) + 1 SEP
   inner.push(txt(`**Post Title:** ${s.title || 'Match Settings'}`));
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '📝  Set Title', custom_id: `stp_settitle_${uid}` },
@@ -52,47 +54,32 @@ function buildSettingsPanel(uid) {
   ]});
   inner.push(SEP);
 
-  // ── Match Time (select) ────────────────────────────────────────────────────
+  // ── SELECT MENUS (top) — each: 1 txt + 1 ActionRow(1 select) + 1 SEP ──────
+
   inner.push(txt('**Match Time — وقت المباراة**'));
   inner.push({ type: 1, components: [{ type: 3, custom_id: `stp_cfg_${uid}_matchTime`, placeholder: 'Select match time…',
     options: Array.from({ length: 11 }, (_, i) => i + 5).map(i => ({
       label: `${i} min`, value: String(i), default: i === Number(s.matchTime),
     })),
   }]});
+  inner.push(SEP);
 
-  // ── Injuries (toggle button) ───────────────────────────────────────────────
-  inner.push(txt('**Injuries — الإصابات**'));
-  inner.push({ type: 1, components: [togBtn(uid, 'injuries', s.injuries !== false)] });
-
-  // ── Extra Time (toggle button) ─────────────────────────────────────────────
-  inner.push(txt('**Extra Time — الوقت الإضافي**'));
-  inner.push({ type: 1, components: [togBtn(uid, 'extraTime', s.extraTime !== false)] });
-
-  // ── Penalties (toggle button) ──────────────────────────────────────────────
-  inner.push(txt('**Penalties — ركلات الترجيح**'));
-  inner.push({ type: 1, components: [togBtn(uid, 'penalties', s.penalties !== false)] });
-
-  // ── Max Substitutions (select) ─────────────────────────────────────────────
   inner.push(txt('**Max Substitutions — الحد الأقصى للتبديلات**'));
   inner.push({ type: 1, components: [{ type: 3, custom_id: `stp_cfg_${uid}_maxSubs`, placeholder: 'Select max subs…',
     options: Array.from({ length: 7 }, (_, i) => i).map(i => ({
       label: String(i), value: String(i), default: i === Number(s.maxSubs),
     })),
   }]});
+  inner.push(SEP);
 
-  // ── Substitution Intervals (select) ───────────────────────────────────────
   inner.push(txt('**Substitution Intervals — فترات التبديلات**'));
   inner.push({ type: 1, components: [{ type: 3, custom_id: `stp_cfg_${uid}_subIntervals`, placeholder: 'Select intervals…',
     options: Array.from({ length: 7 }, (_, i) => i).map(i => ({
       label: String(i), value: String(i), default: i === Number(s.subIntervals),
     })),
   }]});
+  inner.push(SEP);
 
-  // ── Extra Sub in ET (toggle button) ───────────────────────────────────────
-  inner.push(txt('**Extra Substitution in Extra Time — تبديل إضافي في الوقت الإضافي**'));
-  inner.push({ type: 1, components: [togBtn(uid, 'extraSubET', s.extraSubET !== false)] });
-
-  // ── Condition (select) ────────────────────────────────────────────────────
   inner.push(txt('**Condition — حالة اللاعبين**'));
   inner.push({ type: 1, components: [{ type: 3, custom_id: `stp_cfg_${uid}_condition`, placeholder: 'Select condition…',
     options: [
@@ -100,17 +87,32 @@ function buildSettingsPanel(uid) {
       { label: 'Random — عشوائي',   value: 'Random',    default: s.condition === 'Random' },
     ],
   }]});
-
   inner.push(SEP);
 
-  // ── Post selector ─────────────────────────────────────────────────────────
+  // ── TOGGLE BUTTONS (bottom) — each: 1 ActionRow(1 btn) + 1 SEP ────────────
+  // No separate txt — label is embedded in the button itself
+
+  inner.push({ type: 1, components: [togBtn(uid, 'injuries',  'Injuries — الإصابات',                                           s.injuries  !== false)] });
+  inner.push(SEP);
+
+  inner.push({ type: 1, components: [togBtn(uid, 'extraTime', 'Extra Time — الوقت الإضافي',                                    s.extraTime !== false)] });
+  inner.push(SEP);
+
+  inner.push({ type: 1, components: [togBtn(uid, 'penalties', 'Penalties — ركلات الترجيح',                                     s.penalties !== false)] });
+  inner.push(SEP);
+
+  inner.push({ type: 1, components: [togBtn(uid, 'extraSubET','Extra Sub ET — تبديل إضافي في الوقت الإضافي',                   s.extraSubET !== false)] });
+  inner.push(SEP);
+
+  // ── Post selector — 1 txt + 1 ActionRow(1 select) ─────────────────────────
+  // No trailing SEP before footer to stay within the 40-component budget
   const allT = db.get('tournaments').filter(t => t.info_channel);
   if (allT.length) {
     inner.push(txt('**Post to tournament info channel:**'));
     inner.push({ type: 1, components: [{
       type: 3,
       custom_id: `stp_post_${uid}`,
-      placeholder: 'Select tournament to post settings…',
+      placeholder: 'Select tournament',
       options: allT.slice(0, 25).map(t => ({
         label: t.name,
         description: 'Posts to info channel',
@@ -118,59 +120,39 @@ function buildSettingsPanel(uid) {
       })),
     }]});
   } else {
-    inner.push(txt('> ⚠️  No tournament has an info channel set.\n> Go to `/admin` → Tournament Settings → 📡 Info Channel.'));
+    inner.push(txt('> ⚠️  No tournament has an info channel set.\n> Go to `/admin` → Set Channels.'));
   }
 
-  inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
-function buildSettingsPost(uid, tid) {
-  const s     = getSettings(uid);
-  const t     = db.findById('tournaments', tid);
-  const label = t ? `${t.template || t.name} S${t.season}`.toUpperCase() : '';
-  const title = (s.title || 'Match Settings').toUpperCase();
-
+function buildSettingsPost(uid) {
+  const s    = getSettings(uid);
   const line = text => `${E_ARR}  **${text}**`;
+  const tog  = (enAr, val) => line(`${enAr} ${val ? '✅' : '❌'}`);
 
   const lines = [
-    line(`Match Time — وقت المباراة: ${s.matchTime} min`),
-
-    s.injuries !== false
-      ? line('Injuries — الإصابات')
-      : line('No Injuries — لا إصابات'),
-
-    s.extraTime !== false
-      ? line('Extra Time — الوقت الإضافي')
-      : line('No Extra Time — لا وقت إضافي'),
-
-    s.penalties !== false
-      ? line('Penalties — ركلات الترجيح')
-      : line('No Penalties — لا ركلات الترجيح'),
-
-    line(`Max Substitutions — الحد الأقصى للتبديلات: ${s.maxSubs}`),
-    line(`Substitution Intervals — فترات التبديلات: ${s.subIntervals}`),
-
-    s.extraSubET !== false
-      ? line('Extra Substitution in Extra Time — تبديل إضافي في الوقت الإضافي')
-      : line('No Extra Substitution in Extra Time — لا تبديل إضافي في الوقت الإضافي'),
-
-    s.condition === 'Random'
-      ? line('Condition — حالة اللاعبين: Random — عشوائي')
-      : line('Condition — حالة اللاعبين: Excellent — ممتاز'),
-  ];
+    line(`Match Time (وقت المباراة): ${s.matchTime} min`),
+    line(`Max Substitutions (الحد الأقصى للتبديلات): ${s.maxSubs}`),
+    line(`Substitution Intervals (فترات التبديلات): ${s.subIntervals}`),
+    line(`Condition (حالة اللاعبين): ${s.condition === 'Random' ? 'Random' : 'Excellent'}`),
+    tog('Injuries (الإصابات)',       s.injuries  !== false),
+    tog('Extra Time (الوقت الإضافي)', s.extraTime !== false),
+    tog('Penalties (ركلات الترجيح)', s.penalties !== false),
+    tog('Extra Sub (تبديل إضافي)',   s.extraSubET !== false),
+  ].join('\n');
 
   const inner = [
-    txt(`${E_CUP}  **${title}  —  ${label}**`),
+    txt(`# ⚙️  MATCH SETTINGS`),
     SEP,
-    txt(lines.join('\n')),
+    txt(lines),
     SEP,
     txt('-# © 24 2026  |  Goatsi Bot'),
   ];
 
-  return { flags: 32768, components: [{ type: 17, accent_color: BLUE, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: GREEN, components: inner }] };
 }
 
 module.exports = { buildSettingsPanel, buildSettingsPost, getSettings };

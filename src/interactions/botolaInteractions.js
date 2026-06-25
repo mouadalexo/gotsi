@@ -449,6 +449,59 @@ function buildMatchPickerInline(tid, stage) {
   };
 }
 
+
+function buildKORoundMatchesPanel(tid) {
+  const teams      = db.get('teams');
+  const getTeam    = id => teams.find(t => t.id === id) || { name: 'Unknown' };
+  const allKO      = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
+  if (!allKO.length) return null;
+
+  // Active round: highest round# with pending matches (earliest KO stage)
+  const pendingRds = allKO.filter(m => m.status === 'pending').map(m => m.round);
+  const activeRound = pendingRds.length
+    ? Math.max(...pendingRds)
+    : Math.min(...allKO.map(m => m.round));
+
+  const ROUND_LABELS = { 1: 'Final', 2: 'Semi-Finals', 4: 'Quarter-Finals', 8: 'Round of 16', 16: 'Round of 32' };
+  const roundLabel  = ROUND_LABELS[activeRound] || ('Round ' + activeRound);
+
+  const roundMatches = allKO
+    .filter(m => m.round === activeRound)
+    .sort((a, b) => (a.status === 'played' ? 1 : 0) - (b.status === 'played' ? 1 : 0));
+
+  const played  = roundMatches.filter(m => m.status === 'played').length;
+  const total   = roundMatches.length;
+  const allDone = played === total && total > 0;
+
+  const inner = [
+    txt(`**📊 Add Result — ${roundLabel}**`),
+    SEP,
+    txt(`**${played}/${total}** matches played` + (allDone ? ' — all done, go back to advance.' : '')),
+    SEP,
+  ];
+
+  for (const m of roundMatches) {
+    const home = getTeam(m.home_team_id).name;
+    const away = getTeam(m.away_team_id).name;
+    let label;
+    if (m.status === 'played') {
+      const hs  = m.home_forfeit ? 'Ø' : String(m.home_goals ?? m.home_score ?? '?');
+      const as_ = m.away_forfeit ? 'Ø' : String(m.away_goals ?? m.away_score ?? '?');
+      label = `✅  ${home}  ${hs} — ${as_}  ${away}`;
+    } else {
+      label = `⏳  ${home}  vs  ${away}`;
+    }
+    inner.push({ type: 1, components: [{ type: 2, style: m.status === 'played' ? 2 : 1, label: label.slice(0, 80), custom_id: `p1_${tid}_matchbtn_${m.id}` }] });
+  }
+
+  inner.push(SEP);
+  inner.push({ type: 1, components: [
+    { type: 2, style: 2, label: '← Back', custom_id: `p1_${tid}_refresh` },
+  ]});
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
+}
+
 function buildGroupSelectorPanel(tid) {
   const allGM      = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
   if (!allGM.length) return null;
@@ -996,12 +1049,47 @@ function buildBotolaScorePicker(tid, matchId, state) {
 }
 
 // ── Save score and refresh panels ─────────────────────────────────────────────
+
+// Send a screenshot round header to the screenshot channel when a round completes
+async function sendScreenshotRoundMessage(cli, tid, match) {
+  const t = getT(tid);
+  if (!t || !t.channels?.screenshot) return;
+  const scrCh = await cli.channels.fetch(t.channels.screenshot).catch(() => null);
+  if (!scrCh) return;
+
+  const ROUND_LABELS = { 1: 'Final', 2: 'Semi Final', 4: 'Quarter Final', 8: 'Round of 16', 16: 'Round of 32' };
+  let label = null;
+
+  if (match.stage === 'group') {
+    const roundMatches = db.get('matches').filter(m =>
+      m.tournament_id === tid && m.stage === 'group' && m.round === match.round
+    );
+    if (roundMatches.length > 0 && roundMatches.every(m => m.status === 'played')) {
+      label = `# Round ${match.round}`;
+    }
+  } else if (match.stage === 'knockout') {
+    const koMatches = db.get('matches').filter(m =>
+      m.tournament_id === tid && m.stage === 'knockout' && m.round === match.round
+    );
+    if (koMatches.length > 0 && koMatches.every(m => m.status === 'played')) {
+      label = `# ${ROUND_LABELS[match.round] || 'Round ' + match.round}`;
+    }
+  }
+
+  if (!label) return;
+  await scrCh.send({
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0x00FF76, components: [{ type: 10, content: label }] }],
+  }).catch(() => {});
+}
+
 async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
   // Defer immediately so Discord's 3-second deadline is met even if DB work takes time
   await interaction.deferUpdate().catch(() => {});
 
   const match = db.findById('matches', matchId);
   if (!match) return interaction.editReply({ content: '\u274c Match not found.', components: [] });
+  const _wasPlayed = match.status === 'played';
 
   const { home: hv, away: av, hp, ap } = state;
   const homeForfeit = hv === 'forfeit';
@@ -1063,6 +1151,13 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
     // KO equal pens or pens not set yet — no save, just show updated panel
   }
 
+  // Send screenshot round header if this score completed a round
+  if (!_wasPlayed) {
+    const _matchNow = db.findById('matches', matchId);
+    if (_matchNow && _matchNow.status === 'played') {
+      sendScreenshotRoundMessage(cli, tid, _matchNow).catch(() => {});
+    }
+  }
   tmpSet('p1rs_' + matchId, state);
   const panel = buildBotolaScorePicker(tid, matchId, state);
   if (!panel) return interaction.editReply({ content: '\u274c Match not found.', components: [] });
@@ -1226,6 +1321,36 @@ async function handleBotolaInteraction(interaction) {
 
     if (action === 'end_confirm') {
       await interaction.deferUpdate();
+
+      // Warmup channel: delete old one and recreate with same name/perms
+      const _warmupId = t.channels?.warmup;
+      if (_warmupId) {
+        try {
+          const _wCh = await cli.channels.fetch(_warmupId).catch(() => null);
+          if (_wCh) {
+            const _wName  = _wCh.name;
+            const _wType  = _wCh.type;
+            const _wPar   = _wCh.parentId;
+            const _wTopic = _wCh.topic || undefined;
+            const _wPerms = _wCh.permissionOverwrites.cache.map(po => ({
+              id: po.id, type: po.type,
+              allow: po.allow.bitfield,
+              deny:  po.deny.bitfield,
+            }));
+            await _wCh.delete('End Tournament — warmup channel reset').catch(() => {});
+            const _newWCh = await interaction.guild.channels.create({
+              name: _wName, type: _wType,
+              parent: _wPar, topic: _wTopic,
+              permissionOverwrites: _wPerms,
+              reason: 'End Tournament — warmup channel recreated',
+            }).catch(() => null);
+            if (_newWCh) {
+              db.update('tournaments', tid, { channels: { ...t.channels, warmup: _newWCh.id } });
+            }
+          }
+        } catch (e) { console.warn('[warmup] recreation failed:', e.message); }
+      }
+
       db.deleteWhere('matches', m => m.tournament_id === tid);
       db.deleteWhere('players', p => p.tournament_id === tid);
       const ttRowsR   = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
@@ -1341,7 +1466,7 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'addresult') {
       const stg_ = getStage(t);
       if (stg_ === 'knockout') {
-        const panel = buildMatchPickerInline(tid, 'knockout');
+        const panel = buildKORoundMatchesPanel(tid);
         if (!panel) return interaction.reply({ content: '\u274c No pending matches found.', ephemeral: true });
         return interaction.update(panel);
       }

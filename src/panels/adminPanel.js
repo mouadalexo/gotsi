@@ -38,6 +38,8 @@ function buildAdminPanel() {
       `Management  →  ${chLine(nsel, 'management')}\n` +
       `Schedule    →  ${chLine(nsel, 'schedule')}\n` +
       `Results     →  ${chLine(nsel, 'results')}\n` +
+      `Warmup      →  ${chLine(nsel, 'warmup')}\n` +
+      `Screenshot  →  ${chLine(nsel, 'screenshot')}\n` +
       `Reg. Role   →  ${roleLine(nsel, 'registration_role_id')}`
     ));
     inner.push(SEP);
@@ -49,6 +51,8 @@ function buildAdminPanel() {
       `Management  →  ${chLine(mcl, 'management')}\n` +
       `Schedule    →  ${chLine(mcl, 'schedule')}\n` +
       `Results     →  ${chLine(mcl, 'results')}\n` +
+      `Warmup      →  ${chLine(mcl, 'warmup')}\n` +
+      `Screenshot  →  ${chLine(mcl, 'screenshot')}\n` +
       `Reg. Role   →  ${roleLine(mcl, 'registration_role_id')}`
     ));
     inner.push(SEP);
@@ -94,9 +98,11 @@ function buildChannelPickerPanel(template) {
     txt(`# ⚙️  Set ${template} Channels\n> Select each channel — each selection saves immediately.`),
     SEP,
     txt(
-      `**Management**  →  ${ch.management ? `<#${ch.management}>` : '`not set`'}\n` +
-      `**Schedule**    →  ${ch.schedule   ? `<#${ch.schedule}>`   : '`not set`'}\n` +
-      `**Results**     →  ${ch.results    ? `<#${ch.results}>`    : '`not set`'}`
+      `**Management**  →  ${ch.management  ? `<#${ch.management}>` : '`not set`'}\n` +
+      `**Schedule**    →  ${ch.schedule    ? `<#${ch.schedule}>`   : '`not set`'}\n` +
+      `**Results**     →  ${ch.results     ? `<#${ch.results}>`    : '`not set`'}\n` +
+      `**Warmup**      →  ${ch.warmup      ? `<#${ch.warmup}>`     : '`not set`'}\n` +
+      `**Screenshot**  →  ${ch.screenshot  ? `<#${ch.screenshot}>` : '`not set`'}`
     ),
     SEP,
     {
@@ -126,6 +132,24 @@ function buildChannelPickerPanel(template) {
         ...(ch.results ? { default_values: makeDefault(ch.results) } : {}),
       }],
     },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_warmup`,
+        placeholder: '🔥  Warmup channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.warmup ? { default_values: makeDefault(ch.warmup) } : {}),
+      }],
+    },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_screenshot`,
+        placeholder: '📸  Screenshot channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.screenshot ? { default_values: makeDefault(ch.screenshot) } : {}),
+      }],
+    },
     SEP,
     { type: 1, components: [{ type: 2, style: 2, label: '✓ Done', custom_id: 'adm_done' }] },
   ];
@@ -149,6 +173,24 @@ function buildTestChannelPickerPanel() {
         placeholder: '🧪  Test panel channel…',
         min_values: 0, max_values: 1,
         ...(testChId ? { default_values: makeDefault(testChId) } : {}),
+      }],
+    },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_warmup`,
+        placeholder: '🔥  Warmup channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.warmup ? { default_values: makeDefault(ch.warmup) } : {}),
+      }],
+    },
+    {
+      type: 1, components: [{
+        type: 8,
+        custom_id: `adm_ch_${template}_screenshot`,
+        placeholder: '📸  Screenshot channel…',
+        min_values: 0, max_values: 1,
+        ...(ch.screenshot ? { default_values: makeDefault(ch.screenshot) } : {}),
       }],
     },
     SEP,

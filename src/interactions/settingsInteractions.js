@@ -109,7 +109,7 @@ async function handleSettingsInteraction(interaction) {
     const tid = parseInt(interaction.values[0]);
     const t   = db.findById('tournaments', tid);
     if (!t?.info_channel) {
-      return interaction.reply({ content: '❌ That tournament has no info channel set. Go to `/admin` → Tournament Settings → 📡 Info Channel.', ephemeral: true });
+      return interaction.reply({ content: '❌ That tournament has no info channel set. Go to `/admin` → Set Channels.', ephemeral: true });
     }
     await interaction.deferUpdate();
     const ch = await interaction.client.channels.fetch(t.info_channel).catch(() => null);
