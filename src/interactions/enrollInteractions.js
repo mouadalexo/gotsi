@@ -198,8 +198,11 @@ async function handleEnrollInteraction(interaction, client) {
 
     if (draft && draft.teamId === teamId) {
       // Draft mode: save player to temp state (never touch DB yet)
-      if (userId) draft.players[slot] = userId;
-      else delete draft.players[slot];
+      if (userId) {
+        draft.players[slot] = userId;
+        if (!draft.usernames) draft.usernames = {};
+        draft.usernames[userId] = interaction.users?.get(userId)?.username || null;
+      } else delete draft.players[slot];
       tmpSet(draftKey, draft, 600_000);
 
       // Count how many slots are filled
@@ -213,7 +216,7 @@ async function handleEnrollInteraction(interaction, client) {
           return interaction.update(buildEnrollStep2(tid, { error: 'Team is already enrolled.' }));
         }
         for (const [slotStr, uid] of Object.entries(draft.players)) {
-          if (uid) db.insert('players', { discord_id: uid, team_id: teamId, tournament_id: tid, slot: parseInt(slotStr) });
+          if (uid) db.insert('players', { discord_id: uid, team_id: teamId, tournament_id: tid, slot: parseInt(slotStr), username: draft.usernames?.[uid] || null });
         }
         tmpDel(draftKey);
         updateLivePanels(client, tid).catch(() => {});
@@ -233,7 +236,7 @@ async function handleEnrollInteraction(interaction, client) {
         p => p.team_id === teamId && p.tournament_id === tid && p.slot === slot
       );
       if (existingForSlot) db.delete('players', existingForSlot.id);
-      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
+      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot, username: interaction.users?.get(userId)?.username || null });
     }
     updateLivePanels(client, tid).catch(() => {});
     return interaction.update(buildEnrollStep3(tid, teamId));

@@ -2246,7 +2246,7 @@ async function handleBotolaInteraction(interaction) {
           if (uid) {
             const exSl_d = db.findOne('players', p => p.team_id === entry.teamId && p.tournament_id === tid && (p.slot || 0) === slot);
             if (exSl_d) db.delete('players', exSl_d.id);
-            db.insert('players', { discord_id: uid, team_id: entry.teamId, tournament_id: tid, slot });
+            db.insert('players', { discord_id: uid, team_id: entry.teamId, tournament_id: tid, slot, username: interaction.users?.get(uid)?.username || null });
           }
         });
       }
@@ -2413,7 +2413,7 @@ async function handleBotolaInteraction(interaction) {
       }
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
-      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot });
+      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot, username: interaction.users?.get(userId)?.username || null });
       refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
@@ -2455,7 +2455,7 @@ async function handleBotolaInteraction(interaction) {
         if (uid) {
           const exSl = db.findOne('players', p => p.team_id === teamId2 && p.tournament_id === tid && (p.slot || 0) === parseInt(slotStr));
           if (exSl) db.delete('players', exSl.id);
-          db.insert('players', { discord_id: uid, team_id: teamId2, tournament_id: tid, slot: parseInt(slotStr) });
+          db.insert('players', { discord_id: uid, team_id: teamId2, tournament_id: tid, slot: parseInt(slotStr), username: draft2.usernames?.[uid] || null });
         }
       }
       _tmpDel(draftKey2);
@@ -2499,6 +2499,103 @@ async function handleBotolaInteraction(interaction) {
       return;
     }
 
+
+
+    // ── Edit team players (always active, works even when tournament running) ──
+    if (action === 'editteam') {
+      const ttRowsE = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
+      if (!ttRowsE.length) return interaction.update(buildPanel2(t));
+      const opts = ttRowsE.map(tt => {
+        const tm = db.findById('teams', tt.team_id) || { name: 'Unknown', id: tt.team_id };
+        return { label: tm.name.slice(0, 100), value: String(tm.id) };
+      }).sort((a, b) => a.label.localeCompare(b.label));
+      return interaction.update({
+        flags: 32768,
+        components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: '**\u270f\ufe0f  Edit Team Players \u2014 Select a team**' },
+          SEP,
+          { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_sel`, placeholder: 'Select a team to edit...', options: opts.slice(0, 25) }] },
+          SEP,
+          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_refresh` }] },
+        ]}],
+      });
+    }
+
+    if (action === 'editteam_sel') {
+      const teamIdE = parseInt(interaction.values[0]);
+      const teamE = db.findById('teams', teamIdE);
+      if (!teamE) return interaction.update(buildPanel2(t));
+      const slotsE = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL' ? 2 : 1;
+      const curPlayers = db.get('players').filter(p => p.team_id === teamIdE && p.tournament_id === tid);
+      const statusE = [];
+      for (let i = 0; i < slotsE; i++) {
+        const p = curPlayers.find(pl => (pl.slot || 0) === i);
+        statusE.push(p ? `\u2705 ${slotsE > 1 ? 'P' + (i+1) : 'Player'}: <@${p.discord_id}>` : `\u274c ${slotsE > 1 ? 'P' + (i+1) : 'Player'}: not assigned`);
+      }
+      const playerRowsE = [];
+      for (let i = 0; i < slotsE; i++) {
+        playerRowsE.push({ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_editteam_player_${teamIdE}_${i}`, placeholder: slotsE > 1 ? `\ud83d\udc64  Player ${i+1} \u2014 pick new player...` : '\ud83d\udc64  Pick new player...', min_values: 0, max_values: 1 }] });
+      }
+      return interaction.update({
+        flags: 32768,
+        components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: `**\u270f\ufe0f  Edit Players \u2014 ${teamE.name}**\n> ${statusE.join('  \u00b7  ')}` },
+          SEP,
+          ...playerRowsE,
+          SEP,
+          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` }] },
+        ]}],
+      });
+    }
+
+    if (action.startsWith('editteam_player_')) {
+      const epRest = action.replace('editteam_player_', '');
+      const epLast = epRest.lastIndexOf('_');
+      const teamIdEP = parseInt(epRest.slice(0, epLast));
+      const slotEP   = parseInt(epRest.slice(epLast + 1));
+      const userIdEP = interaction.values[0];
+      if (userIdEP) {
+        const exSlEP = db.findOne('players', p => p.team_id === teamIdEP && p.tournament_id === tid && (p.slot || 0) === slotEP);
+        if (exSlEP) db.delete('players', exSlEP.id);
+        db.insert('players', { discord_id: userIdEP, team_id: teamIdEP, tournament_id: tid, slot: slotEP, username: interaction.users?.get(userIdEP)?.username || null });
+        const tplEP = t.template;
+        if (tplEP) {
+          (async () => {
+            const _refEP = db.getConfig('teams_list_ref_' + tplEP);
+            if (_refEP) {
+              const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+              const _chEP  = await cli.channels.fetch(_refEP.channelId).catch(() => null);
+              const _msgEP = await _chEP?.messages.fetch(_refEP.messageId).catch(() => null);
+              if (_msgEP) await _msgEP.edit(buildTeamsListEmbed(tid)).catch(e => console.warn('[p2 editteam]', e.message));
+            }
+          })().catch(() => {});
+        }
+      }
+      // Refresh edit panel for this team
+      const teamEP = db.findById('teams', teamIdEP);
+      if (!teamEP) return interaction.update(buildPanel2(t));
+      const slotsEP = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL' ? 2 : 1;
+      const curPlayersEP = db.get('players').filter(p => p.team_id === teamIdEP && p.tournament_id === tid);
+      const statusEP = [];
+      for (let i = 0; i < slotsEP; i++) {
+        const p = curPlayersEP.find(pl => (pl.slot || 0) === i);
+        statusEP.push(p ? `\u2705 ${slotsEP > 1 ? 'P' + (i+1) : 'Player'}: <@${p.discord_id}>` : `\u274c ${slotsEP > 1 ? 'P' + (i+1) : 'Player'}: not assigned`);
+      }
+      const playerRowsEP = [];
+      for (let i = 0; i < slotsEP; i++) {
+        playerRowsEP.push({ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_editteam_player_${teamIdEP}_${i}`, placeholder: slotsEP > 1 ? `\ud83d\udc64  Player ${i+1} \u2014 pick new player...` : '\ud83d\udc64  Pick new player...', min_values: 0, max_values: 1 }] });
+      }
+      return interaction.update({
+        flags: 32768,
+        components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: `**\u270f\ufe0f  Edit Players \u2014 ${teamEP.name}**\n> ${statusEP.join('  \u00b7  ')}` },
+          SEP,
+          ...playerRowsEP,
+          SEP,
+          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` }] },
+        ]}],
+      });
+    }
 
     if (action === 'previewlist') {
       const { buildTeamsListEmbed: _buildTLE } = require('../panels/teamListPanel');

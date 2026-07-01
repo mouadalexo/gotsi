@@ -36,6 +36,9 @@ function buildPanel2(tournament) {
     btn('Add Team', `p2_${tid}_addteam`, 1, regLocked),
   ]});
   inner.push({ type: 1, components: [
+    btn('\u270f\ufe0f  Edit', `p2_${tid}_editteam`, 2),
+  ]});
+  inner.push({ type: 1, components: [
     btn('\uD83D\uDC41 Preview',   `p2_${tid}_previewlist`, 3, !hasTeams),
     btn('Post / Update', `p2_${tid}_postlist`,    3),
   ]});
