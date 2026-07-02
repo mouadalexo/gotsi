@@ -2786,6 +2786,14 @@ async function handleBotolaInteraction(interaction) {
       if (ttRow) db.update('tournament_teams', ttRow.id, { team_id: teamIdNew });
       const pRows = db.get('players').filter(p => p.team_id === teamIdOld && p.tournament_id === tid);
       for (const pr of pRows) db.update('players', pr.id, { team_id: teamIdNew });
+      // Update matches: replace old team ID in home/away columns for all rounds
+      const mRows = db.get('matches').filter(m => m.tournament_id === tid);
+      for (const m of mRows) {
+        const mUpd = {};
+        if (m.home_team_id === teamIdOld) mUpd.home_team_id = teamIdNew;
+        if (m.away_team_id === teamIdOld) mUpd.away_team_id = teamIdNew;
+        if (Object.keys(mUpd).length) db.update('matches', m.id, mUpd);
+      }
       (async () => {
         const _tplCT = t.template;
         if (_tplCT) {
