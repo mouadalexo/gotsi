@@ -2512,7 +2512,7 @@ async function handleBotolaInteraction(interaction) {
       return interaction.update({
         flags: 32768,
         components: [{ type: 17, accent_color: 0xFF0049, components: [
-          { type: 10, content: '**\u270f\ufe0f  Edit Team Players \u2014 Select a team**' },
+          { type: 10, content: '**\u270f\ufe0f  Edit Team \u2014 Select a team**' },
           SEP,
           { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_sel`, placeholder: 'Select a team to edit...', options: opts.slice(0, 25) }] },
           SEP,
@@ -2543,7 +2543,10 @@ async function handleBotolaInteraction(interaction) {
           SEP,
           ...playerRowsE,
           SEP,
-          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` }] },
+          { type: 1, components: [
+            { type: 2, style: 1, label: '\u270f\ufe0f  Change Team', custom_id: `p2_${tid}_editteam_ct_${teamIdE}` },
+            { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+          ]},
         ]}],
       });
     }
@@ -2556,11 +2559,25 @@ async function handleBotolaInteraction(interaction) {
       const userIdEP = interaction.values[0];
       if (userIdEP) {
         const exSlEP = db.findOne('players', p => p.team_id === teamIdEP && p.tournament_id === tid && (p.slot || 0) === slotEP);
+        const oldUidEP = exSlEP ? exSlEP.discord_id : null;
         if (exSlEP) db.delete('players', exSlEP.id);
         db.insert('players', { discord_id: userIdEP, team_id: teamIdEP, tournament_id: tid, slot: slotEP, username: interaction.users?.get(userIdEP)?.username || null });
         const tplEP = t.template;
-        if (tplEP) {
-          (async () => {
+        (async () => {
+          const _tEP    = getT(tid);
+          const _roleEP = _tEP && _tEP.registration_role_id;
+          if (_roleEP) {
+            const newMemEP = await interaction.guild.members.fetch(userIdEP).catch(() => null);
+            if (newMemEP) await newMemEP.roles.add(_roleEP).catch(() => {});
+            if (oldUidEP && oldUidEP !== userIdEP) {
+              const stillIn = db.findOne('players', p => p.discord_id === oldUidEP && p.tournament_id === tid);
+              if (!stillIn) {
+                const oldMemEP = await interaction.guild.members.fetch(oldUidEP).catch(() => null);
+                if (oldMemEP) await oldMemEP.roles.remove(_roleEP).catch(() => {});
+              }
+            }
+          }
+          if (tplEP) {
             const _refEP = db.getConfig('teams_list_ref_' + tplEP);
             if (_refEP) {
               const { buildTeamsListEmbed } = require('../panels/teamListPanel');
@@ -2568,8 +2585,8 @@ async function handleBotolaInteraction(interaction) {
               const _msgEP = await _chEP?.messages.fetch(_refEP.messageId).catch(() => null);
               if (_msgEP) await _msgEP.edit(buildTeamsListEmbed(tid)).catch(e => console.warn('[p2 editteam]', e.message));
             }
-          })().catch(() => {});
-        }
+          }
+        })().catch(() => {});
       }
       // Refresh edit panel for this team
       const teamEP = db.findById('teams', teamIdEP);
@@ -2592,9 +2609,217 @@ async function handleBotolaInteraction(interaction) {
           SEP,
           ...playerRowsEP,
           SEP,
-          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` }] },
+          { type: 1, components: [
+            { type: 2, style: 1, label: '\u270f\ufe0f  Change Team', custom_id: `p2_${tid}_editteam_ct_${teamIdEP}` },
+            { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+          ]},
         ]}],
       });
+    }
+
+    // ── editteam_search: open search modal ─────────────────────────────────────
+    if (action === 'editteam_search') {
+      return interaction.showModal(
+        new ModalBuilder()
+          .setCustomId(`p2_${tid}_editteam_searchmodal`)
+          .setTitle('Search Team by Name')
+          .addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('team_search').setLabel('Type team name (partial match)')
+              .setStyle(TextInputStyle.Short).setPlaceholder('Team name...').setRequired(true).setMinLength(2)
+          ))
+      );
+    }
+
+    // ── editteam_searchmodal: fuzzy search enrolled teams, show results ─────────
+    if (action === 'editteam_searchmodal') {
+      const { fuzzyTeamSearch: _ftsE } = require('../utils/fuzzyTeam');
+      const typedETS = interaction.fields.getTextInputValue('team_search').trim();
+      const enrolledForEdit = db.get('tournament_teams')
+        .filter(tt => tt.tournament_id === tid)
+        .map(tt => db.findById('teams', tt.team_id))
+        .filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const matchesETS = _ftsE(typedETS, enrolledForEdit, 25);
+      if (!matchesETS.length) {
+        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: `No enrolled teams found matching **"${typedETS}"**. Try a different name.` },
+          SEP,
+          { type: 1, components: [
+            { type: 2, style: 1, label: '\uD83D\uDD0D\uFE0F  Search Again', custom_id: `p2_${tid}_editteam_search` },
+            { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+          ]},
+        ]}] });
+      }
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: `**${matchesETS.length}** team${matchesETS.length !== 1 ? 's' : ''} found for **"${typedETS}"** \u2014 select one to edit` },
+        SEP,
+        { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_fuzzysel`,
+          placeholder: 'Select team to edit...',
+          options: matchesETS.map(tm => ({ label: tm.name.slice(0, 100), value: String(tm.id) })),
+        }]},
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: '\uD83D\uDD0D\uFE0F  Search Again', custom_id: `p2_${tid}_editteam_search` },
+          { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+        ]},
+      ]}] });
+    }
+
+    // ── editteam_fuzzysel: team picked from search → open player edit panel ────
+    if (action === 'editteam_fuzzysel') {
+      const teamIdEF = parseInt(interaction.values[0]);
+      const teamEF   = db.findById('teams', teamIdEF);
+      if (!teamEF) return interaction.update(buildPanel2(t));
+      const slotsEF = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL' ? 2 : 1;
+      const curPlayersEF = db.get('players').filter(p => p.team_id === teamIdEF && p.tournament_id === tid);
+      const statusEF = [];
+      for (let i = 0; i < slotsEF; i++) {
+        const p = curPlayersEF.find(pl => (pl.slot || 0) === i);
+        statusEF.push(p ? `\u2705 ${slotsEF > 1 ? 'P'+(i+1) : 'Player'}: <@${p.discord_id}>` : `\u274c ${slotsEF > 1 ? 'P'+(i+1) : 'Player'}: not assigned`);
+      }
+      const playerRowsEF = [];
+      for (let i = 0; i < slotsEF; i++) {
+        playerRowsEF.push({ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_editteam_player_${teamIdEF}_${i}`,
+          placeholder: slotsEF > 1 ? `\uD83D\uDC64  Player ${i+1} \u2014 pick new player...` : '\uD83D\uDC64  Pick new player...', min_values: 0, max_values: 1 }] });
+      }
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: `**\u270f\ufe0f  Edit \u2014 ${teamEF.name}**\n> ${statusEF.join('  \u00b7  ')}` },
+        SEP,
+        ...playerRowsEF,
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: '\u270f\ufe0f  Change Team', custom_id: `p2_${tid}_editteam_ct_${teamIdEF}` },
+          { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+        ]},
+      ]}] });
+    }
+
+    // ── editteam_ct_*: Change Team — show non-enrolled teams (like Add Team) ──────
+    if (action.startsWith('editteam_ct_')) {
+      const teamIdCT = parseInt(action.replace('editteam_ct_', ''));
+      const teamCT   = db.findById('teams', teamIdCT);
+      if (!teamCT) return interaction.update(buildPanel2(t));
+      const enrolledIdsCT = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
+      const availableCT   = db.get('teams').filter(tm => !enrolledIdsCT.includes(tm.id));
+      const usageCntCT    = {};
+      for (const tt of db.get('tournament_teams')) usageCntCT[tt.team_id] = (usageCntCT[tt.team_id] || 0) + 1;
+      const sortedCT = availableCT
+        .sort((a, b) => (usageCntCT[b.id] || 0) - (usageCntCT[a.id] || 0) || a.name.localeCompare(b.name))
+        .slice(0, 25);
+      if (!sortedCT.length) {
+        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: 'No available teams to swap in \u2014 all teams are already enrolled.' },
+          SEP,
+          { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` }] },
+        ]}] });
+      }
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: `**\u270f\ufe0f  Change Team**\n> Currently enrolled: **${teamCT.name}**\n> Select the team to replace it with:` },
+        SEP,
+        { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_ctsel_${teamIdCT}`,
+          placeholder: 'Select replacement team...',
+          options: sortedCT.map(tm => ({ label: tm.name.slice(0, 100), value: String(tm.id) })),
+        }]},
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: '\uD83D\uDD0D\uFE0F  Search by Name', custom_id: `p2_${tid}_editteam_ctsearch_${teamIdCT}` },
+          { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+        ]},
+      ]}] });
+    }
+
+    // ── editteam_ctsearch_*: search modal for Change Team ─────────────────────
+    if (action.startsWith('editteam_ctsearch_')) {
+      const teamIdCS = parseInt(action.replace('editteam_ctsearch_', ''));
+      return interaction.showModal(
+        new ModalBuilder()
+          .setCustomId(`p2_${tid}_editteam_ctmodal_${teamIdCS}`)
+          .setTitle('Search Replacement Team')
+          .addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('team_search').setLabel('Type team name (partial match)')
+              .setStyle(TextInputStyle.Short).setPlaceholder('Team name...').setRequired(true).setMinLength(2)
+          ))
+      );
+    }
+
+    // ── editteam_ctmodal_*: fuzzy search non-enrolled teams ────────────────────
+    if (action.startsWith('editteam_ctmodal_')) {
+      const { fuzzyTeamSearch: _ftsCM } = require('../utils/fuzzyTeam');
+      const teamIdCM = parseInt(action.replace('editteam_ctmodal_', ''));
+      const typedCM  = interaction.fields.getTextInputValue('team_search').trim();
+      const enrolledIdsCM = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).map(tt => tt.team_id);
+      const availableCM   = db.get('teams').filter(tm => !enrolledIdsCM.includes(tm.id));
+      const matchesCM     = _ftsCM(typedCM, availableCM, 25);
+      if (!matchesCM.length) {
+        return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+          { type: 10, content: `No available teams found matching **"${typedCM}"**. Try a different name.` },
+          SEP,
+          { type: 1, components: [
+            { type: 2, style: 1, label: '\uD83D\uDD0D\uFE0F  Search Again', custom_id: `p2_${tid}_editteam_ctsearch_${teamIdCM}` },
+            { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+          ]},
+        ]}] });
+      }
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: `**${matchesCM.length}** team${matchesCM.length !== 1 ? 's' : ''} found for **"${typedCM}"** \u2014 select one to swap in` },
+        SEP,
+        { type: 1, components: [{ type: 3, custom_id: `p2_${tid}_editteam_ctsel_${teamIdCM}`,
+          placeholder: 'Select replacement team...',
+          options: matchesCM.map(tm => ({ label: tm.name.slice(0, 100), value: String(tm.id) })),
+        }]},
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: '\uD83D\uDD0D\uFE0F  Search Again', custom_id: `p2_${tid}_editteam_ctsearch_${teamIdCM}` },
+          { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+        ]},
+      ]}] });
+    }
+
+    // ── editteam_ctsel_*: swap old enrolled team for selected new team ────────────
+    if (action.startsWith('editteam_ctsel_')) {
+      const teamIdOld = parseInt(action.replace('editteam_ctsel_', ''));
+      const teamIdNew = parseInt(interaction.values[0]);
+      const teamOld   = db.findById('teams', teamIdOld);
+      const teamNew   = db.findById('teams', teamIdNew);
+      if (!teamOld || !teamNew) return interaction.update(buildPanel2(t));
+      const ttRow = db.findOne('tournament_teams', r => r.tournament_id === tid && r.team_id === teamIdOld);
+      if (ttRow) db.update('tournament_teams', ttRow.id, { team_id: teamIdNew });
+      const pRows = db.get('players').filter(p => p.team_id === teamIdOld && p.tournament_id === tid);
+      for (const pr of pRows) db.update('players', pr.id, { team_id: teamIdNew });
+      (async () => {
+        const _tplCT = t.template;
+        if (_tplCT) {
+          const _refCT = db.getConfig('teams_list_ref_' + _tplCT);
+          if (_refCT) {
+            const { buildTeamsListEmbed } = require('../panels/teamListPanel');
+            const _chCT  = await cli.channels.fetch(_refCT.channelId).catch(() => null);
+            const _msgCT = await _chCT?.messages.fetch(_refCT.messageId).catch(() => null);
+            if (_msgCT) await _msgCT.edit(buildTeamsListEmbed(tid)).catch(() => {});
+          }
+        }
+      })().catch(() => {});
+      const slotsCT = (t.players_per_team || 1) >= 2 || (t.template || '').toUpperCase() === 'CL' ? 2 : 1;
+      const curPCT  = db.get('players').filter(p => p.team_id === teamIdNew && p.tournament_id === tid);
+      const statusCT = [];
+      for (let i = 0; i < slotsCT; i++) {
+        const p = curPCT.find(pl => (pl.slot || 0) === i);
+        statusCT.push(p ? `\u2705 ${slotsCT > 1 ? 'P'+(i+1) : 'Player'}: <@${p.discord_id}>` : `\u274c ${slotsCT > 1 ? 'P'+(i+1) : 'Player'}: not assigned`);
+      }
+      const playerRowsCT = [];
+      for (let i = 0; i < slotsCT; i++) {
+        playerRowsCT.push({ type: 1, components: [{ type: 5, custom_id: `p2_${tid}_editteam_player_${teamIdNew}_${i}`,
+          placeholder: slotsCT > 1 ? `\uD83D\uDC64  Player ${i+1} \u2014 pick new player...` : '\uD83D\uDC64  Pick new player...', min_values: 0, max_values: 1 }] });
+      }
+      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: `**\u270f\ufe0f  Edit \u2014 ${teamNew.name}**\n> ${statusCT.join('  \u00b7  ')}\n> \u2705 Swapped: **${teamOld.name}** \u2192 **${teamNew.name}**` },
+        SEP,
+        ...playerRowsCT,
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 1, label: '\u270f\ufe0f  Change Team', custom_id: `p2_${tid}_editteam_ct_${teamIdNew}` },
+          { type: 2, style: 2, label: '\u2190 Back', custom_id: `p2_${tid}_editteam` },
+        ]},
+      ]}] });
     }
 
     if (action === 'previewlist') {
