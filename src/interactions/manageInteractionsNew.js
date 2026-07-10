@@ -4,7 +4,7 @@ const {
 } = require('discord.js');
 const { db }         = require('../utils/database');
 const { isManager, isAdmin } = require('../utils/permissions');
-const { buildManagePanelV2, buildAdminsSubPanel } = require('../panels/managePanel');
+const { buildManagePanelV2, buildAdminsSubPanel, buildManagerRolePickerPanel } = require('../panels/managePanel');
 
 function noPermission(i) {
   return i.reply({ content: '❌ Admins only.', ephemeral: true });
@@ -182,6 +182,111 @@ function _buildTsEditPanel(tid) {
   };
 }
 
+// ── Setup — combined Channels + Role panel for one tournament ─────────────────
+function _buildSetupPanel(tid) {
+  const t = db.findById('tournaments', tid);
+  if (!t) return _buildSetupListPanel();
+  const ch   = t.channels || {};
+  const SEP2 = { type: 14, divider: true, spacing: 1 };
+  const chSel = (label, key) => ({
+    type: 1,
+    components: [{
+      type: 8, custom_id: `mgr2_ch_${tid}_${key}`,
+      placeholder: ch[key] ? `${label} (currently set)` : `${label} — select channel`,
+      channel_types: [0, 5], min_values: 0, max_values: 1,
+      ...(ch[key] ? { default_values: [{ id: ch[key], type: 'channel' }] } : {}),
+    }],
+  });
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0x5865F2, components: [
+      { type: 10, content:
+        `**⚙️ Setup — ${t.name}**\n` +
+        `Select a channel for each category. Changes save instantly.\n` +
+        `-# Tag Role → ${t.registration_role_id ? `<@&${t.registration_role_id}>` : '\`not set\`'}`
+      },
+      SEP2,
+      chSel('Management', 'management'),
+      chSel('Results & Standings', 'results'),
+      chSel('Schedule', 'schedule'),
+      chSel('Teams List', 'teamsList'),
+      { type: 1, components: [{
+        type: 8, custom_id: `mgr2_ch_${tid}_info`,
+        placeholder: t.info_channel ? 'Info Channel (currently set)' : 'Info Channel — select channel',
+        channel_types: [0, 5], min_values: 0, max_values: 1,
+        ...(t.info_channel ? { default_values: [{ id: t.info_channel, type: 'channel' }] } : {}),
+      }]},
+      SEP2,
+      { type: 1, components: [
+        { type: 2, style: t.registration_role_id ? 1 : 2, label: t.registration_role_id ? '🎟️ Role ✓' : '🎟️ Set Role', custom_id: `mgr2_setup_role_${tid}` },
+        { type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_setup_start' },
+      ]},
+    ]}],
+  };
+}
+
+function _buildSetupListPanel() {
+  const allSetup = db.get('tournaments').filter(t => t.template !== 'TEST');
+  const dedupedSetup = Object.values(
+    allSetup.reduce((acc, t) => {
+      const prev = acc[t.template];
+      if (!prev || t.status === 'active' || (prev.status !== 'active' && t.season > prev.season))
+        acc[t.template] = t;
+      return acc;
+    }, {})
+  );
+  const SEP2 = { type: 14, divider: true, spacing: 1 };
+  if (!dedupedSetup.length) {
+    return {
+      flags: 32768,
+      components: [{ type: 17, accent_color: 0x5865F2, components: [
+        { type: 10, content: '**⚙️ Setup**\nNo tournaments found.' },
+        SEP2,
+        { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_refresh' }] },
+      ]}],
+    };
+  }
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0x5865F2, components: [
+      { type: 10, content: '**⚙️ Setup — Select a tournament**' },
+      SEP2,
+      { type: 1, components: [{
+        type: 3, custom_id: 'mgr2_setup_sel', placeholder: 'Select tournament...',
+        options: dedupedSetup
+          .sort((a, b) => a.template.localeCompare(b.template))
+          .map(t => ({ label: t.name.slice(0, 100), value: String(t.id) })),
+      }]},
+      SEP2,
+      { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_refresh' }]},
+    ]}],
+  };
+}
+
+function _buildSetupRolePanel(tid) {
+  const t = db.findById('tournaments', tid);
+  if (!t) return _buildSetupListPanel();
+  const SEP2 = { type: 14, divider: true, spacing: 1 };
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0xFFD700, components: [
+      { type: 10, content:
+        `**🎟️ Set Registration Role — ${t.name}**\n` +
+        `> Current role: ${t.registration_role_id ? `<@&${t.registration_role_id}>` : '\`Not set\`'}\n` +
+        `-# Selection saves immediately.`
+      },
+      SEP2,
+      { type: 1, components: [{
+        type: 6,
+        custom_id: `mgr2_setup_role_pick_${tid}`,
+        placeholder: '🎟️ Select registration role…',
+        min_values: 0, max_values: 1,
+      }]},
+      SEP2,
+      { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: `mgr2_setup_sel_direct_${tid}` }]},
+    ]}],
+  };
+}
 
 async function handleMgr2Interaction(interaction) {
   const id = interaction.customId;
@@ -304,7 +409,7 @@ async function handleMgr2Interaction(interaction) {
       win_pts: 3, draw_pts: 1,
     };
     db.setConfig(`mgr2_pending_${interaction.user.id}`, pending);
-    return interaction.reply(_buildNtConfigPanel(pending));
+    return interaction.update(_buildNtConfigPanel(pending));
   }
 
   // ── Create Tournament — dropdown setting changes ──────────────────────────
@@ -412,68 +517,21 @@ async function handleMgr2Interaction(interaction) {
     return interaction.followUp({ content: `✅ Tag updated to \`${tag}\`.`, ephemeral: true });
   }
 
-  // ── Set Channels (per tournament) ────────────────────────────────────────
-  if (id === 'mgr2_channels_start') {
-    const allCh = db.get('tournaments').filter(t => t.template !== 'TEST');
-    const dedupedCh = Object.values(
-      allCh.reduce((acc, t) => {
-        const prev = acc[t.template];
-        if (!prev || t.status === 'active' || (prev.status !== 'active' && t.season > prev.season))
-          acc[t.template] = t;
-        return acc;
-      }, {})
-    );
-    if (!dedupedCh.length) return interaction.reply({ content: '❌ No active tournaments.', ephemeral: true });
-    const SEP = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0x5865F2, components: [
-        { type: 10, content: '**📺 Set Channels — Select a tournament**' },
-        SEP,
-        { type: 1, components: [{
-          type: 3, custom_id: 'mgr2_channels_sel', placeholder: 'Select tournament...',
-          options: dedupedCh
-            .sort((a, b) => a.template.localeCompare(b.template))
-            .map(t => ({ label: t.name.slice(0, 100), value: String(t.id) })),
-        }]},
-        SEP,
-        { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_refresh' }]},
-      ]}],
-    });
+  // ── Setup — combined Set Channels + Set Role ─────────────────────────────
+  if (id === 'mgr2_setup_start') {
+    return interaction.update(_buildSetupListPanel());
   }
 
-  if (id === 'mgr2_channels_sel') {
-    const tid  = parseInt(interaction.values[0]);
-    const t    = db.findById('tournaments', tid);
+  if (id === 'mgr2_setup_sel') {
+    const tid = parseInt(interaction.values[0]);
+    const t   = db.findById('tournaments', tid);
     if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
-    const ch   = t.channels || {};
-    const SEP2 = { type: 14, divider: true, spacing: 1 };
-    const chSel = (label, key) => ({
-      type: 1,
-      components: [{
-        type: 8, custom_id: `mgr2_ch_${tid}_${key}`,
-        placeholder: ch[key] ? `${label} (currently set)` : `${label} — select channel`,
-        channel_types: [0, 5], min_values: 0, max_values: 1,
-        ...(ch[key] ? { default_values: [{ id: ch[key], type: 'channel' }] } : {}),
-      }],
-    });
-    return interaction.reply({
-      flags: 32768, ephemeral: true,
-      components: [{ type: 17, accent_color: 0x5865F2, components: [
-        { type: 10, content: `**📺 Set Channels — ${t.name}**\nSelect a channel for each category. Changes save instantly.` },
-        SEP2,
-        chSel('Management', 'management'),
-        chSel('Results & Standings', 'results'),
-        chSel('Schedule', 'schedule'),
-        chSel('Teams List', 'teamsList'),
-        { type: 1, components: [{
-          type: 8, custom_id: `mgr2_ch_${tid}_info`,
-          placeholder: t.info_channel ? 'Info Channel (currently set)' : 'Info Channel — select channel',
-          channel_types: [0, 5], min_values: 0, max_values: 1,
-          ...(t.info_channel ? { default_values: [{ id: t.info_channel, type: 'channel' }] } : {}),
-        }]},
-      ]}],
-    });
+    return interaction.update(_buildSetupPanel(tid));
+  }
+
+  if (id.startsWith('mgr2_setup_sel_direct_')) {
+    const tid = parseInt(id.replace('mgr2_setup_sel_direct_', ''));
+    return interaction.update(_buildSetupPanel(tid));
   }
 
   if (id.startsWith('mgr2_ch_')) {
@@ -485,92 +543,45 @@ async function handleMgr2Interaction(interaction) {
     const val    = (interaction.values && interaction.values[0]) || null;
     if (key2 === 'info') {
       db.update('tournaments', tid2, { info_channel: val || null });
-      return interaction.reply({ content: `✅ **Info Channel** → ${val ? `<#${val}>` : 'cleared'}.`, flags: 64 });
+      return interaction.update(_buildSetupPanel(tid2));
     }
     const updCh  = { ...(t2.channels || {}), [key2]: val };
     if (key2 === 'results') updCh.standings = val;
     db.update('tournaments', tid2, { channels: updCh });
-    return interaction.reply({ content: `✅ **${key2}** → ${val ? `<#${val}>` : 'cleared'}.`, flags: 64 });
+    return interaction.update(_buildSetupPanel(tid2));
   }
 
-  // ── Set Registration Role — live role picker ─────────────────────────────
-  if (id === 'mgr2_reg_role_start') {
+  // ── Setup — Set Role button → role picker ────────────────────────────────
+  if (id.startsWith('mgr2_setup_role_') && !id.startsWith('mgr2_setup_role_pick_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tournaments = db.get('tournaments').filter(t => t.template !== 'TEST');
-    if (!tournaments.length) return interaction.reply({ content: '❌ No tournaments found.', ephemeral: true });
-    const SEP2 = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content: '**🎟️ Set Role — Select a tournament**' },
-        SEP2,
-        { type: 1, components: [{
-          type: 3, custom_id: 'mgr2_reg_role_sel', placeholder: 'Select tournament...',
-          options: tournaments.slice(0, 25).map(t => ({
-            label: t.name.slice(0, 100),
-            value: String(t.id),
-            description: `${t.registration_role_id ? '✅ Role set' : 'No role set'}`,
-          })),
-        }]},
-        SEP2,
-        { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_refresh' }]},
-      ]}],
-    });
+    const tid = parseInt(id.replace('mgr2_setup_role_', ''));
+    return interaction.update(_buildSetupRolePanel(tid));
   }
 
-  if (id === 'mgr2_reg_role_sel') {
+  if (id.startsWith('mgr2_setup_role_pick_')) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tRR = db.findById('tournaments', parseInt(interaction.values[0]));
-    if (!tRR) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
-    const SEP2 = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content:
-          `**🎟️ Set Registration Role — ${tRR.name}**\n` +
-          `> Current role: ${tRR.registration_role_id ? `<@&${tRR.registration_role_id}>` : '`Not set`'}\n` +
-          `-# Selection saves immediately.`
-        },
-        SEP2,
-        { type: 1, components: [{
-          type: 6,
-          custom_id: `mgr2_reg_role_pick_${tRR.id}`,
-          placeholder: '🎟️ Select registration role…',
-          min_values: 0, max_values: 1,
-        }]},
-        SEP2,
-        { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_reg_role_start' }]},
-      ]}],
-    });
-  }
-
-  if (id.startsWith('mgr2_reg_role_pick_')) {
-    if (!isAdmin(interaction.member)) return noPermission(interaction);
-    const tRRid     = parseInt(id.replace('mgr2_reg_role_pick_', ''));
+    const tid       = parseInt(id.replace('mgr2_setup_role_pick_', ''));
     const regRoleId = (interaction.values && interaction.values[0]) || null;
-    db.update('tournaments', tRRid, { registration_role_id: regRoleId });
-    const tRR = db.findById('tournaments', tRRid);
-    const SEP2 = { type: 14, divider: true, spacing: 1 };
-    return interaction.update({
-      flags: 32768,
-      components: [{ type: 17, accent_color: 0xFFD700, components: [
-        { type: 10, content:
-          `**🎟️ Set Registration Role — ${tRR?.name || ''}**\n` +
-          `> ${regRoleId ? `✅ Role set to <@&${regRoleId}>` : '✅ Role cleared'}\n` +
-          `-# Selection saves immediately.`
-        },
-        SEP2,
-        { type: 1, components: [{
-          type: 6,
-          custom_id: `mgr2_reg_role_pick_${tRRid}`,
-          placeholder: '🎟️ Select registration role…',
-          min_values: 0, max_values: 1,
-        }]},
-        SEP2,
-        { type: 1, components: [{ type: 2, style: 2, label: '◀ Back', custom_id: 'mgr2_reg_role_start' }]},
-      ]}],
-    });
+    db.update('tournaments', tid, { registration_role_id: regRoleId });
+    return interaction.update(_buildSetupRolePanel(tid));
   }
+
+  // ── Set Manager Role — live role picker ──────────────────────────────────
+  if (id === 'mgr2_set_manager_role') {
+    return interaction.update(buildManagerRolePickerPanel());
+  }
+
+  if (id === 'mgr2_manager_role_pick') {
+    const roleId = (interaction.values && interaction.values[0]) || null;
+    db.setConfig('manager_role_id', roleId);
+    return interaction.update(buildManagerRolePickerPanel());
+  }
+
+  if (id === 'mgr2_manager_role_done') {
+    await interaction.deferUpdate();
+    return interaction.editReply(buildManagePanelV2());
+  }
+
 
 }
 

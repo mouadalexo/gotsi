@@ -2242,13 +2242,16 @@ async function handleBotolaInteraction(interaction) {
           db.insert('tournament_teams', { tournament_id: tid, team_id: entry.teamId, group_name: null,
             wins: 0, draws: 0, losses: 0, goals_for: 0, goals_against: 0, points: 0 });
         }
-        entry.userIds.forEach((uid, slot) => {
+        for (let slot = 0; slot < entry.userIds.length; slot++) {
+          const uid = entry.userIds[slot];
           if (uid) {
             const exSl_d = db.findOne('players', p => p.team_id === entry.teamId && p.tournament_id === tid && (p.slot || 0) === slot);
             if (exSl_d) db.delete('players', exSl_d.id);
-            db.insert('players', { discord_id: uid, team_id: entry.teamId, tournament_id: tid, slot, username: interaction.users?.get(uid)?.username || null });
+            let addUname = interaction.users?.get(uid)?.username || interaction.client.users.cache.get(uid)?.username || null;
+            if (!addUname) addUname = (await interaction.client.users.fetch(uid).catch(() => null))?.username || null;
+            db.insert('players', { discord_id: uid, team_id: entry.teamId, tournament_id: tid, slot, username: addUname });
           }
-        });
+        }
       }
       _tmpDelD(`p2_adding_${tid}_${mgr_d}`);
       (async () => {
@@ -2322,8 +2325,15 @@ async function handleBotolaInteraction(interaction) {
 
       if (draft) {
         // ── DRAFT MODE: save to temp, never touch DB yet ──────────────────
-        if (userId) draft.players[slot] = userId;
-        else delete draft.players[slot];
+        if (userId) {
+          draft.players[slot] = userId;
+          if (!draft.usernames) draft.usernames = {};
+          let _dUname = interaction.users?.get(userId)?.username || interaction.client.users.cache.get(userId)?.username || null;
+          if (!_dUname) _dUname = (await interaction.client.users.fetch(userId).catch(() => null))?.username || null;
+          draft.usernames[userId] = _dUname;
+        } else {
+          delete draft.players[slot];
+        }
         const reqPl = draft.required || (isCL_p ? 2 : 1);
         // Dupe check: one team per user per season.
         // A player is a duplicate only if they appear on a DIFFERENT team
@@ -2413,7 +2423,9 @@ async function handleBotolaInteraction(interaction) {
       }
       const existingSlot = db.findOne('players', p => p.team_id === teamId && p.tournament_id === tid && (p.slot || 0) === slot);
       if (existingSlot) db.delete('players', existingSlot.id);
-      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot, username: interaction.users?.get(userId)?.username || null });
+      let editUname = interaction.users?.get(userId)?.username || interaction.client.users.cache.get(userId)?.username || null;
+      if (!editUname) editUname = (await interaction.client.users.fetch(userId).catch(() => null))?.username || null;
+      db.insert('players', { discord_id: userId, team_id: teamId, tournament_id: tid, slot, username: editUname });
       refreshAll(cli, tid).catch(() => {});
       return interaction.update(buildPanel2(getT(tid)));
     }
@@ -2489,7 +2501,11 @@ async function handleBotolaInteraction(interaction) {
       const rawId    = interaction.fields.getTextInputValue('discord_id').trim().replace(/\D/g, '');
       if (rawId) {
         const exists = db.findOne('players', p => p.discord_id === rawId && p.team_id === teamId);
-        if (!exists) db.insert('players', { discord_id: rawId, team_id: teamId, tournament_id: tid });
+        if (!exists) {
+          let uname = interaction.client.users.cache.get(rawId)?.username || null;
+          if (!uname) uname = (await interaction.client.users.fetch(rawId).catch(() => null))?.username || null;
+          db.insert('players', { discord_id: rawId, team_id: teamId, tournament_id: tid, username: uname });
+        }
       }
       const freshT = getT(tid);
       // Modal submissions must be acknowledged — silently defer+delete, then refresh the panel
@@ -2558,7 +2574,9 @@ async function handleBotolaInteraction(interaction) {
         const exSlEP = db.findOne('players', p => p.team_id === teamIdEP && p.tournament_id === tid && (p.slot || 0) === slotEP);
         const oldUidEP = exSlEP ? exSlEP.discord_id : null;
         if (exSlEP) db.delete('players', exSlEP.id);
-        db.insert('players', { discord_id: userIdEP, team_id: teamIdEP, tournament_id: tid, slot: slotEP, username: interaction.users?.get(userIdEP)?.username || null });
+        let epUname = interaction.users?.get(userIdEP)?.username || interaction.client.users.cache.get(userIdEP)?.username || null;
+        if (!epUname) epUname = (await interaction.client.users.fetch(userIdEP).catch(() => null))?.username || null;
+        db.insert('players', { discord_id: userIdEP, team_id: teamIdEP, tournament_id: tid, slot: slotEP, username: epUname });
         const tplEP = t.template;
         (async () => {
           const _tEP    = getT(tid);

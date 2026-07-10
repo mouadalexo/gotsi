@@ -58,7 +58,7 @@ function buildTeamsListEmbed(tournamentId) {
     for (let s = 0; s < playersPerTeam; s++) {
       const p       = tp.find(pl => (pl.slot || 0) === s);
       const label   = playersPerTeam > 1 ? `Player ${s + 1}` : 'Player';
-      const mention = p ? `<@${p.discord_id}>  \u00b7  \`@${p.username || p.discord_id}\`` : '`No player assigned`';
+      const mention = p ? (p.username ? `<@${p.discord_id}>  \u00b7  \`@${p.username}\`` : `<@${p.discord_id}>`) : '`No player assigned`';
       line += `\n\u3000 ${label}   ${E_SMALLARROW}   ${mention}`;
     }
     return line;

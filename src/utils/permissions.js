@@ -16,14 +16,12 @@ function isAdmin(member) {
 
 function isManager(member) {
   if (!member) return false;
-  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  if (member.roles.cache.some(r =>
-    r.name.toLowerCase().includes('manager') ||
-    r.name.toLowerCase().includes('admin') ||
-    r.name.toLowerCase().includes('tournament')
-  )) return true;
-  const dbAdmins = getDb().get('admins') || [];
+  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
+  const db = getDb();
+  const managerRoleId = db.getConfig('manager_role_id');
+  if (managerRoleId && member.roles.cache.has(managerRoleId)) return true;
+  const dbAdmins = db.get('admins') || [];
   return dbAdmins.some(a => a.discord_id === member.id);
 }
 

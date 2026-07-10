@@ -36,33 +36,69 @@ function buildNewSeasonModal(template) {
 
 // ── V2 Manage Panel ───────────────────────────────────────────────────────────
 function buildManagePanelV2() {
+  const managerRoleId = db.getConfig('manager_role_id');
+
   const inner = [];
 
-  inner.push(txt(`# Admin Panel`));
+  inner.push(txt(`# 🛠️  Manage Panel\n-# Tournaments, setup & bot settings`));
   inner.push(SEP);
 
+  inner.push(txt(`**Tournaments**`));
   inner.push({ type: 1, components: [
-    btn('Create Tournament',   'mgr2_newtournament',  1),
-    btn('Set Channels',        'mgr2_channels_start', 2),
-  ]});
-
-  inner.push({ type: 1, components: [
-    btn('Set Role',            'mgr2_reg_role_start', 2),
-    btn('Tournament Settings', 'mgr2_tournsettings',  2),
+    btn('🏆  Create Tournament', 'mgr2_newtournament',  3),
+    btn('⚙️  Settings',          'mgr2_tournsettings',  2),
   ]});
 
   inner.push(SEP);
 
+  inner.push(txt(`**Setup**`));
   inner.push({ type: 1, components: [
-    btn('Refresh', 'mgr2_refresh', 2),
+    btn('📺  Channels & Roles', 'mgr2_setup_start', 2),
   ]});
 
   inner.push(SEP);
+
+  inner.push(txt(
+    `**Bot Settings**\n-# Manager Role  →  ${managerRoleId ? `<@&${managerRoleId}>` : '\`not set\`'}`
+  ));
+  inner.push({ type: 1, components: [
+    btn(managerRoleId ? '🔑  Manager Role ✓' : '🔑  Set Manager Role', 'mgr2_set_manager_role', managerRoleId ? 1 : 2),
+  ]});
+
+  inner.push(SEP);
+
+  inner.push({ type: 1, components: [
+    btn('🔄  Refresh', 'mgr2_refresh', 2),
+  ]});
 
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
+}
+
+// ── Manager Role picker sub-panel — live role select ───────────────────────────
+function buildManagerRolePickerPanel() {
+  const managerRoleId = db.getConfig('manager_role_id');
+
+  const inner = [
+    txt(`# ⚙️  Set Manager Role\n> Select the role that can use the bot management panels.\n> Selection saves immediately.`),
+    SEP,
+    txt(`**Manager Role**  →  ${managerRoleId ? `<@&${managerRoleId}>` : '\`not set\`'}`),
+    SEP,
+    {
+      type: 1, components: [{
+        type: 6,
+        custom_id: 'mgr2_manager_role_pick',
+        placeholder: '🎟️  Select manager role…',
+        min_values: 0, max_values: 1,
+      }],
+    },
+    SEP,
+    { type: 1, components: [{ type: 2, style: 2, label: '✓ Done', custom_id: 'mgr2_manager_role_done' }] },
+  ];
+
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
 // ── Admins sub-panel (kept for backward-compat) ───────────────────────────────
@@ -95,11 +131,12 @@ function buildAdminsSubPanel() {
   inner.push(SEP);
   inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xEB459E, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
 module.exports = {
   buildNewSeasonModal,
   buildManagePanelV2,
   buildAdminsSubPanel,
+  buildManagerRolePickerPanel,
 };

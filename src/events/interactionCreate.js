@@ -3,10 +3,8 @@ const { errorEmbed } = require('../utils/embeds');
 const { handleTeamInteraction }               = require('../interactions/teamInteractions');
 const { handleTournamentInteraction }         = require('../interactions/tournamentInteractions');
 const { handleResultInteraction }             = require('../interactions/resultInteractions');
-const { handleManageInteraction }             = require('../interactions/manageInteractions');
 const { handleMgr2Interaction }              = require('../interactions/manageInteractionsNew');
 const { handleTestInteraction }               = require('../interactions/testInteractions');
-const { handleAdminInteraction }              = require('../interactions/adminInteractions');
 const { handleWHInteraction }                 = require('../interactions/whInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
@@ -76,10 +74,6 @@ module.exports = {
       // ── Admin panel ────────────────────────────────────────────────────────
       if (id.startsWith('wh_')) {
         return await handleWHInteraction(interaction, client);
-      }
-
-      if (id.startsWith('adm_')) {
-        return await handleAdminInteraction(interaction, client);
       }
 
       // ── Tournament manager panel (legacy tmgr_*) ───────────────────────────
@@ -169,30 +163,6 @@ module.exports = {
       // ── New manage panel (mgr2_*) ─────────────────────────────────────────
       if (id.startsWith('mgr2_')) {
         return await handleMgr2Interaction(interaction);
-      }
-
-      // ── Manager panel (legacy mgr_*) ──────────────────────────────────────
-      if (
-        id.startsWith('mgr_new_season_')         ||
-        id.startsWith('mgr_create_modal_')        ||
-        id.startsWith('mgr_search_teams_')        ||
-        id.startsWith('mgr_team_search_modal_')   ||
-        id.startsWith('mgr_team_enroll_')         ||
-        id.startsWith('mgr_add_player_')          ||
-        id.startsWith('mgr_player_search_modal_') ||
-        id.startsWith('mgr_player_select_')       ||
-        id.startsWith('mgr_player_assign_')       ||
-        id.startsWith('mgr_gen_groups_')          ||
-        id.startsWith('mgr_gen_matches_')         ||
-        id.startsWith('mgr_post_schedule_')       ||
-        id.startsWith('mgr_auto_schedule_')       ||
-        id.startsWith('mgr_auto_schedule_modal_') ||
-        id.startsWith('mgr_add_result_')          ||
-        id.startsWith('mgr_knockout_')            ||
-        id.startsWith('mgr_view_bracket_')        ||
-        id.startsWith('mgr_close_season_')
-      ) {
-        return await handleManageInteraction(interaction, client);
       }
 
       // ── Old team interactions ──────────────────────────────────────────────
