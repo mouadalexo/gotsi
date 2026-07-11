@@ -25,12 +25,15 @@ function isManager(member) {
   return dbAdmins.some(a => a.discord_id === member.id);
 }
 
-// Strict check for /botola and its panels:
-// Only Discord Administrators OR users added as "manager" via the /admin bot panel.
+// Check for /botola panels, /panels, settings:
+// Discord Administrators, users with the configured manager_role_id, OR manually added managers.
 function isBotolaManager(member) {
   if (!member) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  const dbAdmins = getDb().get('admins') || [];
+  const db = getDb();
+  const managerRoleId = db.getConfig('manager_role_id');
+  if (managerRoleId && member.roles.cache.has(managerRoleId)) return true;
+  const dbAdmins = db.get('admins') || [];
   return dbAdmins.some(a => a.discord_id === member.id && a.role === 'manager');
 }
 
