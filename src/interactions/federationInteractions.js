@@ -79,6 +79,39 @@ function roundRobinSchedule(items) {
   return rounds;
 }
 
+// ── Season cleanup helper ───────────────────────────────────────────────────
+async function cleanupFedSeason(guild, clans, matches, fed) {
+  // Delete match channels
+  try {
+    const catId = fed.channels?.category || null;
+    if (catId) {
+      const cat = await guild.channels.fetch(catId).catch(() => null);
+      if (cat && cat.children) {
+        for (const [, ch] of cat.children.cache) {
+          await ch.delete('Federation season ended').catch(() => {});
+        }
+      }
+    } else {
+      for (const m of matches) {
+        if (m.channel_id) {
+          const ch = await guild.channels.fetch(m.channel_id).catch(() => null);
+          if (ch) await ch.delete('Federation season ended').catch(() => {});
+        }
+      }
+    }
+  } catch (e) { console.error('[FED] cleanup channels error:', e.message); }
+  // Delete clan roles
+  try {
+    for (const c of clans) {
+      if (c.role_id) {
+        const role = await guild.roles.fetch(c.role_id).catch(() => null);
+        if (role) await role.delete('Federation season ended').catch(() => {});
+        db.update('fed_clans', c.id, { role_id: null });
+      }
+    }
+  } catch (e) { console.error('[FED] cleanup roles error:', e.message); }
+}
+
 // ── Begin Season ─────────────────────────────────────────────────────────────
 async function beginSeason(interaction, client) {
   const fed   = getFed();
@@ -149,19 +182,22 @@ async function beginSeason(interaction, client) {
   if (_existingM.length === 0) db.insertMany('fed_matches', matchesToInsert);
   saveFed({ status: 'active' });
 
-  // Create clan roles and match channels for first round
+  // Create clan roles (separate try/catch so failure doesn't block channel creation)
+  try {
+    const _rGuild = interaction.guild;
+    for (const clan of clans) {
+      if (!clan.role_id) {
+        const role = await _rGuild.roles.create({ name: clan.name, reason: 'Federation season start' });
+        db.update('fed_clans', clan.id, { role_id: role.id });
+      }
+    }
+  } catch (e) { console.error('[FED] Role creation error:', e.message, e.code || ''); }
+
+  // Create match channels for first round
   try {
     const guild      = interaction.guild;
     const staffRole  = fed.staff_role_id;
     const fmt        = fed.channel_name_format || '{a}-vs-{b}';
-
-    // Create 1 role per clan
-    for (const clan of clans) {
-      if (!clan.role_id) {
-        const role = await guild.roles.create({ name: clan.name, reason: 'Federation season start' });
-        db.update('fed_clans', clan.id, { role_id: role.id });
-      }
-    }
 
     // Reload clans to get role IDs
     const updatedClans = getFedClans();
@@ -206,14 +242,11 @@ async function beginSeason(interaction, client) {
       const realMatch = (db.get('fed_matches') || []).find(m => m.home_clan_id === im.home_clan_id && m.away_clan_id === im.away_clan_id && m.fed_season === season && m.round === 1);
       if (realMatch) db.update('fed_matches', realMatch.id, { channel_id: ch.id });
     }
-  } catch (e) {
-    // Non-fatal: season still started
-    console.error('[FED] Channel/role creation error:', e.message);
-  }
+  } catch (e) { console.error('[FED] Channel creation error:', e.message, e.code || ''); }
 
-  // Refresh ALL panels (including p1) via direct message edit
+  // Refresh p2+p3 only; p1 updated via editReply to avoid race condition
   await Promise.all([
-    refreshFedPanels(client, null).catch(e => console.error('[FED] beginSeason refresh:', e?.message)),
+    refreshFedPanels(client, 'p1').catch(e => console.error('[FED] beginSeason refresh:', e?.message)),
     interaction.editReply(buildFedPanel1()),
   ]);
 }
@@ -342,7 +375,17 @@ async function advanceRound(interaction, client) {
   if (curRound === 1) {
     // Final match played — end season
     const _finalPlayed = koMatches.some(m => m.round === 1 && m.status === 'played');
-    if (_finalPlayed) { saveFed({ status: 'finished' }); return interaction.editReply(buildFedPanel1()); }
+    if (_finalPlayed) {
+      await cleanupFedSeason(interaction.guild, getFedClans(), getFedMatches(), getFed());
+      const _endedS = getFed();
+      saveFed({ status: 'setup', season: (_endedS.season || 1) + 1, registration_open: true });
+      db.setConfig('fed_bracket_ref', null);
+      await Promise.all([
+        refreshFedPanels(client, 'p1').catch(() => {}),
+        interaction.editReply(buildFedPanel1()),
+      ]);
+      return;
+    }
     // Final created but not played (shouldn't happen — Next is disabled), just refresh
     if (koMatches.some(m => m.round === 1 && m.status === 'pending')) return interaction.editReply(buildFedPanel1());
   }
@@ -1009,6 +1052,18 @@ async function handleFederationInteraction(interaction, client) {
         }
       }
     } catch (e) { console.error('[FED] End season channel cleanup:', e.message); }
+    // Delete clan roles
+    try {
+      const _rGuild2 = interaction.guild;
+      const allClans = getFedClans();
+      for (const c of allClans) {
+        if (c.role_id) {
+          const role = await _rGuild2.roles.fetch(c.role_id).catch(() => null);
+          if (role) await role.delete('Federation season ended').catch(() => {});
+          db.update('fed_clans', c.id, { role_id: null });
+        }
+      }
+    } catch (e) { console.error('[FED] Role cleanup error:', e.message); }
     const _endedFed = getFed();
     const _nextSeason = (_endedFed.season || 1) + 1;
     saveFed({ status: 'setup', season: _nextSeason, registration_open: true });
@@ -1244,9 +1299,8 @@ async function handleFederationInteraction(interaction, client) {
       db.insert('fed_clans', { name: 'Clan ' + num, tag: 'C' + num, players: [], fed_season: season, role_id: null, group_name: null });
     }
 
+    refreshFedPanels(client, 'p2').catch(() => {});
     return interaction.update(buildFedPanel2());
-    // interactionCreate.js calls refreshFedPanels(client, 'p2') after this
-    // which auto-refreshes Panel 1 and Panel 3
   }
 
   if (id === 'fed_p2_togglereg') {
