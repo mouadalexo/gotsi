@@ -10,7 +10,9 @@ const { handleTournamentManagerInteraction }  = require('../interactions/tournam
 const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
 const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
 const { handleSettingsInteraction }           = require('../interactions/settingsInteractions');
+const { handleInfoInteraction }               = require('../interactions/infoInteractions');
 const { handleEnrollInteraction }             = require("../interactions/enrollInteractions");
+const { handleFederationInteraction, refreshFedPanels } = require("../interactions/federationInteractions");
 const { handleAutotestInteraction }           = require("../interactions/autotestInteractions");
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 
@@ -145,8 +147,20 @@ module.exports = {
       }
 
       // ── Settings panel (stp_*) ───────────────────────────────────────────────
+      if (id.startsWith('inf_')) {
+        return await handleInfoInteraction(interaction);
+      }
+
       if (id.startsWith('stp_')) {
         return await handleSettingsInteraction(interaction);
+      }
+
+      // ── Federation of Clans (fed_*) ─────────────────────────────────
+      if (id.startsWith('fed_')) {
+        const _fedSkip = id.startsWith('fed_p1_') ? 'p1' : id.startsWith('fed_p2_') ? 'p2' : id.startsWith('fed_p3_') ? 'p3' : null;
+        await handleFederationInteraction(interaction, client);
+        refreshFedPanels(client, _fedSkip).catch(() => {});
+        return;
       }
 
       // ── Botola + Panel 1/2/3 ──────────────────────────────────────────────

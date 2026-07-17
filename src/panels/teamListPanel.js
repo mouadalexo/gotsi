@@ -52,9 +52,10 @@ function buildTeamsListEmbed(tournamentId) {
   const E_SMALLARROW = '<a:smallarrow:1472222559645863936>';
 
   function teamLine(team, tp, i) {
-    const num     = String(i + 1);
-    const spacing = needsPad ? (num.length === 1 ? '    ' : '   ') : '   ';
-    let line = `**${num}${spacing}Team name   ${E_ARROW}   ${team.name}**`;
+    const num    = String(i + 1);
+    // When 10+ teams: pad single-digit numbers with a leading space so they align with double digits
+    const prefix = needsPad && num.length === 1 ? ' ' : '';
+    let line = `**${prefix}${num}   Team name   ${E_ARROW}   ${team.name}**`;
     for (let s = 0; s < playersPerTeam; s++) {
       const p       = tp.find(pl => (pl.slot || 0) === s);
       const label   = playersPerTeam > 1 ? `Player ${s + 1}` : 'Player';

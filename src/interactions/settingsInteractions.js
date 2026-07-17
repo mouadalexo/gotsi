@@ -37,8 +37,7 @@ async function handleSettingsInteraction(interaction) {
 
   // ── stp_refresh_<uid> ─────────────────────────────────────────────────────
   if (id.startsWith('stp_refresh_')) {
-    if (uidFrom(id) !== uid) return wrongPanel(interaction);
-    return interaction.update(buildSettingsPanel(uid));
+    return interaction.update(buildSettingsPanel(uidFrom(id)));
   }
 
   // ── stp_tog_<uid>_<field>_<on|off>: toggle button clicked ────────────────
@@ -48,11 +47,10 @@ async function handleSettingsInteraction(interaction) {
     const m = id.match(/^stp_tog_(\d+)_([a-zA-Z]+)_(on|off)$/);
     if (!m) return;
     const [, uidFromId, field, nextState] = m;
-    if (uidFromId !== uid) return wrongPanel(interaction);
-    const s  = getSettings(uid);
+    const s  = getSettings(uidFromId);
     s[field] = nextState === 'on';
-    db.setConfig('stp_' + uid, s);
-    return interaction.update(buildSettingsPanel(uid));
+    db.setConfig('stp_' + uidFromId, s);
+    return interaction.update(buildSettingsPanel(uidFromId));
   }
 
   // ── stp_cfg_<uid>_<field>: select menu changed ────────────────────────────
@@ -60,22 +58,20 @@ async function handleSettingsInteraction(interaction) {
     const m = id.match(/^stp_cfg_(\d+)_(.+)$/);
     if (!m) return;
     const [, uidFromId, field] = m;
-    if (uidFromId !== uid) return wrongPanel(interaction);
     const val = interaction.values[0];
-    const s   = getSettings(uid);
+    const s   = getSettings(uidFromId);
     if (field === 'condition') {
       s[field] = val;
     } else {
       s[field] = Number(val);
     }
-    db.setConfig('stp_' + uid, s);
-    return interaction.update(buildSettingsPanel(uid));
+    db.setConfig('stp_' + uidFromId, s);
+    return interaction.update(buildSettingsPanel(uidFromId));
   }
 
   // ── stp_settitle_<uid>: open title modal ──────────────────────────────────
   if (id.startsWith('stp_settitle_') && !id.includes('modal')) {
-    if (uidFrom(id) !== uid) return wrongPanel(interaction);
-    const s = getSettings(uid);
+    const s = getSettings(uidFrom(id));
     return interaction.showModal(
       new ModalBuilder()
         .setCustomId(`stp_settitle_modal_${uid}`)
@@ -96,16 +92,15 @@ async function handleSettingsInteraction(interaction) {
 
   // ── stp_settitle_modal_<uid>: title saved ─────────────────────────────────
   if (id.startsWith('stp_settitle_modal_')) {
-    if (uidFrom(id) !== uid) return wrongPanel(interaction);
-    const s = getSettings(uid);
+    const _u = uidFrom(id);
+    const s = getSettings(_u);
     s.title  = interaction.fields.getTextInputValue('title').trim() || 'Match Settings';
-    db.setConfig('stp_' + uid, s);
-    return interaction.update(buildSettingsPanel(uid));
+    db.setConfig('stp_' + _u, s);
+    return interaction.update(buildSettingsPanel(_u));
   }
 
   // ── stp_post_<uid>: post to tournament info channel ───────────────────────
   if (id.startsWith('stp_post_')) {
-    if (uidFrom(id) !== uid) return wrongPanel(interaction);
     const tid = parseInt(interaction.values[0]);
     const t   = db.findById('tournaments', tid);
     if (!t?.info_channel) {
@@ -116,7 +111,8 @@ async function handleSettingsInteraction(interaction) {
     if (!ch) {
       return interaction.followUp({ content: '❌ Info channel not found or bot has no access.', ephemeral: true });
     }
-    await ch.send(buildSettingsPost(uid, tid)).catch(() => {});
+    await ch.send(buildSettingsPost(uidFrom(id), tid)).catch(() => {});
+    await interaction.editReply(buildSettingsPanel(uidFrom(id)));
     return interaction.followUp({ content: `✅ Settings posted to <#${t.info_channel}>.`, ephemeral: true });
   }
 }
