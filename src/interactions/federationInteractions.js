@@ -406,6 +406,7 @@ async function advanceRound(interaction, client) {
         refreshFedPanels(client, 'p1').catch(() => {}),
         interaction.editReply(buildFedPanel1()),
       ]);
+      setTimeout(() => refreshFedPanels(client, null).catch(() => {}), 1500);
       return;
     }
     // Final created but not played (shouldn't happen — Next is disabled), just refresh
@@ -1095,6 +1096,7 @@ async function handleFederationInteraction(interaction, client) {
       refreshFedPanels(client, 'p1').catch(e => console.error('[FED] end_confirm refresh:', e?.message)),
       interaction.editReply(buildFedPanel1()),
     ]);
+    setTimeout(() => refreshFedPanels(client, null).catch(() => {}), 1500);
     return;
   }
   if (id === 'fed_p1_newedition') {
@@ -1203,6 +1205,11 @@ async function handleFederationInteraction(interaction, client) {
 
   if (id.startsWith('fed_p2_clan_save_')) {
     await interaction.deferUpdate();
+    const _savedFed   = getFed();
+    const _savedClans = getFedClans();
+    if (_savedClans.length >= (_savedFed.clan_count || 8)) {
+      refreshFedPanels(client, 'p2').catch(() => {});
+    }
     await interaction.editReply(buildFedPanel2());
     return;
   }
@@ -1225,6 +1232,7 @@ async function handleFederationInteraction(interaction, client) {
   if (id === 'fed_p2_remove_sel') {
     const clanId = parseInt(interaction.values[0]);
     db.delete('fed_clans', clanId);
+    refreshFedPanels(client, 'p2').catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
@@ -1294,6 +1302,7 @@ async function handleFederationInteraction(interaction, client) {
     const fed    = getFed();
     const season = fed.season || 1;
     db.deleteWhere('fed_clans', c => c.fed_season === season);
+    refreshFedPanels(client, 'p2').catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
@@ -1310,6 +1319,7 @@ async function handleFederationInteraction(interaction, client) {
       db.insert('fed_clans', { name: 'Clan ' + num, tag: 'C' + num, players: [], fed_season: season, role_id: null, group_name: null });
     }
 
+    refreshFedPanels(client, 'p2').catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
