@@ -113,6 +113,24 @@ async function cleanupFedSeason(guild, clans, matches, fed) {
 }
 
 // ── Begin Season ─────────────────────────────────────────────────────────────
+
+// ── Begin Season progress panel ────────────────────────────────────────────────────
+function buildBeginSeasonProgressPanel() {
+  const fed = getFed();
+  const SEP = { type: 14, divider: true, spacing: 1 };
+  const txt = c => ({ type: 10, content: c });
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0xFF0049, components: [
+      txt('## 1 : Main  —  ' + (fed.tag || fed.name || 'Federation')),
+      SEP,
+      txt('## ⏳  Starting Season…\n> Creating clan roles and match channels.\n> This will only take a moment — please wait.'),
+      SEP,
+      txt('-# © 24 2026  |  Goatsi Bot'),
+    ]}],
+  };
+}
+
 async function beginSeason(interaction, client) {
   const fed   = getFed();
   const clans = getFedClans();
@@ -133,6 +151,7 @@ async function beginSeason(interaction, client) {
   // We update panels via direct msg.edit() through stored refs (more reliable
   // than interaction.editReply() for non-ephemeral panel messages).
   await interaction.deferUpdate();
+  await interaction.editReply(buildBeginSeasonProgressPanel());
 
   // Ensure fed_clans/fed_matches tables exist
   if (!db.get('fed_clans'))   { db._ensure('fed_clans'); }
@@ -877,10 +896,10 @@ async function handleFederationInteraction(interaction, client) {
   // ── Settings ────────────────────────────────────────────────────────────────
   if (id === 'fed_setup_settings') return interaction.update(buildFedSetupSettingsPanel());
   if (id === 'fed_p1_settings')    return interaction.update(buildFedMainSettingsPanel());
-  if (id === 'fed_cfg_clan_count')       { saveFed({ clan_count: parseInt(interaction.values[0]) }); refreshFedPanels(client, 'p1').catch(() => {}); return interaction.update(buildFedMainSettingsPanel()); }
-  if (id === 'fed_cfg_players_per_clan') { saveFed({ players_per_clan: parseInt(interaction.values[0]) }); refreshFedPanels(client, 'p1').catch(() => {}); return interaction.update(buildFedSetupSettingsPanel()); }
-  if (id === 'fed_cfg_encounters')       { saveFed({ encounters: parseInt(interaction.values[0]) }); refreshFedPanels(client, 'p1').catch(() => {}); return interaction.update(buildFedMainSettingsPanel()); }
-  if (id === 'fed_cfg_teams_per_group')  { saveFed({ teams_per_group: parseInt(interaction.values[0]) }); refreshFedPanels(client, 'p1').catch(() => {}); return interaction.update(buildFedSetupSettingsPanel()); }
+  if (id === 'fed_cfg_clan_count')       { saveFed({ clan_count: parseInt(interaction.values[0]) }); return interaction.update(buildFedMainSettingsPanel()); }
+  if (id === 'fed_cfg_players_per_clan') { saveFed({ players_per_clan: parseInt(interaction.values[0]) }); return interaction.update(buildFedSetupSettingsPanel()); }
+  if (id === 'fed_cfg_encounters')       { saveFed({ encounters: parseInt(interaction.values[0]) }); return interaction.update(buildFedMainSettingsPanel()); }
+  if (id === 'fed_cfg_teams_per_group')  { saveFed({ teams_per_group: parseInt(interaction.values[0]) }); return interaction.update(buildFedSetupSettingsPanel()); }
 
   if (id === 'fed_settings_name') {
     return interaction.showModal(
@@ -951,9 +970,7 @@ async function handleFederationInteraction(interaction, client) {
     if (_newSys === 'cup'    && ![8, 16, 32].includes(_curCc)) _resetCc = 16;
     if (_newSys === 'league' && (_curCc < 8 || _curCc > 15))  _resetCc = 8;
     saveFed({ system: _newSys, ...(_resetCc ? { clan_count: _resetCc } : {}) });
-    await interaction.update(buildFedPanel1());
-    refreshFedPanels(client, 'p1').catch(() => {});
-    return;
+    return interaction.update(buildFedPanel1());
   }
 
   // ── Panel 1: Begin Season ────────────────────────────────────────────────
@@ -1079,9 +1096,7 @@ async function handleFederationInteraction(interaction, client) {
     const fed    = getFed();
     const newSeason = (fed.season || 1) + 1;
     saveFed({ season: newSeason, status: 'setup', registration_open: true });
-    await interaction.update(buildFedPanel1());
-    refreshFedPanels(client, 'p1').catch(() => {});
-    return;
+    return interaction.update(buildFedPanel1());
   }
 
   // ── Panel 2: Registration ────────────────────────────────────────────────
@@ -1119,10 +1134,7 @@ async function handleFederationInteraction(interaction, client) {
     db.insert('fed_clans', { name, tag, players: [], fed_season: season, role_id: null, group_name: null });
     const newClan = (db.get('fed_clans') || []).find(c => c.name.toLowerCase() === name.toLowerCase() && c.fed_season === season);
     await interaction.deferUpdate();
-    await Promise.all([
-      refreshFedPanels(client, 'p2').catch(() => {}),
-      interaction.editReply(buildPlayerAssignPanel(newClan.id)),
-    ]);
+    await interaction.editReply(buildPlayerAssignPanel(newClan.id));
     return;
   }
 
@@ -1186,10 +1198,7 @@ async function handleFederationInteraction(interaction, client) {
 
   if (id.startsWith('fed_p2_clan_save_')) {
     await interaction.deferUpdate();
-    await Promise.all([
-      refreshFedPanels(client, 'p2').catch(() => {}),
-      interaction.editReply(buildFedPanel2()),
-    ]);
+    await interaction.editReply(buildFedPanel2());
     return;
   }
 
@@ -1211,9 +1220,7 @@ async function handleFederationInteraction(interaction, client) {
   if (id === 'fed_p2_remove_sel') {
     const clanId = parseInt(interaction.values[0]);
     db.delete('fed_clans', clanId);
-    await interaction.update(buildFedPanel2());
-    refreshFedPanels(client, 'p2').catch(() => {});
-    return;
+    return interaction.update(buildFedPanel2());
   }
 
   if (id === 'fed_p2_editclan') {
@@ -1282,9 +1289,7 @@ async function handleFederationInteraction(interaction, client) {
     const fed    = getFed();
     const season = fed.season || 1;
     db.deleteWhere('fed_clans', c => c.fed_season === season);
-    await interaction.update(buildFedPanel2());
-    refreshFedPanels(client, 'p2').catch(() => {});
-    return;
+    return interaction.update(buildFedPanel2());
   }
 
   if (id === 'fed_p2_fillrandom') {
@@ -1300,7 +1305,6 @@ async function handleFederationInteraction(interaction, client) {
       db.insert('fed_clans', { name: 'Clan ' + num, tag: 'C' + num, players: [], fed_season: season, role_id: null, group_name: null });
     }
 
-    refreshFedPanels(client, 'p2').catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
@@ -1308,9 +1312,7 @@ async function handleFederationInteraction(interaction, client) {
     const fed = getFed();
     const now = fed.registration_open !== false;
     saveFed({ registration_open: !now });
-    await interaction.update(buildFedPanel2());
-    refreshFedPanels(client, 'p2').catch(() => {});
-    return;
+    return interaction.update(buildFedPanel2());
   }
 
   // ── Panel 3: Toggles ─────────────────────────────────────────────────────
