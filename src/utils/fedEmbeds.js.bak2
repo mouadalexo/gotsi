@@ -156,10 +156,10 @@ function makeFedResultsPost(fed, allMatches, round, clans) {
 }
 
 // ── Standings Post (League & Cup groups) ──────────────────────────────────
-function makeFedStandingsPost(fed, allMatches, clans, isLeague, round) {
+function makeFedStandingsPost(fed, allMatches, clans, isLeague) {
   const label  = (fed.tag || fed.name || 'Federation') + ' S' + (fed.season || 1);
   const NW     = 18;
-  const title  = isLeague ? 'STANDING LEAGUE' : (round ? 'STANDINGS — ROUND ' + round : 'STANDINGS');
+  const title  = isLeague ? 'STANDING LEAGUE' : 'STANDINGS';
 
   const init   = () => ({ w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
   const stats  = {};
@@ -297,7 +297,7 @@ function makeFedBracketPost(fed, allMatches, clans) {
 
   const ROUND_LABELS = { 1: 'FINAL', 2: 'SEMI-FINALS', 4: 'QUARTER-FINALS', 8: 'ROUND OF 16', 16: 'ROUND OF 32' };
   // Single-leg result separator: W (home won) / D (draw) / L (home lost)
-  const fedSep = r => r === 'home' ? scoreSep(3, 0) : r === 'away' ? scoreSep(0, 3) : scoreSep(1, 1);
+  const fedSep = r => r === 'home' ? '  W  ' : r === 'away' ? '  L  ' : '  D  ';
 
   for (const round of roundList) {
     const rLabel   = ROUND_LABELS[round] || 'ROUND ' + round;

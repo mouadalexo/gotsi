@@ -380,7 +380,6 @@ async function advanceRound(interaction, client) {
       const _endedS = getFed();
       saveFed({ status: 'setup', season: (_endedS.season || 1) + 1, registration_open: true });
       db.setConfig('fed_bracket_ref', null);
-    db.setConfig('fed_standings_ref', null);
       await Promise.all([
         refreshFedPanels(client, 'p1').catch(() => {}),
         interaction.editReply(buildFedPanel1()),
@@ -685,13 +684,13 @@ async function doPublish(interaction, buildFn, preferredChKey = 'results') {
   const tagOn   = fed.p3_tag === true;
   const ch      = fed.channels || {};
   const msg     = buildFn();
-  if (!msg) return interaction.followUp({ content: '\u274C Could not build post.', ephemeral: true });
-  if (preview) return interaction.followUp({ ...msg, ephemeral: true });
+  if (!msg) return interaction.reply({ content: '\u274C Could not build post.', ephemeral: true });
+  if (preview) return interaction.reply({ ...msg, ephemeral: true });
 
   const targetChId = ch[preferredChKey] || ch.management;
-  if (!targetChId) return interaction.followUp({ content: '\u274C No channel set. Set a Results or Schedule channel in Channels & Roles.', ephemeral: true });
+  if (!targetChId) return interaction.reply({ content: '\u274C No channel set. Set a Results or Schedule channel in Channels & Roles.', ephemeral: true });
   const target = interaction.guild.channels.cache.get(targetChId) || await interaction.guild.channels.fetch(targetChId).catch(() => null);
-  if (!target) return interaction.followUp({ content: '\u274C Channel not found.', ephemeral: true });
+  if (!target) return interaction.reply({ content: '\u274C Channel not found.', ephemeral: true });
 
   let msgToSend = msg;
   if (tagOn && fed.registration_role_id) {
@@ -713,10 +712,10 @@ async function doPublish(interaction, buildFn, preferredChKey = 'results') {
     }
   }
   await target.send(msgToSend);
-  const _dpConfirm = await interaction.followUp({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
+  await interaction.reply({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
     { type: 10, content: '\u2705 Posted to <#' + targetChId + '>.' },
   ]}]});
-  setTimeout(() => _dpConfirm.delete().catch(() => {}), 4000);
+  setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
 }
 
 // ── Live-post publish (edit existing or send new) ─────────────────────────────
@@ -726,13 +725,13 @@ async function doPublishLive(interaction, buildFn, preferredChKey, liveRefKey) {
   const tagOn   = fed.p3_tag === true;
   const ch      = fed.channels || {};
   const msg     = buildFn();
-  if (!msg) return interaction.followUp({ content: '\u274C Could not build post.', ephemeral: true });
-  if (preview) return interaction.followUp({ ...msg, ephemeral: true });
+  if (!msg) return interaction.reply({ content: '\u274C Could not build post.', ephemeral: true });
+  if (preview) return interaction.reply({ ...msg, ephemeral: true });
 
   const targetChId = ch[preferredChKey] || ch.management;
-  if (!targetChId) return interaction.followUp({ content: '\u274C No channel set.', ephemeral: true });
+  if (!targetChId) return interaction.reply({ content: '\u274C No channel set.', ephemeral: true });
   const target = interaction.guild.channels.cache.get(targetChId) || await interaction.guild.channels.fetch(targetChId).catch(() => null);
-  if (!target) return interaction.followUp({ content: '\u274C Channel not found.', ephemeral: true });
+  if (!target) return interaction.reply({ content: '\u274C Channel not found.', ephemeral: true });
 
   let msgToSend = msg;
   if (tagOn && fed.registration_role_id) {
@@ -764,10 +763,10 @@ async function doPublishLive(interaction, buildFn, preferredChKey, liveRefKey) {
   }
 
   const verb = edited ? 'Updated' : 'Posted to';
-  const _dlConfirm = await interaction.followUp({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
+  await interaction.reply({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
     { type: 10, content: '\u2705 ' + verb + ' <#' + targetChId + '>.' },
   ]}]});
-  setTimeout(() => _dlConfirm.delete().catch(() => {}), 4000);
+  setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
 }
 
 // ── Live bracket refresh ────────────────────────────────────────────────────────────────
@@ -1364,39 +1363,28 @@ async function handleFederationInteraction(interaction, client) {
     }, 'results');
   }
   if (id === 'fed_p3_standings') {
-    const _fedStd = getFed();
-    if ((_fedStd.system || 'cup') === 'league') {
-      return doPublishLive(interaction, () => {
-        const fed   = getFed();
-        const clans = getFedClans();
-        const mts   = getFedMatches();
-        return makeFedStandingsPost(fed, mts, clans, true);
-      }, 'results', 'fed_standings_ref');
-    } else {
-      const _rd = db.getConfig('fed_p3_round') || 1;
-      return doPublish(interaction, () => {
-        const fed   = getFed();
-        const clans = getFedClans();
-        const mts   = getFedMatches().filter(m => m.stage === 'group' && m.round <= _rd);
-        return makeFedStandingsPost(fed, mts, clans, false, _rd);
-      }, 'results');
-    }
+    return doPublishLive(interaction, () => {
+      const fed     = getFed();
+      const clans   = getFedClans();
+      const mts     = getFedMatches();
+      const isLeague= (fed.system || 'cup') === 'league';
+      return makeFedStandingsPost(fed, mts, clans, isLeague);
+    }, 'results', 'fed_standings_ref');
   }
   if (id === 'fed_p3_bracket') {
-    await interaction.deferUpdate();
     const fed    = getFed();
     const clans  = getFedClans();
     const mts    = getFedMatches();
     const msg    = makeFedBracketPost(fed, mts, clans);
-    if (!msg) return interaction.followUp({ content: '\u274C Could not build bracket.', ephemeral: true });
+    if (!msg) return interaction.reply({ content: '\u274C Could not build bracket.', ephemeral: true });
     const preview = fed.p3_preview === true;
-    if (preview) return interaction.followUp({ ...msg, ephemeral: true });
+    if (preview) return interaction.reply({ ...msg, ephemeral: true });
     const ch      = fed.channels || {};
     const targetChId = ch.results || ch.management;
-    if (!targetChId) return interaction.followUp({ content: '\u274C No results channel set.', ephemeral: true });
+    if (!targetChId) return interaction.reply({ content: '\u274C No results channel set.', ephemeral: true });
     const target = interaction.guild.channels.cache.get(targetChId)
                 || await interaction.guild.channels.fetch(targetChId).catch(() => null);
-    if (!target) return interaction.followUp({ content: '\u274C Channel not found.', ephemeral: true });
+    if (!target) return interaction.reply({ content: '\u274C Channel not found.', ephemeral: true });
     const tagOn  = fed.p3_tag === true;
     let msgToSend = msg;
     if (tagOn && fed.registration_role_id) {
@@ -1406,24 +1394,12 @@ async function handleFederationInteraction(interaction, client) {
         msgToSend = { ...msg, components: [{ ...container, components: [{ type: 10, content: '<@&' + roleId + '>' }, ...container.components] }, ...msg.components.slice(1)] };
       }
     }
-    const _bRef = db.getConfig('fed_bracket_ref');
-    let _bEdited = false;
-    if (_bRef) {
-      try {
-        const _bCh  = interaction.guild.channels.cache.get(_bRef.channelId) || await interaction.guild.channels.fetch(_bRef.channelId).catch(() => null);
-        const _bMsg = _bCh ? await _bCh.messages.fetch(_bRef.messageId).catch(() => null) : null;
-        if (_bMsg) { await _bMsg.edit(msgToSend); _bEdited = true; }
-      } catch (_) {}
-    }
-    if (!_bEdited) {
-      const posted = await target.send(msgToSend).catch(() => null);
-      if (posted) db.setConfig('fed_bracket_ref', { channelId: targetChId, messageId: posted.id });
-    }
-    const _bVerb = _bEdited ? 'Bracket updated in' : 'Bracket posted to';
-    const _bConfirm = await interaction.followUp({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
-      { type: 10, content: '\u2705 ' + _bVerb + ' <#' + targetChId + '> \u2014 updates live as results are added.' },
+    const posted = await target.send(msgToSend).catch(() => null);
+    if (posted) db.setConfig('fed_bracket_ref', { channelId: targetChId, messageId: posted.id });
+    await interaction.reply({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
+      { type: 10, content: '\u2705 Bracket posted to <#' + targetChId + '> \u2014 updates live as results are added.' },
     ]}]});
-    setTimeout(() => _bConfirm.delete().catch(() => {}), 4000);
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
     return;
   }
   if (id === 'fed_p3_winner') {
