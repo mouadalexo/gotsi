@@ -281,6 +281,7 @@ async function advanceRound(interaction, client) {
   if (system === 'league') {
     // League: delete previous round channels, create new round channels
     await interaction.deferUpdate();
+    await interaction.editReply({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [{ type: 10, content: '## ⏳  Advancing Round…\n> Setting up next round channels, please wait.' }]}]});
     try {
       const guild     = interaction.guild;
       const staffRole = fed.staff_role_id;
@@ -327,6 +328,7 @@ async function advanceRound(interaction, client) {
 
   // Acknowledge immediately — channel creation can take several seconds
   await interaction.deferUpdate();
+  await interaction.editReply({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [{ type: 10, content: '## ⏳  Processing…\n> Setting up channels, please wait.' }]}]});
 
   // Cup: check if all group matches done → generate knockout
   const groupMatches  = matches.filter(m => m.stage === 'group');
@@ -699,6 +701,7 @@ function buildFedRoundMatchesPanel(round, allM, clans, backId) {
 
 // ── Publish helpers ───────────────────────────────────────────────────────────
 async function doPublish(interaction, buildFn, preferredChKey = 'results') {
+  await interaction.deferUpdate();
   const fed     = getFed();
   const preview = fed.p3_preview === true;
   const tagOn   = fed.p3_tag === true;
@@ -740,6 +743,7 @@ async function doPublish(interaction, buildFn, preferredChKey = 'results') {
 
 // ── Live-post publish (edit existing or send new) ─────────────────────────────
 async function doPublishLive(interaction, buildFn, preferredChKey, liveRefKey) {
+  await interaction.deferUpdate();
   const fed     = getFed();
   const preview = fed.p3_preview === true;
   const tagOn   = fed.p3_tag === true;
@@ -1047,6 +1051,7 @@ async function handleFederationInteraction(interaction, client) {
   if (id === 'fed_p1_end_confirm') {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return noAdmin(interaction);
     await interaction.deferUpdate();
+    await interaction.editReply({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [{ type: 10, content: '## ⏳  Ending Season…\n> Deleting channels and cleaning up, please wait.' }]}]});
     try {
       const allM    = getFedMatches();
       const guild   = interaction.guild;
@@ -1344,7 +1349,8 @@ async function handleFederationInteraction(interaction, client) {
         const _pend = mts.filter(m => m.status === 'pending');
         rd = _pend.length ? Math.min(..._pend.map(m => m.round)) : (mts.length ? Math.max(...mts.map(m => m.round)) : 1);
       } else {
-        rd = db.getConfig('fed_p3_round') || 1;
+        const _grpPlayedSch = mts.filter(m => m.stage === 'group' && m.status === 'played').map(m => m.round);
+        rd = db.getConfig('fed_p3_round') || (_grpPlayedSch.length ? Math.max(..._grpPlayedSch) : 1);
       }
       return makeFedSchedulePost(fed, mts, rd, clans);
     }, 'schedule');
@@ -1360,7 +1366,8 @@ async function handleFederationInteraction(interaction, client) {
         const _pend = mts.filter(m => m.status === 'pending');
         rd = _pend.length ? Math.min(..._pend.map(m => m.round)) : (mts.length ? Math.max(...mts.map(m => m.round)) : 1);
       } else {
-        rd = db.getConfig('fed_p3_round') || 1;
+        const _grpPlayedRes = mts.filter(m => m.stage === 'group' && m.status === 'played').map(m => m.round);
+        rd = db.getConfig('fed_p3_round') || (_grpPlayedRes.length ? Math.max(..._grpPlayedRes) : 1);
       }
       return makeFedResultsPost(fed, mts, rd, clans);
     }, 'results');
@@ -1375,7 +1382,8 @@ async function handleFederationInteraction(interaction, client) {
         return makeFedStandingsPost(fed, mts, clans, true);
       }, 'results', 'fed_standings_ref');
     } else {
-      const _rd = db.getConfig('fed_p3_round') || 1;
+      const _grpPlayedSt = getFedMatches().filter(m => m.stage === 'group' && m.status === 'played').map(m => m.round);
+      const _rd = db.getConfig('fed_p3_round') || (_grpPlayedSt.length ? Math.max(..._grpPlayedSt) : 1);
       return doPublish(interaction, () => {
         const fed   = getFed();
         const clans = getFedClans();

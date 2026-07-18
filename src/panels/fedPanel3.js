@@ -23,7 +23,7 @@ function buildFedPanel3() {
 
   const allGrpRds  = [...new Set(matches.filter(m => m.stage === 'group').map(m => m.round))].sort((a,b)=>a-b);
   const savedRd    = db.getConfig('fed_p3_round') || null;
-  const activeRd   = (savedRd && allGrpRds.includes(Number(savedRd))) ? Number(savedRd) : (allGrpRds[0] || 1);
+  const activeRd   = (savedRd && allGrpRds.includes(Number(savedRd))) ? Number(savedRd) : (allGrpRds[allGrpRds.length - 1] || 1);
 
   const previewMode = fed.p3_preview === true;
   const tagOn       = fed.p3_tag === true;
