@@ -84,7 +84,6 @@ function buildFedPanel1() {
     inner.push({ type: 1, components: [
       btn('Add Result',  'fed_p1_addresult', 1, false),
       btn('Next Round',  'fed_p1_next',      3, !roundDone || allDone),
-      btn('⚙️  Settings',  'fed_p1_settings',  2),
       btn('Refresh',     'fed_p1_refresh',   2),
       btn('End Season',  'fed_p1_end',       4, false),
     ]});
@@ -114,7 +113,6 @@ function buildFedPanel1() {
     inner.push({ type: 1, components: [
       btn('Add Result',  'fed_p1_addresult', 1, false),
       btn(nextLabel,     'fed_p1_next',      3, !roundDone && !allDone),
-      btn('⚙️  Settings',  'fed_p1_settings',  2),
       btn('Refresh',     'fed_p1_refresh',   2),
       btn('End Season',  'fed_p1_end',       4, false),
     ]});
@@ -139,7 +137,6 @@ function buildFedPanel1() {
     inner.push({ type: 1, components: [
       btn('Add Result',  'fed_p1_addresult', 1, false),
       btn('Next',        'fed_p1_next',      3, !roundDone),
-      btn('⚙️  Settings',  'fed_p1_settings',  2),
       btn('Refresh',     'fed_p1_refresh',   2),
       btn('End Season',  'fed_p1_end',       4, false),
     ]});

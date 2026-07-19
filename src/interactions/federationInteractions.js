@@ -2,7 +2,7 @@
 // ── Channel naming helpers ───────────────────────────────────────────────────
 const GROUP_EMOJIS = { A: '🟢', B: '🟡', C: '🟠', D: '🟤' };
 const CIRCLE_NUMS  = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
-const KO_EMOJIS    = ['🔵', '🟣', '🔴', '⚫', '🟠', '🟡', '🟢', '🟤'];
+const KO_EMOJIS    = ['🔴', '⚫', '🔵', '🟣', '🟠', '🟡', '🟢', '🟤'];
 const KO_LABELS_BOLD = { 1: '𝗙𝗜𝗡𝗔𝗟', 2: '𝗦𝗙', 4: '𝗤𝗙', 8: '𝗥𝟭𝟲', 16: '𝗥𝟯𝟮' };
 const BOLD_MD = ['', '𝗠𝗗𝟭', '𝗠𝗗𝟮', '𝗠𝗗𝟯', '𝗠𝗗𝟰', '𝗠𝗗𝟱', '𝗠𝗗𝟲', '𝗠𝗗𝟳', '𝗠𝗗𝟴', '𝗠𝗗𝟵'];
 const BOLD_R  = ['', '𝗥𝟭', '𝗥𝟮', '𝗥𝟯', '𝗥𝟰', '𝗥𝟱', '𝗥𝟲', '𝗥𝟳', '𝗥𝟴', '𝗥𝟵'];
@@ -264,6 +264,7 @@ async function beginSeason(interaction, client) {
   } catch (e) { console.error('[FED] Channel creation error:', e.message, e.code || ''); }
 
   // Refresh p2+p3 only; p1 updated via editReply to avoid race condition
+  db.setConfig('fed_p3_round', 1);
   await Promise.all([
     refreshFedPanels(client, 'p1').catch(e => console.error('[FED] beginSeason refresh:', e?.message)),
     interaction.editReply(buildFedPanel1()),
@@ -342,6 +343,7 @@ async function advanceRound(interaction, client) {
     const _activeRound = _started.length ? Math.max(..._started) : 1;
     const _nextRound   = _activeRound + 1;
     if (_gRounds.includes(_nextRound)) {
+      db.setConfig('fed_p3_round', _nextRound);
       try {
         const guild     = interaction.guild;
         const staffRole = fed.staff_role_id;
@@ -621,7 +623,7 @@ function buildMatchSelectorPanel() {
     const koPending = allM.filter(m => m.stage === 'knockout' && m.status === 'pending');
     if (koPending.length > 0) {
       const curRound = Math.max(...koPending.map(m => m.round));
-      return buildFedRoundMatchesPanel(curRound, allM, clans, 'fed_p1_refresh');
+      return buildFedRoundMatchesPanel(curRound, allM, clans, 'fed_p1_refresh', 'knockout');
     }
   }
 
@@ -632,7 +634,7 @@ function buildMatchSelectorPanel() {
       const started   = groupM.filter(m => m.channel_id || m.status === 'played').map(m => m.round);
       const activeRound = started.length ? Math.max(...started) : 1;
       // Always show round matches — manager decides when to advance, not the bot
-      return buildFedRoundMatchesPanel(activeRound, allM, clans, 'fed_p1_refresh');
+      return buildFedRoundMatchesPanel(activeRound, allM, clans, 'fed_p1_refresh', 'group');
     }
   }
 
@@ -652,7 +654,7 @@ function buildMatchSelectorPanel() {
 }
 
 // ── Round match-button panel (like CL/EL buildRoundMatchesPanel) ─────────────
-function buildFedRoundMatchesPanel(round, allM, clans, backId) {
+function buildFedRoundMatchesPanel(round, allM, clans, backId, stageFilter) {
   const _allM   = allM   || getFedMatches();
   const _clans  = clans  || getFedClans();
   const _backId = backId || 'fed_p1_addresult';
@@ -661,7 +663,7 @@ function buildFedRoundMatchesPanel(round, allM, clans, backId) {
   const SEP     = { type: 14, divider: true, spacing: 1 };
   const txt     = c => ({ type: 10, content: c });
 
-  const roundMatches = _allM.filter(m => m.round === round);
+  const roundMatches = _allM.filter(m => m.round === round && (!stageFilter || m.stage === stageFilter));
   if (!roundMatches.length) {
     return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
       txt('**No matches found for Round ' + round + '.**'),
@@ -1022,7 +1024,7 @@ async function handleFederationInteraction(interaction, client) {
       refreshFedStandingsMessage(client).catch(() => {}),
       refreshFedPanels(client, 'p1').catch(() => {}),
       interaction.editReply(match
-        ? buildFedRoundMatchesPanel(match.round, null, null, 'fed_p1_refresh')
+        ? buildFedRoundMatchesPanel(match.round, null, null, 'fed_p1_refresh', match.stage)
         : buildFedPanel1()),
     ]);
     return;
@@ -1366,6 +1368,27 @@ async function handleFederationInteraction(interaction, client) {
     }, 'schedule');
   }
   if (id === 'fed_p3_results') {
+    // Pre-check: verify there are played matches for the selected round before publishing
+    const _rFed   = getFed();
+    const _rMts   = getFedMatches();
+    const _rIsLg  = (_rFed.system || 'cup') === 'league';
+    let _rRd;
+    if (_rIsLg) {
+      const _rp = _rMts.filter(m => m.status === 'pending');
+      _rRd = _rp.length ? Math.min(..._rp.map(m => m.round)) : (_rMts.length ? Math.max(..._rMts.map(m => m.round)) : 1);
+    } else {
+      const _rgp = _rMts.filter(m => m.stage === 'group' && m.status === 'played').map(m => m.round);
+      _rRd = db.getConfig('fed_p3_round') || (_rgp.length ? Math.max(..._rgp) : 1);
+    }
+    const _rHas = _rMts.some(m => m.status === 'played' && m.round === _rRd && (_rIsLg || m.stage === 'group'));
+    if (!_rHas) {
+      await interaction.deferUpdate();
+      const _noRes = await interaction.followUp({ flags: 64 | 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
+        { type: 10, content: '> ❌  No results for **' + (_rIsLg ? 'Round' : 'Match Day') + ' ' + _rRd + '** yet.' },
+      ]}]});
+      setTimeout(() => _noRes.delete().catch(() => {}), 4000);
+      return;
+    }
     return doPublish(interaction, () => {
       const fed   = getFed();
       const clans = getFedClans();

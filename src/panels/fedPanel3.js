@@ -51,7 +51,7 @@ function buildFedPanel3() {
   if (allGrpRds.length > 0) {
     inner.push({ type: 1, components: [{ type: 3, custom_id: 'fed_p3_roundsel',
       placeholder: 'Pick Round\u2026',
-      options: allGrpRds.map(r => ({ label: 'Round ' + r, value: String(r), default: r === activeRd })),
+      options: allGrpRds.map(r => ({ label: (system === 'cup' ? 'Match Day ' : 'Round ') + r, value: String(r), default: r === activeRd })),
     }]});
     inner.push(SEP);
   }

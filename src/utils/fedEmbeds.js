@@ -307,10 +307,25 @@ function makeFedBracketPost(fed, allMatches, clans) {
 
     let matchText;
     if (!rMatches.length) {
-      // Round not generated yet — show TBD placeholders
-      const lines = [];
-      for (let i = 0; i < round; i++) lines.push(fmtMatchLine('TBD', 'TBD', VS_SEP));
-      matchText = lines.join('\n');
+      // Round not generated yet — derive participants from previous-round matches
+      const prevRound = round * 2;
+      const prevMs    = (matchesByRound[prevRound] || []).sort((a, b) => a.id - b.id);
+      if (prevMs.length > 0) {
+        const adv = m => {
+          if (m.status !== 'played') return getClan(m.home_clan_id).name + '/' + getClan(m.away_clan_id).name;
+          const { hp, ap } = calcMatchResult(m);
+          return getClan(hp > ap ? m.home_clan_id : m.away_clan_id).name;
+        };
+        const lines = [];
+        for (let i = 0; i + 1 < prevMs.length; i += 2) {
+          lines.push(fmtMatchLine(adv(prevMs[i]).toUpperCase(), adv(prevMs[i + 1]).toUpperCase(), VS_SEP));
+        }
+        matchText = lines.join('\n');
+      } else {
+        const lines = [];
+        for (let i = 0; i < round; i++) lines.push(fmtMatchLine('TBD', 'TBD', VS_SEP));
+        matchText = lines.join('\n');
+      }
     } else {
       const lines = rMatches.map(m => {
         const hName = getClan(m.home_clan_id).name.toUpperCase();
