@@ -12,8 +12,8 @@ function buildFedPanel2() {
   const clans    = getFedClans();
   const required = fed.clan_count || 8;
   const regOpen  = fed.registration_open !== false;
-  const locked   = (db.get('fed_matches') || []).some(m => m.fed_season === (fed.season || 1));
-  const left     = required - clans.length;
+  const locked   = fed.status !== 'setup';
+  const left     = Math.max(0, required - clans.length);
 
   const inner = [];
   inner.push(txt('## 2 : Registration \u2014 ' + (fed.tag || fed.name || 'Federation')));
