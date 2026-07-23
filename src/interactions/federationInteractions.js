@@ -221,7 +221,7 @@ async function beginSeason(interaction, client) {
     // Create match channels
     const parentCat = fed.channels?.category || null;
     for (let _chi = 0; _chi < insertedMatches.length; _chi++) {
-      if (_chi > 0) await new Promise(r => setTimeout(r, 1000));
+      if (_chi > 0) await new Promise(r => setTimeout(r, 300));
       const im     = insertedMatches[_chi];
       const clanA  = getClan(im.home_clan_id);
       const clanB  = getClan(im.away_clan_id);
@@ -251,8 +251,8 @@ async function beginSeason(interaction, client) {
 
   // Refresh panels; also update p1 via stored ref as backup in case interaction token expired
   db.setConfig('fed_p3_round', 1);
-  await refreshFedPanels(client, null).catch(e => console.error('[FED] beginSeason refresh:', e?.message));
   interaction.editReply(buildFedPanel1()).catch(() => {});
+  refreshFedPanels(client, 'p1').catch(e => console.error('[FED] beginSeason refresh:', e?.message));
 }
 
 // ── Advance Round ─────────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ async function advanceRound(interaction, client) {
       // Create next round channels
       const nextMatches = (db.get('fed_matches') || []).filter(m => m.fed_season === season && m.round === nextRnd);
       for (let _li = 0; _li < nextMatches.length; _li++) {
-        if (_li > 0) await new Promise(r => setTimeout(r, 1000));
+        if (_li > 0) await new Promise(r => setTimeout(r, 300));
         const im    = nextMatches[_li];
         const clanA = getClanL(im.home_clan_id);
         const clanB = getClanL(im.away_clan_id);
@@ -308,8 +308,8 @@ async function advanceRound(interaction, client) {
         } catch (e) { console.error('[FED] League channel error (match ' + im.id + '):', e.message); }
       }
     } catch (e) { console.error('[FED] League advance round channel error:', e.message); }
-    await refreshFedPanels(client, null).catch(e => console.error('[FED] league advance refresh:', e?.message));
     interaction.editReply(buildFedPanel1()).catch(() => {});
+    refreshFedPanels(client, 'p1').catch(e => console.error('[FED] league advance refresh:', e?.message));
     return;
   }
 
@@ -347,7 +347,7 @@ async function advanceRound(interaction, client) {
         const _maxCh2 = Math.floor((fed.clan_count || updClans.length) / 2);
         const freshM = (db.get('fed_matches') || []).filter(m => m.fed_season === season && m.stage === 'group' && m.round === _nextRound).slice(0, _maxCh2);
         for (let _gmi = 0; _gmi < freshM.length; _gmi++) {
-          if (_gmi > 0) await new Promise(r => setTimeout(r, 1000));
+          if (_gmi > 0) await new Promise(r => setTimeout(r, 300));
           const im    = freshM[_gmi];
           const clanA = getClanG(im.home_clan_id);
           const clanB = getClanG(im.away_clan_id);
@@ -366,8 +366,8 @@ async function advanceRound(interaction, client) {
           } catch (e) { console.error('[FED] Group matchday channel error (match ' + im.id + '):', e.message); }
         }
       } catch (e) { console.error('[FED] Group matchday channel error:', e.message); }
-      await refreshFedPanels(client, null).catch(e => console.error('[FED] group matchday refresh:', e?.message));
       interaction.editReply(buildFedPanel1()).catch(() => {});
+      refreshFedPanels(client, 'p1').catch(e => console.error('[FED] group matchday refresh:', e?.message));
       return;
     }
   }
@@ -399,8 +399,8 @@ async function advanceRound(interaction, client) {
       db.deleteWhere('fed_matches', m => m.fed_season === _oldSeason);
       db.setConfig('fed_bracket_ref', null);
       db.setConfig('fed_standings_ref', null);
-      await refreshFedPanels(client, null).catch(() => {});
       interaction.editReply(buildFedPanel1()).catch(() => {});
+      refreshFedPanels(client, 'p1').catch(() => {});
       return;
     }
     // Final created but not played (shouldn't happen — Next is disabled), just refresh
@@ -442,7 +442,7 @@ async function advanceRound(interaction, client) {
     // Create new channels
     const inserted = (db.get('fed_matches') || []).filter(m => m.fed_season === season && m.round === nextRound && m.stage === 'knockout');
     for (let _koi = 0; _koi < inserted.length; _koi++) {
-      if (_koi > 0) await new Promise(r => setTimeout(r, 1000));
+      if (_koi > 0) await new Promise(r => setTimeout(r, 300));
       const im    = inserted[_koi];
       const clanA = getClan(im.home_clan_id);
       const clanB = getClan(im.away_clan_id);
@@ -462,8 +462,8 @@ async function advanceRound(interaction, client) {
     }
   } catch (e) { console.error('[FED] KO channel error:', e.message); }
 
-  await refreshFedPanels(client, null).catch(e => console.error('[FED] KO advance refresh:', e?.message));
   interaction.editReply(buildFedPanel1()).catch(() => {});
+  refreshFedPanels(client, 'p1').catch(e => console.error('[FED] KO advance refresh:', e?.message));
 }
 
 async function generateKnockoutRound(interaction, client, fed, clans, matches, season) {
@@ -530,7 +530,7 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
     const getClanU  = id => updClans.find(c => c.id === id) || {};
     const inserted  = (db.get('fed_matches') || []).filter(m => m.fed_season === season && m.round === firstRound && m.stage === 'knockout');
     for (let _koi2 = 0; _koi2 < inserted.length; _koi2++) {
-      if (_koi2 > 0) await new Promise(r => setTimeout(r, 1000));
+      if (_koi2 > 0) await new Promise(r => setTimeout(r, 300));
       const im    = inserted[_koi2];
       const clanA = getClanU(im.home_clan_id);
       const clanB = getClanU(im.away_clan_id);
@@ -550,8 +550,8 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
     }
   } catch (e) { console.error('[FED] KO first round channel error:', e.message); }
 
-  await refreshFedPanels(client, null).catch(e => console.error('[FED] KO first round refresh:', e?.message));
   interaction.editReply(buildFedPanel1()).catch(() => {});
+  refreshFedPanels(client, 'p1').catch(e => console.error('[FED] KO first round refresh:', e?.message));
 }
 
 // ── Build Match Result Panel ─────────────────────────────────────────────────
@@ -1101,8 +1101,8 @@ async function handleFederationInteraction(interaction, client) {
     db.setConfig('fed_bracket_ref', null);
     db.setConfig('fed_standings_ref', null);
     db.setConfig('fed_clan_list_ref', null);
-    await refreshFedPanels(client, null).catch(e => console.error('[FED] end_confirm refresh:', e?.message));
     interaction.editReply(buildFedPanel1()).catch(() => {});
+    refreshFedPanels(client, 'p1').catch(e => console.error('[FED] end_confirm refresh:', e?.message));
     return;
   }
   if (id === 'fed_p1_newedition') {
