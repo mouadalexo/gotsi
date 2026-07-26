@@ -7,7 +7,8 @@ const { handleMgr2Interaction }              = require('../interactions/manageIn
 const { handleTestInteraction }               = require('../interactions/testInteractions');
 const { handleWHInteraction }                 = require('../interactions/whInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
-const { handleTeamCrudInteraction }           = require('../interactions/teamCrudInteractions');
+const { handleTeamCrudInteraction }           = require("../interactions/teamCrudInteractions");
+const { handleClanCrudInteraction }           = require("../interactions/clanCrudInteractions");
 const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
 const { handleSettingsInteraction }           = require('../interactions/settingsInteractions');
 const { handleInfoInteraction }               = require('../interactions/infoInteractions');
@@ -156,6 +157,11 @@ module.exports = {
       }
 
       // ── Federation of Clans (fed_*) ─────────────────────────────────
+      // ── Clan Database (/clans) interactions ────────────────────────────────
+      if (id.startsWith("cc_")) {
+        return await handleClanCrudInteraction(interaction);
+      }
+
       if (id.startsWith('fed_')) {
         const _fedSkip = id.startsWith('fed_p1_') ? 'p1' : id.startsWith('fed_p2_') ? 'p2' : id.startsWith('fed_p3_') ? 'p3' : null;
         await handleFederationInteraction(interaction, client);

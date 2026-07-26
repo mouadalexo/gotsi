@@ -40,11 +40,29 @@ function getContext() {
 }
 
 function calcMatchResult(m) {
-  // Simple match-level result: 'home' = home wins (3-0), 'away' = away wins (0-3), 'draw' = (1-1)
+  // If actual scores recorded, return them (new score-entry flow)
+  if (m.home_score !== undefined && m.home_score !== null) {
+    return { hp: Number(m.home_score), ap: Number(m.away_score) };
+  }
+  // Legacy: derive from result field
   if (m.result === 'home') return { hp: 3, ap: 0 };
   if (m.result === 'away') return { hp: 0, ap: 3 };
   if (m.result === 'draw') return { hp: 1, ap: 1 };
   return { hp: 0, ap: 0 };
+}
+
+// Returns score separator string for results/bracket display
+function fmtScoreSep(m) {
+  if (m.home_score !== undefined && m.home_score !== null) {
+    const base = ' ' + String(m.home_score).padStart(2) + ':' + String(m.away_score).padEnd(2);
+    if (m.pen_home !== undefined && m.pen_home !== null)
+      return base + '(P\u202f' + m.pen_home + ':' + m.pen_away + ') ';
+    if (m.decisive_home !== undefined && m.decisive_home !== null)
+      return base + '(DM\u202f' + m.decisive_home + ':' + m.decisive_away + ') ';
+    return base + ' ';
+  }
+  // Legacy
+  return m.result === 'home' ? scoreSep(3, 0) : m.result === 'away' ? scoreSep(0, 3) : scoreSep(1, 1);
 }
 
 // ── Clan List Post ────────────────────────────────────────────
@@ -135,18 +153,12 @@ function makeFedResultsPost(fed, allMatches, round, clans) {
       groups[g].push(m);
     }
     Object.entries(groups).sort().forEach(([g, gm], i) => {
-      const lines = gm.map(m => {
-        const { hp, ap } = calcMatchResult(m);
-        return fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), scoreSep(hp, ap));
-      });
+      const lines = gm.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), fmtScoreSep(m)));
       inner.push(txt(E_HASH + '  **GROUP ' + g + '**\n' + lines.join('\n')));
       if (i < Object.keys(groups).length - 1) inner.push(SEP);
     });
   } else {
-    const lines = rMatches.map(m => {
-      const { hp, ap } = calcMatchResult(m);
-      return fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), scoreSep(hp, ap));
-    });
+    const lines = rMatches.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), fmtScoreSep(m)));
     inner.push(txt(lines.join('\n')));
   }
 
@@ -296,9 +308,6 @@ function makeFedBracketPost(fed, allMatches, clans) {
   }
 
   const ROUND_LABELS = { 1: 'FINAL', 2: 'SEMI-FINALS', 4: 'QUARTER-FINALS', 8: 'ROUND OF 16', 16: 'ROUND OF 32' };
-  // Single-leg result separator: W (home won) / D (draw) / L (home lost)
-  const fedSep = r => r === 'home' ? scoreSep(3, 0) : r === 'away' ? scoreSep(0, 3) : scoreSep(1, 1);
-
   for (const round of roundList) {
     const rLabel   = ROUND_LABELS[round] || 'ROUND ' + round;
     const rMatches = (matchesByRound[round] || []).sort((a, b) => a.id - b.id);
@@ -311,10 +320,10 @@ function makeFedBracketPost(fed, allMatches, clans) {
       const prevRound = round * 2;
       const prevMs    = (matchesByRound[prevRound] || []).sort((a, b) => a.id - b.id);
       if (prevMs.length > 0) {
+        // Use result field directly so DM/pen winners are resolved correctly
         const adv = m => {
           if (m.status !== 'played') return getClan(m.home_clan_id).name + '/' + getClan(m.away_clan_id).name;
-          const { hp, ap } = calcMatchResult(m);
-          return getClan(hp > ap ? m.home_clan_id : m.away_clan_id).name;
+          return getClan(m.result === 'home' ? m.home_clan_id : m.away_clan_id).name;
         };
         const lines = [];
         for (let i = 0; i + 1 < prevMs.length; i += 2) {
@@ -331,7 +340,7 @@ function makeFedBracketPost(fed, allMatches, clans) {
         const hName = getClan(m.home_clan_id).name.toUpperCase();
         const aName = getClan(m.away_clan_id).name.toUpperCase();
         return m.status === 'played'
-          ? fmtMatchLine(hName, aName, fedSep(m.result))
+          ? fmtMatchLine(hName, aName, fmtScoreSep(m))
           : fmtMatchLine(hName, aName, VS_SEP);
       });
       matchText = lines.join('\n');

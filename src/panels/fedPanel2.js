@@ -21,7 +21,6 @@ function buildFedPanel2() {
   inner.push(txt(E_CH + '  **' + clans.length + '** clans registered  \u2022  **' + left + '** spot' + (left !== 1 ? 's' : '') + ' left\n-# Registration: ' + (regOpen ? '\uD83D\uDFE2 Open' : '\uD83D\uDD34 Closed')));
   inner.push(SEP);
   inner.push({ type: 1, components: [btn('\u2795  Add Clan', 'fed_p2_addclan', 1, locked || !regOpen || clans.length >= required)] });
-  inner.push({ type: 1, components: [btn('\u270F\uFE0F  Edit', 'fed_p2_editclan', 2, clans.length === 0)] });
   inner.push({ type: 1, components: [
     btn('\uD83D\uDDD1\uFE0F  Remove',    'fed_p2_remove',     4, clans.length === 0 || locked),
     btn('\u274C  Clear All', 'fed_p2_clear',      4, clans.length === 0 || locked),

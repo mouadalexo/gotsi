@@ -71,19 +71,24 @@ function buildFedPanel1() {
     const roundDone  = curPending === 0 && matches.filter(m => m.round === curRound && m.status === 'played').length > 0;
     const allDone    = pending.length === 0 && played.length > 0;
     const maxRound   = allRounds[allRounds.length-1] || 1;
-    const isLastRound= curRound >= maxRound;
+    const roundClosed = !!fed.round_closed;
 
     inner.push(txt('> **Status:** League  |  **Round ' + curRound + '/' + maxRound + '**\n> **Matches:** ' + played.length + ' played  /  ' + pending.length + ' pending'));
     inner.push(SEP);
     inner.push(txt(
-      allDone   ? '\u2705 **All rounds complete!** Click **End Season** to finish.' :
-      roundDone ? '\u2705 **Round ' + curRound + ' complete!** Click **Next Round** when ready. You can still use **Add Result** to re-enter any result.' :
-                  '\u23f3 **Round ' + curRound + '** \u2014 **' + curPending + '** result' + (curPending !== 1 ? 's' : '') + ' remaining'
+      allDone      ? '\u2705 **All rounds complete!** Click **End Season** to finish.' :
+      roundClosed  ? '\u2705 **Round ' + curRound + ' complete** \u2014 click **\u25b6 Start Next Round** when ready.' :
+      roundDone    ? '\u2705 **Round ' + curRound + ' complete!** Click **Complete Round** when ready. You can still use **Add Result** to re-enter any result.' :
+                     '\u23f3 **Round ' + curRound + '** \u2014 **' + curPending + '** result' + (curPending !== 1 ? 's' : '') + ' remaining'
     ));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('Add Result',  'fed_p1_addresult', 1, false),
-      btn('Next Round',  'fed_p1_next',      3, !roundDone || allDone),
+      btn('Add Result',                    'fed_p1_addresult',     1, false),
+      ...(allDone
+        ? []
+        : roundClosed
+          ? [btn('\u25b6  Start Next Round', 'fed_p1_startround',   3, false)]
+          : [btn('\u2705  Complete Round',   'fed_p1_completeround', 3, !roundDone)]),
       btn('Refresh',     'fed_p1_refresh',   2),
       btn('End Season',  'fed_p1_end',       4, false),
     ]});
@@ -99,22 +104,25 @@ function buildFedPanel1() {
     const activePend   = gm.filter(m => m.round === activeRound && m.status === 'pending').length;
     const roundDone    = activePend === 0 && gm.filter(m => m.round === activeRound).length > 0;
     const allDone      = played.length === gm.length && gm.length > 0;
-    const nextLabel    = allDone ? 'Next → Knockout' : 'Next Matchday';
     const totalPend    = gm.filter(m => m.status === 'pending').length;
+    const roundClosed  = !!fed.round_closed;
 
-    inner.push(txt('> **Status:** Cup — Group Stage  |  **Matchday ' + activeRound + '/' + maxRound + '**\n> **Matches:** ' + played.length + ' played  /  ' + totalPend + ' pending'));
+    inner.push(txt('> **Status:** Cup \u2014 Group Stage  |  **Matchday ' + activeRound + '/' + maxRound + '**\n> **Matches:** ' + played.length + ' played  /  ' + totalPend + ' pending'));
     inner.push(SEP);
     inner.push(txt(
-      allDone   ? '✅ **Group Stage complete!** Click **Next → Knockout** when ready.' :
-      roundDone ? '\u2705 **Matchday ' + activeRound + ' complete!** Click **Next Matchday** when ready. You can still use **Add Result** to re-enter any result.' :
-                  '⏳ Matchday ' + activeRound + ' — **' + activePend + '** result' + (activePend !== 1 ? 's' : '') + ' remaining'
+      allDone      ? '\u2705 **Group Stage complete!** Click **Complete Matchday** to proceed to Knockout.' :
+      roundClosed  ? '\u2705 **Matchday ' + activeRound + ' complete** \u2014 click **\u25b6 Start Next Matchday** when ready.' :
+      roundDone    ? '\u2705 **Matchday ' + activeRound + ' complete!** Click **Complete Matchday** when ready. You can still use **Add Result** to re-enter any result.' :
+                     '\u23f3 Matchday ' + activeRound + ' \u2014 **' + activePend + '** result' + (activePend !== 1 ? 's' : '') + ' remaining'
     ));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('Add Result',  'fed_p1_addresult', 1, false),
-      btn(nextLabel,     'fed_p1_next',      3, !roundDone && !allDone),
-      btn('Refresh',     'fed_p1_refresh',   2),
-      btn('End Season',  'fed_p1_end',       4, false),
+      btn('Add Result',                       'fed_p1_addresult',     1, false),
+      ...(roundClosed
+        ? [btn('\u25b6  Start Next Matchday', 'fed_p1_startround',    3, false)]
+        : [btn('\u2705  Complete Matchday',   'fed_p1_completeround', 3, !roundDone && !allDone)]),
+      btn('Refresh',     'fed_p1_refresh',    2),
+      btn('End Season',  'fed_p1_end',        4, false),
     ]});
 
   } else if (stage === 'knockout') {
@@ -129,23 +137,32 @@ function buildFedPanel1() {
     const curPlayed  = km.filter(m => m.round === curRound && m.status === 'played').length;
     const roundDone  = curPending === 0 && curPlayed > 0;
     const rlabel     = RLABELS[curRound] || 'Round ' + curRound;
+    const roundClosed = !!fed.round_closed;
+    const isFinal    = curRound === 1;
 
     inner.push(txt('> **Status:** Cup \u2014 Knockout  |  **' + rlabel + '**\n> **Matches:** ' + curPlayed + ' played  /  ' + curPending + ' pending'));
     inner.push(SEP);
-    inner.push(txt(roundDone ? '\u2705 **' + rlabel + ' complete!** Click **Next**.' : '\u23f3 **' + rlabel + '** \u2014 **' + curPending + '** result' + (curPending !== 1 ? 's' : '') + ' remaining'));
+    inner.push(txt(
+      roundClosed && !isFinal ? '\u2705 **' + rlabel + ' complete** \u2014 click **\u25b6 Start Next Round** when ready.' :
+      roundDone               ? '\u2705 **' + rlabel + ' complete!**' + (isFinal ? '' : ' Click **Complete Round** when ready.') :
+                                '\u23f3 **' + rlabel + '** \u2014 **' + curPending + '** result' + (curPending !== 1 ? 's' : '') + ' remaining'
+    ));
     inner.push(SEP);
     inner.push({ type: 1, components: [
       btn('Add Result',  'fed_p1_addresult', 1, false),
-      btn('Next',        'fed_p1_next',      3, !roundDone),
+      ...(isFinal ? [] :
+        roundClosed
+          ? [btn('\u25b6  Start Next Round', 'fed_p1_startround',    3, false)]
+          : [btn('\u2705  Complete Round',   'fed_p1_completeround', 3, !roundDone)]),
       btn('Refresh',     'fed_p1_refresh',   2),
       btn('End Season',  'fed_p1_end',       4, false),
     ]});
 
   } else {
-    inner.push(txt('> **Status:** FINISHED  |  **Season ' + (fed.season || 1) + ' Complete**'));
+    inner.push(txt('> **Status:** FINISHED  |  **Season ' + (fed.season || 1) + ' Complete — click End Season to reset**'));
     inner.push(SEP);
     inner.push({ type: 1, components: [
-      btn('New Edition', 'fed_p1_newedition', 1),
+      btn('End Season',  'fed_p1_end',        4),
       btn('⚙️  Settings',  'fed_p1_settings',  2),
       btn('Refresh',     'fed_p1_refresh',    2),
     ]});
