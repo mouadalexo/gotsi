@@ -9,6 +9,9 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: '🚫 This command is restricted to server administrators only.', flags: 64 });
+    }
     await interaction.deferReply({ flags: 64 });
     await interaction.editReply(buildAdminPanel());
   },
