@@ -7,9 +7,10 @@ const { isBotolaManager }   = require('../utils/permissions');
 const { generateRosterPng } = require('../utils/fedRosterPng');
 const {
   getRosterConfig, getRoster, getRosterForMember,
-  buildLeaderDashboard, buildPickUserPanel,
+  buildLeaderDashboard, buildPickUserPanel, buildSearchPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect,
-  buildConfirmRemove, buildAdminPanel, buildAdminClanView,
+  buildConfirmRemove, buildReorderPanel,
+  buildAdminPanel, buildAdminClanView,
   buildAdminSettings, buildAdminConfirmRemove,
 } = require('../panels/fedRosterPanel');
 
@@ -47,12 +48,41 @@ function getRegisteredDiscordIds(excludeRosterId) {
   const ids     = new Set();
   for (const r of rosters) {
     if (r.id === excludeRosterId) continue;
+    // Exclude leader
+    const lid = String(r.leader_discord_id || '').trim();
+    if (lid) ids.add(lid);
+    // Exclude co-leaders
+    for (const cid of (r.co_leaders || [])) {
+      const c = String(cid || '').trim();
+      if (c) ids.add(c);
+    }
+    // Exclude players
     for (const p of (r.players || [])) {
       const uid = String(p.discord_user || '').replace(/\D/g, '');
       if (uid) ids.add(uid);
     }
   }
   return ids;
+}
+
+
+// Return assignment info for a Discord user ID (null if free)
+function getUserAssignmentInfo(discordId) {
+  const id      = String(discordId || '').trim();
+  if (!id) return null;
+  const rosters = db.get('fed_rosters') || [];
+  for (const r of rosters) {
+    const lid = String(r.leader_discord_id || '').trim();
+    if (lid === id) return { role: 'Leader', clan: r.clan_name || 'a clan' };
+    for (const c of (r.co_leaders || [])) {
+      if (String(c || '').trim() === id) return { role: 'Co-Leader', clan: r.clan_name || 'a clan' };
+    }
+    for (const p of (r.players || [])) {
+      const uid = String(p.discord_user || '').replace(/\D/g, '');
+      if (uid === id) return { role: 'Player', clan: r.clan_name || 'a clan', name: p.name };
+    }
+  }
+  return null;
 }
 
 // Build clan info modal (4 fields: name, tag, social, logo)
@@ -214,47 +244,41 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Fill in Clan Info before adding players.' }));
     }
-    const players  = roster.players || [];
-    if (players.length >= cfg.maxPlayers) {
+    const players       = roster.players || [];
+    const leaderInList2 = players.some(p => p.discord_user === eid);
+    const effectiveMax2 = leaderInList2 ? cfg.maxPlayers : cfg.maxPlayers - 1;
+    if (players.length >= effectiveMax2) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Roster is full (' + cfg.maxPlayers + ' players max).' }));
     }
     const usedSlots = players.map(p => p.slot);
     let slot = 1;
     while (usedSlots.includes(slot)) slot++;
-    // Build filtered member list for StringSelect (excludes already-registered)
-    const inThisRoster = new Set(
-      (roster?.players || []).map(p => String(p.discord_user || '').replace(/\D/g, '')).filter(Boolean)
-    );
-    const acrossAll = getRegisteredDiscordIds(roster?.id || null);
-    const excluded  = new Set([...inThisRoster, ...acrossAll]);
-
-    let memberOptions = [];
-    try {
-      const members = interaction.guild.members.cache.size > 1
-        ? interaction.guild.members.cache
-        : await interaction.guild.members.fetch();
-      memberOptions = members
-        .filter(m => !m.user.bot && !excluded.has(m.id))
-        .map(m => ({ label: (m.nickname || m.user.displayName || m.user.username).slice(0, 100), value: m.id }))
-        .slice(0, 25);
-    } catch (_) { /* fall back to UserSelect */ }
-
+    // Show UserSelect (type 5) directly — Discord renders it with live search built in.
+    // Blocking already-assigned users happens post-selection in fr_pick_user_ below.
     await interaction.deferUpdate();
-    return interaction.editReply(buildPickUserPanel(slot, {}, memberOptions));
+    return interaction.editReply(buildPickUserPanel(slot));
   }
 
-  // ── Add Player: step 1 result — user selected, show modal ─────────────────
+  // ── Add Player: step 1 result — member selected from live search ──────────
   if (id.startsWith('fr_pick_user_')) {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    const slot         = parseInt(id.replace('fr_pick_user_', ''));
+    const slot          = parseInt(id.replace('fr_pick_user_', ''));
     const discordUserId = interaction.values[0];
 
-    // Check if this Discord user is already registered anywhere in the federation
-    const registeredIds = getRegisteredDiscordIds(null);
-    if (registeredIds.has(discordUserId)) {
+    // Block if assigned to a DIFFERENT clan (player, leader, or co-leader).
+    // Leaders and co-leaders of their OWN clan can register themselves as players.
+    const assign      = getUserAssignmentInfo(discordUserId);
+    const ownRoster   = getRoster(eid);
+    const isOwnLeader = ownRoster && String(ownRoster.leader_discord_id || '') === String(discordUserId);
+    const isOwnCoLead = ownRoster && (ownRoster.co_leaders || []).map(c => String(c)).includes(String(discordUserId));
+    const isOwnClan   = isOwnLeader || isOwnCoLead;
+    if (assign && !isOwnClan) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildPickUserPanel(slot, { error: '<@' + discordUserId + '> is already registered in another clan.' }));
+      const msg = assign.role === 'Player'
+        ? '<@' + discordUserId + '> is already registered as a **player** in **' + assign.clan + '**.'
+        : '<@' + discordUserId + '> is the **' + assign.role + '** of **' + assign.clan + '** — they cannot be added to another clan.';
+      return interaction.editReply(buildPickUserPanel(slot, { error: msg }));
     }
 
     return interaction.showModal(buildAddPlayerModal(slot, discordUserId));
@@ -332,7 +356,47 @@ async function handleFedRosterInteraction(interaction, client) {
   }
 
   // ── Edit Player: select ──────────────────────────────────────────────────
-  if (id === 'fr_edit_player_start') {
+  // ── Reorder players ────────────────────────────────────────────────────────────────────────────
+  if (id === 'fr_reorder_start') {
+    if (!isLeader(interaction.member)) return noPerm(interaction);
+    await interaction.deferUpdate();
+    return interaction.editReply(buildReorderPanel(eid));
+  }
+
+  if (id === 'fr_reorder_sel') {
+    if (!isLeader(interaction.member)) return noPerm(interaction);
+    const slot = parseInt(interaction.values[0]);
+    await interaction.deferUpdate();
+    return interaction.editReply(buildReorderPanel(eid, slot));
+  }
+
+  if (id.startsWith('fr_reorder_up_') || id.startsWith('fr_reorder_down_')) {
+    if (!isLeader(interaction.member)) return noPerm(interaction);
+    const isUp   = id.startsWith('fr_reorder_up_');
+    const slot   = parseInt(isUp ? id.replace('fr_reorder_up_', '') : id.replace('fr_reorder_down_', ''));
+    const roster = getRoster(eid);
+    if (!roster) { await interaction.deferUpdate(); return interaction.editReply(buildReorderPanel(eid)); }
+    let players  = roster.players || [];
+    const sorted = [...players].sort((a, b) => a.slot - b.slot);
+    const idx    = sorted.findIndex(p => p.slot === slot);
+    const swapIdx = isUp ? idx - 1 : idx + 1;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) {
+      await interaction.deferUpdate();
+      return interaction.editReply(buildReorderPanel(eid, slot));
+    }
+    const slotA = sorted[idx].slot;
+    const slotB = sorted[swapIdx].slot;
+    players = players.map(p => {
+      if (p.slot === slotA) return { ...p, slot: slotB };
+      if (p.slot === slotB) return { ...p, slot: slotA };
+      return p;
+    });
+    db.update('fed_rosters', roster.id, { players });
+    await interaction.deferUpdate();
+    return interaction.editReply(buildReorderPanel(eid, slotB));
+  }
+
+    if (id === 'fr_edit_player_start') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     await interaction.deferUpdate();
     return interaction.editReply(buildEditPlayerSelect(eid));

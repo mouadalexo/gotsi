@@ -59,7 +59,9 @@ function buildLeaderDashboard(leaderId, opts = {}) {
   const locked      = cfg.locked;
   const players     = roster?.players || [];
   const filled      = players.length;
-  const canAdd      = filled < cfg.maxPlayers && !locked;
+  const leaderInList = players.some(p => p.discord_user === roster?.leader_discord_id);
+  const effectiveMax = leaderInList ? cfg.maxPlayers : cfg.maxPlayers - 1;
+  const canAdd       = filled < effectiveMax && !locked;
   const canEdit     = filled > 0 && !locked;
   const canSub      = filled >= cfg.minPlayers && !locked && roster?.status !== 'submitted';
   const canPdf      = !!roster && (roster.clan_name || filled > 0);
@@ -90,7 +92,7 @@ function buildLeaderDashboard(leaderId, opts = {}) {
   if (filled > 0) {
     const sorted = [...players].sort((a, b) => a.slot - b.slot);
     const lines  = sorted.map(p =>
-      (p.slot === 1 ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
+      (p.discord_user === roster.leader_discord_id ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
       (p.discord_user ? '  <@' + p.discord_user + '>' : '') +
       '  `' + (p.device || '?') + '`'
     );
@@ -119,31 +121,26 @@ function buildLeaderDashboard(leaderId, opts = {}) {
 }
 
 // ── LEADER: Pick Discord user step (live member select) ──────────────────────
-function buildPickUserPanel(slot, opts = {}, memberOptions = []) {
+function buildPickUserPanel(slot, opts = {}) {
   const { error } = opts;
   const inner = [];
-  if (error) inner.push(txt('> ❌  ' + error));
+  inner.push(txt('**👤  Add Player — Select Member**\n> Search by typing a name in the dropdown below.'));
   inner.push(SEP);
-  if (memberOptions.length > 0) {
-    inner.push({ type: 1, components: [{
-      type: 3,
-      custom_id: 'fr_pick_user_' + slot,
-      placeholder: '👤 Select a member…',
-      min_values: 1,
-      max_values: 1,
-      options: memberOptions,
-    }]});
-  } else {
-    inner.push({ type: 1, components: [{
-      type: 5,
-      custom_id: 'fr_pick_user_' + slot,
-      placeholder: '👤 Select a member…',
-      min_values: 1,
-      max_values: 1,
-    }]});
+  if (error) {
+    inner.push(txt('> ❌  ' + error));
+    inner.push(SEP);
   }
+  inner.push({ type: 1, components: [{
+    type: 5,
+    custom_id: 'fr_pick_user_' + slot,
+    placeholder: '👤 Search and select a member…',
+    min_values: 1,
+    max_values: 1,
+  }]});
+  inner.push(SEP);
+  inner.push({ type: 1, components: [btn('◄  Back', 'fr_refresh', 2)] });
 
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 32832, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
 // ── LEADER: Edit player select ───────────────────────────────────────────────
@@ -153,6 +150,8 @@ function buildEditPlayerSelect(leaderId) {
   if (!players.length) return buildLeaderDashboard(leaderId, { error: 'No players to edit.' });
 
   const inner = [
+    txt('**Edit Player — Select a player to edit**'),
+    SEP,
     { type: 1, components: [{
       type: 3,
       custom_id: 'fr_sel_edit_player',
@@ -163,7 +162,56 @@ function buildEditPlayerSelect(leaderId) {
         value: String(p.slot),
       })),
     }]},
+    SEP,
+    { type: 1, components: [
+      btn('Reorder Players', 'fr_reorder_start', 1),
+      btn('◄  Back',           'fr_refresh',      2),
+    ]},
   ];
+  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+}
+
+// ── LEADER: Reorder players panel ───────────────────────────────────────────
+function buildReorderPanel(leaderId, selectedSlot = null) {
+  const roster  = getRoster(leaderId);
+  const players = (roster?.players || []).sort((a, b) => a.slot - b.slot);
+  if (!players.length) return buildLeaderDashboard(leaderId, { error: 'No players to reorder.' });
+
+  const slots   = players.map(p => p.slot);
+  const minSlot = slots[0];
+  const maxSlot = slots[slots.length - 1];
+
+  const lines = players.map(p =>
+    (p.slot === selectedSlot ? '>> ' : '    ') +
+    '#' + p.slot + '  ' + (p.name || '?') +
+    (p.discord_user === roster.leader_discord_id ? '  [Leader]' : '')
+  );
+
+  const inner = [
+    txt('**Reorder Players - Select a player then move up or down**\n' + lines.join('\n')),
+    SEP,
+    { type: 1, components: [{
+      type: 3,
+      custom_id: 'fr_reorder_sel',
+      placeholder: 'Select a player to move…',
+      options: players.map(p => ({
+        label: '#' + p.slot + '  ' + (p.name || '(no name)'),
+        value: String(p.slot),
+      })),
+    }]},
+  ];
+
+  if (selectedSlot !== null) {
+    inner.push(SEP);
+    inner.push({ type: 1, components: [
+      btn('Move Up',   'fr_reorder_up_'   + selectedSlot, 1, selectedSlot === minSlot),
+      btn('Move Down', 'fr_reorder_down_' + selectedSlot, 1, selectedSlot === maxSlot),
+    ]});
+  }
+
+  inner.push(SEP);
+  inner.push({ type: 1, components: [btn('◄  Back', 'fr_edit_player_start', 2)] });
+
   return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
 
@@ -174,6 +222,8 @@ function buildRemovePlayerSelect(leaderId) {
   if (!players.length) return buildLeaderDashboard(leaderId, { error: 'No players to remove.' });
 
   const inner = [
+    txt('**Remove Player — Select a player to remove**'),
+    SEP,
     { type: 1, components: [{
       type: 3,
       custom_id: 'fr_sel_remove_player',
@@ -184,8 +234,10 @@ function buildRemovePlayerSelect(leaderId) {
         value: String(p.slot),
       })),
     }]},
+    SEP,
+    { type: 1, components: [btn('◄  Back', 'fr_refresh', 2)] },
   ];
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 32832, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
 // ── LEADER: Confirm remove ───────────────────────────────────────────────────
@@ -306,7 +358,7 @@ function buildAdminClanView(rosterId, opts = {}) {
 
   if (players.length) {
     const lines = players.map(p =>
-      (p.slot === 1 ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
+      (p.discord_user === roster.leader_discord_id ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
       (p.discord_user ? '  <@' + p.discord_user + '>' : '') +
       '  `' + (p.device || '?') + '`  `' + (p.user_id || '?') + '`'
     );
@@ -383,9 +435,55 @@ function buildAdminConfirmRemove(rosterId) {
   return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
 
+
+// ── LEADER: Search member panel (live search step 1) ────────────────────────
+// results = [{label, description, value, taken}]
+function buildSearchPanel(slot, opts = {}, results = []) {
+  const { error, query } = opts;
+  const FED_RED = 0xFF0049;
+  const inner   = [];
+
+  inner.push(txt(
+    '**👤  Add Player — Find Member**\n' +
+    '> Click **🔍 Search** and type a name. Results will appear below.\n' +
+    '> Members marked ⚠️ are already assigned and cannot be selected.'
+  ));
+  inner.push(SEP);
+
+  if (error) {
+    inner.push(txt('> ❌  ' + error));
+    inner.push(SEP);
+  }
+
+  if (results.length > 0) {
+    inner.push({ type: 1, components: [{
+      type: 3,
+      custom_id: 'fr_pick_user_' + slot,
+      placeholder: '👤 Select a member from results…',
+      min_values: 1,
+      max_values: 1,
+      options: results.map(r => ({
+        label:       r.label.slice(0, 100),
+        description: r.description ? r.description.slice(0, 100) : undefined,
+        value:       r.value,
+      })).filter(r => r.label),
+    }]});
+    inner.push(SEP);
+  }
+
+  inner.push({ type: 1, components: [
+    btn('🔍  Search Member', 'fr_search_open_' + slot, 1),
+    btn('◄  Back',           'fr_refresh',              2),
+  ]});
+
+  return { flags: 32832, components: [{ type: 17, accent_color: FED_RED, components: inner }] };
+}
+
 module.exports = {
   getRosterConfig, getRoster, getRosterForMember,
   buildRosterLauncher, buildLeaderDashboard, buildPickUserPanel,
+  buildSearchPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect, buildConfirmRemove,
+  buildReorderPanel,
   buildAdminPanel, buildAdminClanView, buildAdminSettings, buildAdminConfirmRemove,
 };
