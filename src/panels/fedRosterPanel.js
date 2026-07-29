@@ -38,14 +38,7 @@ function buildRosterLauncher(member) {
                              '> 📋 No roster started yet — click **Open Dashboard** to begin.';
 
   const inner = [
-    txt(
-      '## 🏟️  Federation Roster — ' + (member.displayName || member.user?.username || 'Leader') + '\n' +
-      statusLine
-    ),
-    SEP,
     { type: 1, components: [btn('🗂️  Open Dashboard', 'fr_open', locked ? 2 : 1)] },
-    SEP,
-    txt('-# © 24 2026  |  Goatsi Bot'),
   ];
   return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
