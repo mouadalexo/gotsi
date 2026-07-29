@@ -12,10 +12,11 @@ const btn = (label, id, style, disabled = false, emoji = null) => {
 // ── Config helpers ──────────────────────────────────────────────────────────
 function getRosterConfig() {
   return {
-    maxPlayers:   db.getConfig('fed_roster_max_players')    ?? 12,
-    minPlayers:   db.getConfig('fed_roster_min_players')    ?? 8,
-    locked:       db.getConfig('fed_roster_locked')         ?? false,
-    leaderRoleId: db.getConfig('fed_roster_leader_role_id') ?? null,
+    maxPlayers:     db.getConfig('fed_roster_max_players')       ?? 12,
+    minPlayers:     db.getConfig('fed_roster_min_players')       ?? 8,
+    locked:         db.getConfig('fed_roster_locked')            ?? false,
+    leaderRoleId:   db.getConfig('fed_roster_leader_role_id')    ?? null,
+    coLeaderRoleId: db.getConfig('fed_roster_co_leader_role_id') ?? null,
   };
 }
 
@@ -391,6 +392,7 @@ function buildAdminSettings(opts = {}) {
       '> **Max players per clan:** ' + cfg.maxPlayers + '\n' +
       '> **Min players to submit:** ' + cfg.minPlayers + '\n' +
       '> **Clan Leader role:** ' + (cfg.leaderRoleId ? '<@&' + cfg.leaderRoleId + '>' : '*Not set*') + '\n' +
+      '> **Co-Leader role:** ' + (cfg.coLeaderRoleId ? '<@&' + cfg.coLeaderRoleId + '>' : '*Not set*') + '\n' +
       '> **Registration:** ' + (cfg.locked ? '🔒 Locked' : '🟢 Open')
     ),
   ];
@@ -405,6 +407,13 @@ function buildAdminSettings(opts = {}) {
     type: 6,
     custom_id: 'fra_set_leader_role',
     placeholder: '👑 Set Clan Leader role…',
+    min_values: 0,
+    max_values: 1,
+  }]});
+  inner.push({ type: 1, components: [{
+    type: 6,
+    custom_id: 'fra_set_co_leader_role',
+    placeholder: 'Set Co-Leader role…',
     min_values: 0,
     max_values: 1,
   }]});

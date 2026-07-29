@@ -773,6 +773,16 @@ async function handleFedRosterInteraction(interaction, client) {
         info: roleId ? 'Leader role set to <@&' + roleId + '>.' : 'Leader role cleared.',
       }));
     }
+
+    // Set co-leader role
+    if (id === 'fra_set_co_leader_role') {
+      const roleId = (interaction.values || [])[0] || null;
+      db.setConfig('fed_roster_co_leader_role_id', roleId);
+      await interaction.deferUpdate();
+      return interaction.editReply(buildAdminSettings({
+        info: roleId ? 'Co-Leader role set to <@&' + roleId + '>.' : 'Co-Leader role cleared.',
+      }));
+    }
   }
 }
 
