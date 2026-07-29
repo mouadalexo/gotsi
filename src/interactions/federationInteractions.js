@@ -1345,9 +1345,11 @@ async function handleFederationInteraction(interaction, client) {
     const _fed      = getFed();
     const _season   = _fed.season || 1;
     const _fedClans = getFedClans();
-    const _allClans = (db.get('clans') || []).sort((a, b) => a.name.localeCompare(b.name));
+    const _allRosters = (db.get('fed_rosters') || [])
+      .filter(r => r.clan_name && r.clan_name.trim())
+      .sort((a, b) => (a.clan_name || '').localeCompare(b.clan_name || ''));
     // Only show clans not already registered this season
-    const _available = _allClans.filter(c => !_fedClans.find(fc => fc.name.toLowerCase() === c.name.toLowerCase()));
+    const _available = _allRosters.filter(r => !_fedClans.find(fc => fc.name.toLowerCase() === r.clan_name.toLowerCase()));
     const _errPanel  = msg => ({ flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: [
       { type: 10, content: '\u274C  ' + msg },
       { type: 14, divider: true, spacing: 1 },
@@ -1357,14 +1359,14 @@ async function handleFederationInteraction(interaction, client) {
       return interaction.update(_errPanel('The federation is full (' + (_fed.clan_count || 8) + ' clans). Remove a clan or increase the limit first.'));
     }
     if (!_available.length) {
-      return interaction.update(_errPanel('No clans available in the database. Add clans via /clans first.'));
+      return interaction.update(_errPanel('No clans registered yet. Leaders must use `=clan` first.'));
     }
     const _remaining = (_fed.clan_count || 8) - _fedClans.length;
     const _maxSel    = Math.min(25, _remaining, _available.length);
-    const _opts = _available.slice(0, 25).map(c => ({
-      label: c.name + (c.tag ? '  [' + c.tag + ']' : ''),
-      value: String(c.id),
-      description: (c.players || []).length + ' player' + ((c.players || []).length !== 1 ? 's' : '') + ' registered',
+    const _opts = _available.slice(0, 25).map(r => ({
+      label: r.clan_name + (r.clan_tag ? '  [' + r.clan_tag + ']' : ''),
+      value: String(r.id),
+      description: (r.players || []).length + ' player' + ((r.players || []).length !== 1 ? 's' : '') + ' registered',
     }));
     return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
       { type: 10, content: '## \u2795  Register Clans\n> Select one or more clans. (' + _remaining + ' spot' + (_remaining !== 1 ? 's' : '') + ' left)' },
@@ -1378,18 +1380,18 @@ async function handleFederationInteraction(interaction, client) {
   if (id === 'fed_p2_addclan_sel') {
     const _fed      = getFed();
     const _season   = _fed.season || 1;
-    const _allSrc   = db.get('clans') || [];
+    const _allSrc   = (db.get('fed_rosters') || []).filter(r => r.clan_name && r.clan_name.trim());
     const _skipped  = [];
     await interaction.deferUpdate();
     for (const _selId of interaction.values) {
-      const _src = _allSrc.find(c => c.id === parseInt(_selId));
+      const _src = _allSrc.find(r => r.id === parseInt(_selId));
       if (!_src) { _skipped.push('Unknown clan'); continue; }
       const _fedClans = getFedClans();
-      if (_fedClans.find(c => c.name.toLowerCase() === _src.name.toLowerCase())) {
-        _skipped.push(_src.name + ' (already registered)'); continue; }
+      if (_fedClans.find(c => c.name.toLowerCase() === _src.clan_name.toLowerCase())) {
+        _skipped.push(_src.clan_name + ' (already registered)'); continue; }
       if (_fedClans.length >= (_fed.clan_count || 8)) {
-        _skipped.push(_src.name + ' (federation full)'); continue; }
-      db.insert('fed_clans', { name: _src.name, tag: _src.tag || '', players: (_src.players || []).filter(Boolean), fed_season: _season, role_id: _src.role_id || null, group_name: null });
+        _skipped.push(_src.clan_name + ' (federation full)'); continue; }
+      db.insert('fed_clans', { name: _src.clan_name, tag: _src.clan_tag || '', players: (_src.players || []).filter(Boolean), fed_season: _season, role_id: _src.clan_role_id || null, group_name: null });
     }
     if (_skipped.length) {
       await interaction.followUp({ content: '⚠️ Skipped: ' + _skipped.join(', '), flags: 64 });

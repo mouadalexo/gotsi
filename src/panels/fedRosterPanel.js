@@ -23,10 +23,18 @@ function getRoster(leaderDiscordId) {
   return (db.get('fed_rosters') || []).find(r => r.leader_discord_id === leaderDiscordId) || null;
 }
 
+// Find roster where user is main leader OR co-leader (DB-only, never role-based)
+function getRosterForMember(discordId) {
+  return (db.get('fed_rosters') || []).find(r =>
+    r.leader_discord_id === discordId ||
+    (r.co_leaders || []).includes(discordId)
+  ) || null;
+}
+
 // ── LEADER: Launcher message (non-ephemeral, posted by =frosters) ────────────
 function buildRosterLauncher(member) {
   const cfg    = getRosterConfig();
-  const roster = getRoster(member.id);
+  const roster = getRosterForMember(member.id);
   const locked = cfg.locked;
   const status  = roster?.status || 'none';
   const players = roster?.players || [];
@@ -376,7 +384,7 @@ function buildAdminConfirmRemove(rosterId) {
 }
 
 module.exports = {
-  getRosterConfig, getRoster,
+  getRosterConfig, getRoster, getRosterForMember,
   buildRosterLauncher, buildLeaderDashboard, buildPickUserPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect, buildConfirmRemove,
   buildAdminPanel, buildAdminClanView, buildAdminSettings, buildAdminConfirmRemove,

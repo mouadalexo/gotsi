@@ -6,7 +6,7 @@ const { db }                = require('../utils/database');
 const { isBotolaManager }   = require('../utils/permissions');
 const { generateRosterPng } = require('../utils/fedRosterPng');
 const {
-  getRosterConfig, getRoster,
+  getRosterConfig, getRoster, getRosterForMember,
   buildLeaderDashboard, buildPickUserPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect,
   buildConfirmRemove, buildAdminPanel, buildAdminClanView,
@@ -116,6 +116,12 @@ async function handleFedRosterInteraction(interaction, client) {
   const id  = interaction.customId || '';
   const mid = interaction.member?.id;
 
+  // Resolve effective leader ID — DB-only, never role-based.
+  // If this user is a co-leader their eid = their clan's main leader_discord_id.
+  // All fr_ handlers use eid so co-leaders are always locked to their own clan.
+  const _eidRoster = getRosterForMember(mid);
+  const eid = _eidRoster ? _eidRoster.leader_discord_id : mid;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LEADER INTERACTIONS  (prefix: fr_)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -125,13 +131,21 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     // Delete the launcher message immediately, then open the ephemeral dashboard
     await interaction.message.delete().catch(() => {});
-    return interaction.reply(buildLeaderDashboard(mid));
+    // Refresh leader_name only when the MAIN leader opens (not co-leaders)
+    const _openRoster = getRoster(eid);
+    if (_openRoster && mid === eid) {
+      const _lName = interaction.member.displayName || interaction.member.user?.username || '';
+      if (_lName && _openRoster.leader_name !== _lName) {
+        db.update('fed_rosters', _openRoster.id, { leader_name: _lName });
+      }
+    }
+    return interaction.reply(buildLeaderDashboard(eid));
   }
 
   // ── Refresh dashboard ────────────────────────────────────────────────────
   if (id === 'fr_refresh') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    return interaction.update(buildLeaderDashboard(mid));
+    return interaction.update(buildLeaderDashboard(eid));
   }
 
   // ── Clan Info modal open ─────────────────────────────────────────────────
@@ -139,7 +153,7 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const cfg = getRosterConfig();
     if (cfg.locked) return interaction.reply({ content: '🔒 Registration is locked.', ephemeral: true });
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     return interaction.showModal(buildClanInfoModal(roster));
   }
 
@@ -149,7 +163,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
     const clan_name    = interaction.fields.getTextInputValue('clan_name').trim();
     const clan_tag     = interaction.fields.getTextInputValue('clan_tag').trim().toUpperCase();
@@ -158,28 +172,36 @@ async function handleFedRosterInteraction(interaction, client) {
 
     if (!clan_name) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Clan name is required.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Clan name is required.' }));
     }
 
-    const roster = getRoster(mid);
+    // Hard dedup: always re-fetch right before insert to prevent double-submit race
+    let roster = getRoster(eid);
     const fed    = db.getConfig('federation') || {};
     if (roster) {
       db.update('fed_rosters', roster.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
     } else {
-      db.insert('fed_rosters', {
-        guild_id: interaction.guild.id,
-        leader_discord_id: mid,
-        clan_name, clan_tag, social_media, logo_url,
-        players: [],
-        co_leaders: [],
-        status: 'draft',
-        clan_role_id: null,
-        season: fed.season || 1,
-        updated_at: new Date().toISOString(),
-      });
+      // Re-check inside the else to guard against concurrent submits
+      const _doubleCheck = (db.get('fed_rosters') || []).find(r => r.leader_discord_id === mid);
+      if (_doubleCheck) {
+        db.update('fed_rosters', _doubleCheck.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
+      } else {
+        db.insert('fed_rosters', {
+          guild_id: interaction.guild.id,
+          leader_discord_id: eid,
+          leader_name: interaction.member.displayName || interaction.member.user?.username || '',
+          clan_name, clan_tag, social_media, logo_url,
+          players: [],
+          co_leaders: [],
+          status: 'draft',
+          clan_role_id: null,
+          season: fed.season || 1,
+          updated_at: new Date().toISOString(),
+        });
+      }
     }
     await interaction.deferUpdate();
-    return interaction.editReply(buildLeaderDashboard(mid, { info: 'Clan info saved.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
   }
 
   // ── Add Player: step 1 — show Discord user select ─────────────────────────
@@ -187,15 +209,15 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const cfg = getRosterConfig();
     if (cfg.locked) return interaction.reply({ content: '🔒 Registration is locked.', ephemeral: true });
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster?.clan_name) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Fill in Clan Info before adding players.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Fill in Clan Info before adding players.' }));
     }
     const players  = roster.players || [];
     if (players.length >= cfg.maxPlayers) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Roster is full (' + cfg.maxPlayers + ' players max).' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Roster is full (' + cfg.maxPlayers + ' players max).' }));
     }
     const usedSlots = players.map(p => p.slot);
     let slot = 1;
@@ -249,12 +271,12 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg    = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Set Clan Info first.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Set Clan Info first.' }));
     }
 
     const name          = interaction.fields.getTextInputValue('name').trim();
@@ -266,18 +288,18 @@ async function handleFedRosterInteraction(interaction, client) {
     const dupeUserId = uniqueCheck(roster.id, slot, 'user_id', user_id);
     if (dupeUserId) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'In-Game User ID **' + user_id + '** is already registered in **' + (dupeUserId.clan_name || 'another clan') + '**.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'In-Game User ID **' + user_id + '** is already registered in **' + (dupeUserId.clan_name || 'another clan') + '**.' }));
     }
     const dupeSerial = uniqueCheck(roster.id, slot, 'serial_number', serial_number);
     if (dupeSerial) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Serial Number **' + serial_number + '** is already registered in **' + (dupeSerial.clan_name || 'another clan') + '**.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Serial Number **' + serial_number + '** is already registered in **' + (dupeSerial.clan_name || 'another clan') + '**.' }));
     }
     if (discordUserId) {
       const dupeDiscord = getRegisteredDiscordIds(roster.id);
       if (dupeDiscord.has(discordUserId)) {
         await interaction.deferUpdate();
-        return interaction.editReply(buildLeaderDashboard(mid, { error: '<@' + discordUserId + '> is already registered in another clan.' }));
+        return interaction.editReply(buildLeaderDashboard(eid, { error: '<@' + discordUserId + '> is already registered in another clan.' }));
       }
     }
 
@@ -306,24 +328,24 @@ async function handleFedRosterInteraction(interaction, client) {
       });
     }
     await interaction.deferUpdate();
-    return interaction.editReply(buildLeaderDashboard(mid, { info: 'Player #' + slot + ' — **' + name + '** added.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Player #' + slot + ' — **' + name + '** added.' }));
   }
 
   // ── Edit Player: select ──────────────────────────────────────────────────
   if (id === 'fr_edit_player_start') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     await interaction.deferUpdate();
-    return interaction.editReply(buildEditPlayerSelect(mid));
+    return interaction.editReply(buildEditPlayerSelect(eid));
   }
 
   if (id === 'fr_sel_edit_player') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const slot   = parseInt(interaction.values[0]);
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     const player = (roster?.players || []).find(p => p.slot === slot);
     if (!player) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Player not found.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Player not found.' }));
     }
     return interaction.showModal(buildEditPlayerModal(slot, player));
   }
@@ -335,12 +357,12 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg  = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid));
+      return interaction.editReply(buildLeaderDashboard(eid));
     }
 
     const name          = interaction.fields.getTextInputValue('name').trim();
@@ -352,18 +374,18 @@ async function handleFedRosterInteraction(interaction, client) {
     const dupeUserId = uniqueCheck(roster.id, slot, 'user_id', user_id);
     if (dupeUserId) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'User ID **' + user_id + '** is already registered in **' + (dupeUserId.clan_name || 'another clan') + '**.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'User ID **' + user_id + '** is already registered in **' + (dupeUserId.clan_name || 'another clan') + '**.' }));
     }
     const dupeSerial = uniqueCheck(roster.id, slot, 'serial_number', serial_number);
     if (dupeSerial) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Serial Number **' + serial_number + '** is already registered in **' + (dupeSerial.clan_name || 'another clan') + '**.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Serial Number **' + serial_number + '** is already registered in **' + (dupeSerial.clan_name || 'another clan') + '**.' }));
     }
     if (discord_user) {
       const dupeDiscord = getRegisteredDiscordIds(roster.id);
       if (dupeDiscord.has(discord_user)) {
         await interaction.deferUpdate();
-        return interaction.editReply(buildLeaderDashboard(mid, { error: 'Discord user <@' + discord_user + '> is already registered in another clan.' }));
+        return interaction.editReply(buildLeaderDashboard(eid, { error: 'Discord user <@' + discord_user + '> is already registered in another clan.' }));
       }
     }
 
@@ -374,21 +396,21 @@ async function handleFedRosterInteraction(interaction, client) {
       updated_at: new Date().toISOString(),
     });
     await interaction.deferUpdate();
-    return interaction.editReply(buildLeaderDashboard(mid, { info: 'Player #' + slot + ' updated.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Player #' + slot + ' updated.' }));
   }
 
   // ── Remove Player: select ────────────────────────────────────────────────
   if (id === 'fr_remove_player_start') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     await interaction.deferUpdate();
-    return interaction.editReply(buildRemovePlayerSelect(mid));
+    return interaction.editReply(buildRemovePlayerSelect(eid));
   }
 
   if (id === 'fr_sel_remove_player') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const slot = parseInt(interaction.values[0]);
     await interaction.deferUpdate();
-    return interaction.editReply(buildConfirmRemove(mid, slot));
+    return interaction.editReply(buildConfirmRemove(eid, slot));
   }
 
   if (id.startsWith('fr_confirm_remove_')) {
@@ -397,12 +419,12 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg    = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid));
+      return interaction.editReply(buildLeaderDashboard(eid));
     }
     const player = (roster.players || []).find(p => p.slot === slot);
     db.update('fed_rosters', roster.id, {
@@ -410,17 +432,17 @@ async function handleFedRosterInteraction(interaction, client) {
       updated_at: new Date().toISOString(),
     });
     await interaction.deferUpdate();
-    return interaction.editReply(buildLeaderDashboard(mid, { info: 'Player **' + (player?.name || '#' + slot) + '** removed.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Player **' + (player?.name || '#' + slot) + '** removed.' }));
   }
 
   // ── Preview ──────────────────────────────────────────────────────────────
   if (id === 'fr_preview') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const cfg    = getRosterConfig();
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'No roster found.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'No roster found.' }));
     }
     await interaction.deferUpdate();
     try {
@@ -443,17 +465,17 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg    = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
-    const roster  = getRoster(mid);
+    const roster  = getRoster(eid);
     const players = roster?.players || [];
     if (!roster?.clan_name) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Fill in Clan Info before submitting.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Fill in Clan Info before submitting.' }));
     }
     if (players.length < cfg.minPlayers) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, {
+      return interaction.editReply(buildLeaderDashboard(eid, {
         error: 'Need at least **' + cfg.minPlayers + '** players to submit (currently ' + players.length + ').',
       }));
     }
@@ -504,7 +526,7 @@ async function handleFedRosterInteraction(interaction, client) {
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
-    return interaction.editReply(buildLeaderDashboard(mid, { info: '✅ Roster submitted! Clan role assigned.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: '✅ Roster submitted! Clan role assigned.' }));
   }
 
   // ── Unsubmit ─────────────────────────────────────────────────────────────
@@ -513,12 +535,12 @@ async function handleFedRosterInteraction(interaction, client) {
     const cfg    = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'Registration is locked.' }));
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
-    const roster = getRoster(mid);
+    const roster = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid));
+      return interaction.editReply(buildLeaderDashboard(eid));
     }
     db.update('fed_rosters', roster.id, {
       status: 'draft',
@@ -526,7 +548,7 @@ async function handleFedRosterInteraction(interaction, client) {
       updated_at: new Date().toISOString(),
     });
     await interaction.deferUpdate();
-    return interaction.editReply(buildLeaderDashboard(mid, { info: 'Roster moved back to draft.' }));
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Roster moved back to draft.' }));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

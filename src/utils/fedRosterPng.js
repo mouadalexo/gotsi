@@ -11,6 +11,7 @@ const C = {
   bg1:       '#08080F',
   bg2:       '#0E0B1E',
   gold:      '#F0B429',
+  purple:    '#6B2EFF',
   white:     '#FFFFFF',
   light:     '#C8C8DC',
   dim:       '#6A6A88',
@@ -22,21 +23,21 @@ const C = {
   footerBg:  '#060610',
 };
 
-// ── Canvas dimensions (fixed 1080×1350) ──────────────────────────────────────
+// ── Canvas dimensions (1080×1500) ────────────────────────────────────────────
 const W         = 1080;
-const H         = 1350;
+const H         = 1500;
 const MARGIN    = 30;
-const HEADER_H  = 220;
-const TITLE_H   = 46;
+const HEADER_H  = 290;   // taller header — gives boxes room to breathe below text
 const TBL_HDR_H = 52;
 const FOOTER_H  = 62;
+// TITLE_H removed — "OFFICIAL ROSTER" bar is gone
 // ROW_H calculated dynamically from remaining space
 
 // ── Columns (must sum to W=1080) ──────────────────────────────────────────────
 const COLS = [
-  { label: 'NO.',           w: 56  },
+  { label: '#',             w: 56  },
   { label: 'PLAYER NAME',   w: 180 },
-  { label: 'DISCORD',       w: 175 },
+  { label: 'DISCORD USER',  w: 175 },
   { label: 'DEVICE',        w: 180 },
   { label: 'USER ID',       w: 195 },
   { label: 'SERIAL NUMBER', w: 294 },
@@ -83,7 +84,6 @@ function fmtDateTime(iso) {
 // Draw a small Instagram icon (rounded square + circle + dot)
 function drawInstagramIcon(ctx, x, y, size) {
   const r = size * 0.28;
-  // Rounded square background (IG gradient-ish: purple→pink→orange)
   const grad = ctx.createLinearGradient(x, y + size, x + size, y);
   grad.addColorStop(0,   '#f09433');
   grad.addColorStop(0.25,'#e6683c');
@@ -94,23 +94,43 @@ function drawInstagramIcon(ctx, x, y, size) {
   drawRoundedRect(ctx, x, y, size, size, r);
   ctx.fill();
 
-  // Camera circle
   ctx.strokeStyle = '#fff';
   ctx.lineWidth   = size * 0.11;
   ctx.beginPath();
   ctx.arc(x + size / 2, y + size / 2, size * 0.26, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Dot top-right
   ctx.fillStyle = '#fff';
   ctx.beginPath();
   ctx.arc(x + size * 0.72, y + size * 0.28, size * 0.07, 0, Math.PI * 2);
   ctx.fill();
 }
 
-async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
-  // ROW_H fills exactly the remaining space
-  const rowsArea = H - HEADER_H - TITLE_H - TBL_HDR_H - FOOTER_H;
+// Draw an info box (label on top, value below)
+function drawInfoBox(ctx, x, y, w, h, label, value) {
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  drawRoundedRect(ctx, x, y, w, h, 6);
+  ctx.fill();
+
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth   = 1;
+  drawRoundedRect(ctx, x, y, w, h, 6);
+  ctx.stroke();
+
+  ctx.font      = 'bold 10px Arial';
+  ctx.fillStyle = C.dim;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, x + 12, y + 18);
+
+  ctx.font      = 'bold 15px Arial';
+  ctx.fillStyle = C.white;
+  ctx.textAlign = 'left';
+  ctx.fillText(fitText(ctx, String(value || '—'), w - 20), x + 12, y + 40);
+}
+
+async function generateRosterPng(roster, maxPlayers) {
+  // No TITLE_H — rows get the extra 46px
+  const rowsArea = H - HEADER_H - TBL_HDR_H - FOOTER_H;
   const ROW_H    = Math.floor(rowsArea / maxPlayers);
 
   const canvas = createCanvas(W, H);
@@ -139,11 +159,14 @@ async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
   ctx.fillRect(0, 0, W, 4);
 
   // ── Load logos ────────────────────────────────────────────────────────────
-  let logo24 = null, mefLogo = null;
-  try { if (fs.existsSync(LOGO_24_PATH))  logo24  = await loadImage(LOGO_24_PATH);  } catch (_) {}
-  try { if (fs.existsSync(MEF_LOGO_PATH)) mefLogo = await loadImage(MEF_LOGO_PATH); } catch (_) {}
+  let logo24 = null, mefLogo = null, clanLogoImg = null;
+  try { if (fs.existsSync(LOGO_24_PATH))  logo24      = await loadImage(LOGO_24_PATH);  } catch (_) {}
+  try { if (fs.existsSync(MEF_LOGO_PATH)) mefLogo     = await loadImage(MEF_LOGO_PATH); } catch (_) {}
+  if (roster.logo_url) {
+    try { clanLogoImg = await loadImage(roster.logo_url); } catch (_) {}
+  }
 
-  // ── Logos — top right ─────────────────────────────────────────────────────
+  // ── Logos — top right (MEF + 24) ─────────────────────────────────────────
   const logoRightEdge = W - MARGIN;
   const logoY         = 14;
 
@@ -155,123 +178,119 @@ async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
       ctx.fillRect(logoRightEdge - lw - 20, logoY + 18, 1, lh - 36);
     }
   }
-
   if (logo24) {
     const mefW = mefLogo ? (mefLogo.width * (148 / mefLogo.height)) : 0;
-    const lh = 110, lw = logo24.width * (lh / logo24.height);
-    const x24 = logoRightEdge - (mefW > 0 ? mefW + 30 + lw : lw);
+    const lh   = 110, lw = logo24.width * (lh / logo24.height);
+    const x24  = logoRightEdge - (mefW > 0 ? mefW + 30 + lw : lw);
     ctx.drawImage(logo24, x24, logoY + 18, lw, lh);
   }
 
-  // ── Clan info — left side ─────────────────────────────────────────────────
-  const infoX = MARGIN;
-  let   infoY = 20;
+  // ── Clan logo — circle, top left ──────────────────────────────────────────
+  const CLR  = 55;                       // radius — bigger to match reference
+  const CLCX = MARGIN + CLR + 4;         // center x = 89
+  const CLCY = 87;                       // center y — aligns with MEF/24 logos vertical center
 
-  // Clan name — large
-  ctx.font      = 'bold 34px Arial';
-  ctx.fillStyle = C.white;
-  ctx.textAlign = 'left';
-  const nameText = fitText(ctx, (roster.clan_name || 'CLAN NAME').toUpperCase(), 580);
-  ctx.fillText(nameText, infoX, infoY + 36);
-
-  // Gold underline
-  const nameW = Math.min(ctx.measureText(nameText).width, 460);
-  const lineGrad = ctx.createLinearGradient(infoX, 0, infoX + nameW, 0);
-  lineGrad.addColorStop(0, C.gold);
-  lineGrad.addColorStop(1, 'rgba(240,180,41,0)');
-  ctx.fillStyle = lineGrad;
-  ctx.fillRect(infoX, infoY + 43, nameW, 2);
-
-  // TAG
-  infoY += 72;
-  ctx.font      = 'bold 11px Arial';
-  ctx.fillStyle = C.gold;
-  ctx.fillText('TAG', infoX, infoY);
-  ctx.font      = '16px Arial';   // bigger & clearer
-  ctx.fillStyle = C.white;
-  ctx.fillText(fitText(ctx, roster.clan_tag || '—', 100), infoX + 38, infoY);
-
-  // SOCIAL MEDIA
-  ctx.font      = 'bold 11px Arial';
-  ctx.fillStyle = C.gold;
-  ctx.fillText('SOCIAL', infoX + 160, infoY);
-  ctx.font      = '16px Arial';   // bigger & clearer
-  ctx.fillStyle = C.light;
-  ctx.fillText(fitText(ctx, roster.social_media || '—', 260), infoX + 218, infoY);
-
-  // Clan logo
-  infoY += 28;
-  if (roster.logo_url) {
-    try {
-      const clanLogo = await loadImage(roster.logo_url);
-      const lh = 76, lw = Math.min(clanLogo.width * (lh / clanLogo.height), 180);
-      ctx.strokeStyle = C.gold;
-      ctx.lineWidth   = 1.5;
-      ctx.globalAlpha = 0.65;
-      drawRoundedRect(ctx, infoX - 2, infoY - 2, lw + 20, lh + 8, 8);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = 'rgba(255,255,255,0.04)';
-      drawRoundedRect(ctx, infoX - 2, infoY - 2, lw + 20, lh + 8, 8);
-      ctx.fill();
-      ctx.drawImage(clanLogo, infoX + 8, infoY, lw, lh);
-    } catch (_) {}
+  if (clanLogoImg) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CLCX, CLCY, CLR, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(clanLogoImg, CLCX - CLR, CLCY - CLR, CLR * 2, CLR * 2);
+    ctx.restore();
+    // Gold ring
+    ctx.strokeStyle = C.gold;
+    ctx.lineWidth   = 2.5;
+    ctx.beginPath();
+    ctx.arc(CLCX, CLCY, CLR, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Placeholder ring
+    ctx.strokeStyle = C.border;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.arc(CLCX, CLCY, CLR, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
-  // ── Title bar ─────────────────────────────────────────────────────────────
-  const titleY = HEADER_H;
-  const titleGrad = ctx.createLinearGradient(0, 0, W, 0);
-  titleGrad.addColorStop(0,   '#160F00');
-  titleGrad.addColorStop(0.4, '#1E1600');
-  titleGrad.addColorStop(1,   '#0A0A14');
-  ctx.fillStyle = titleGrad;
-  ctx.fillRect(0, titleY, W, TITLE_H);
+  // ── Clan text — right of circle ───────────────────────────────────────────
+  const textX = CLCX + CLR + 18;   // ~162px from left
 
-  // Gold left accent bar
-  ctx.fillStyle = C.gold;
-  ctx.fillRect(0, titleY, 4, TITLE_H);
-
-  // "OFFICIAL ROSTER" — no season mention
+  // TOP: "MEF TEAM ROSTER" subtitle (small, gold)
   ctx.font      = 'bold 14px Arial';
   ctx.fillStyle = C.gold;
   ctx.textAlign = 'left';
-  ctx.fillText('OFFICIAL ROSTER', MARGIN + 14, titleY + TITLE_H / 2 + 5);
+  ctx.fillText('MEF TEAM ROSTER', textX, 51);
 
+  // MIDDLE BIG: clan tag — matches reference where short tag is the hero text
+  ctx.font      = 'bold 30px Arial';
+  const tagText  = fitText(ctx, (roster.clan_tag || 'TAG').toUpperCase(), 420);
+  ctx.fillStyle = C.white;
+  ctx.fillText(tagText, textX, 87);
 
+  // Gold underline under tag
+  ctx.font = 'bold 30px Arial';
+  const tagW     = Math.min(ctx.measureText(tagText).width, 400);
+  const lineGrad = ctx.createLinearGradient(textX, 0, textX + tagW, 0);
+  lineGrad.addColorStop(0, C.purple);
+  lineGrad.addColorStop(1, 'rgba(107,46,255,0)');
+  ctx.fillStyle = lineGrad;
+  ctx.fillRect(textX, 92, tagW, 2);
 
-  ctx.fillStyle = C.gold;
-  ctx.globalAlpha = 0.25;
-  ctx.fillRect(0, titleY + TITLE_H - 1, W, 1);
+  // BOTTOM: full clan name (smaller, light)
+  ctx.font      = '15px Arial';
+  ctx.fillStyle = C.light;
+  ctx.fillText(fitText(ctx, (roster.clan_name || '').toUpperCase(), 380), textX, 123);
+
+  // ── Info boxes: PLAYERS | LEADER | EXPORTED — equal width ────────────────
+  const BOX_Y = 194;   // vertically centered between fed logo bottom (162) and purple bar (290)
+  const BOX_H = 64;
+  const GAP   = 16;    // wider gap between boxes
+
+  // Three equal boxes spanning full content width
+  const BOX_W = Math.floor((W - 2 * MARGIN - 2 * GAP) / 3);  // (1020-20)/3 = 333
+  const bx1 = MARGIN;
+  const bw1 = BOX_W;
+  const bx2 = bx1 + BOX_W + GAP;
+  const bw2 = BOX_W;
+  const bx3 = bx2 + BOX_W + GAP;
+  const bw3 = W - MARGIN - bx3;   // remainder (handles rounding)
+
+  const playerCount = (roster.players || []).filter(p => p && p.name).length;
+  const leaderName  = roster.leader_name || roster.clan_leader || '—';
+  const exportedStr = fmtDateTime(new Date().toISOString());
+
+  drawInfoBox(ctx, bx1, BOX_Y, bw1, BOX_H, 'PLAYERS',  String(playerCount));
+  drawInfoBox(ctx, bx2, BOX_Y, bw2, BOX_H, 'LEADER',   leaderName);
+  drawInfoBox(ctx, bx3, BOX_Y, bw3, BOX_H, 'EXPORTED', exportedStr);
+
+  // Header bottom separator
+  ctx.fillStyle   = C.gold;
+  ctx.globalAlpha = 0.3;
+  ctx.fillRect(0, HEADER_H - 1, W, 1);
   ctx.globalAlpha = 1;
 
-  // ── Table header ──────────────────────────────────────────────────────────
-  const tableY = titleY + TITLE_H;
+  // ── Table header — filled MEF purple ─────────────────────────────────────
+  const tableY = HEADER_H;
 
-  ctx.fillStyle = C.headerBg;
+  ctx.fillStyle = C.purple;
   ctx.fillRect(0, tableY, W, TBL_HDR_H);
-
-  ctx.fillStyle = C.gold;
-  ctx.globalAlpha = 0.5;
-  ctx.fillRect(0, tableY, W, 1.5);
-  ctx.globalAlpha = 1;
 
   let colX = 0;
   for (const col of COLS) {
     if (colX > 0) {
-      ctx.fillStyle = C.border;
+      ctx.fillStyle   = 'rgba(255,255,255,0.18)';
       ctx.fillRect(colX, tableY + 8, 1, TBL_HDR_H - 16);
     }
     ctx.font      = 'bold 12px Arial';
-    ctx.fillStyle = C.gold;
+    ctx.fillStyle = C.white;
     ctx.textAlign = 'center';
     ctx.fillText(col.label, colX + col.w / 2, tableY + TBL_HDR_H / 2 + 5);
     colX += col.w;
   }
 
-  ctx.fillStyle = C.gold;
-  ctx.globalAlpha = 0.35;
+  // Bottom edge of header row
+  ctx.fillStyle   = 'rgba(255,255,255,0.2)';
   ctx.fillRect(0, tableY + TBL_HDR_H - 1, W, 1);
-  ctx.globalAlpha = 1;
 
   // ── Table rows ────────────────────────────────────────────────────────────
   const players = (roster.players || []).sort((a, b) => a.slot - b.slot);
@@ -289,8 +308,16 @@ async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
       ctx.fillRect(0, rowY, 4, ROW_H);
     }
 
-    ctx.fillStyle = C.border;
+    // Row separator: purple (semi-transparent) for empty rows, dim border for filled
+    if (p) {
+      ctx.fillStyle   = C.border;
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle   = C.purple;
+      ctx.globalAlpha = 0.4;
+    }
     ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
+    ctx.globalAlpha = 1;
 
     const discordDisplay = p?.discord_username || p?.discord_user || '';
     const vals = [
@@ -339,7 +366,7 @@ async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
   ctx.fillStyle = C.footerBg;
   ctx.fillRect(0, footerY, W, FOOTER_H);
 
-  ctx.fillStyle = C.gold;
+  ctx.fillStyle   = C.gold;
   ctx.globalAlpha = 0.28;
   ctx.fillRect(0, footerY, W, 1);
   ctx.globalAlpha = 1;
@@ -348,33 +375,24 @@ async function generateRosterPng(roster, maxPlayers /*, minPlayers */) {
   ctx.font      = '11px Arial';
   ctx.fillStyle = C.dim;
   ctx.textAlign = 'left';
-  ctx.fillText('MEF  ·  Powered by 24', MARGIN, footerY + 20);
+  ctx.fillText('MEF  ·  Powered by 24', MARGIN, footerY + 38);
 
-  // Center: Instagram icon + @mef_federation
-  const igSize  = 16;
-  const igLabel = '@mef_federation';
-  ctx.font = '12px Arial';
+  // Center: empty (removed per design)
+
+  // Right: Instagram icon + @mef_federation
+  const igSize   = 16;
+  const igLabel  = '@mef_federation';
+  ctx.font       = '12px Arial';
   const igLabelW = ctx.measureText(igLabel).width;
   const igTotalW = igSize + 7 + igLabelW;
-  const igX      = (W - igTotalW) / 2;
-  const igY      = footerY + 14;
+  const igX      = W - MARGIN - igTotalW;
+  const igY      = footerY + (FOOTER_H - igSize) / 2 - 2;
 
   drawInstagramIcon(ctx, igX, igY, igSize);
-
   ctx.font      = '12px Arial';
   ctx.fillStyle = C.light;
   ctx.textAlign = 'left';
   ctx.fillText(igLabel, igX + igSize + 7, igY + igSize - 2);
-
-  // Right: Registered + Last Updated (two lines)
-  const regDate     = fmtDate(roster.submitted_at || roster.updated_at);
-  const updDateTime = fmtDateTime(roster.updated_at);
-
-  ctx.font      = '10px Arial';
-  ctx.fillStyle = C.dim;
-  ctx.textAlign = 'right';
-  ctx.fillText('Registered: ' + regDate, W - MARGIN, footerY + 18);
-  ctx.fillText('Updated: '    + updDateTime, W - MARGIN, footerY + 34);
 
   return canvas.toBuffer('image/png');
 }
