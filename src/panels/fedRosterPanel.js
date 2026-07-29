@@ -317,6 +317,7 @@ function buildAdminClanView(rosterId, opts = {}) {
 
   inner.push({ type: 1, components: [
     btn(roster.status === 'submitted' ? '↩️  Mark Draft' : '✅  Mark Submitted', 'fra_toggle_submit_' + rosterId, 2),
+    btn('👁️  View Roster', 'fra_pdf_' + rosterId, 2),
   ]});
   inner.push({ type: 1, components: [
     btn('🗑️  Remove Clan', 'fra_remove_' + rosterId, 4),
