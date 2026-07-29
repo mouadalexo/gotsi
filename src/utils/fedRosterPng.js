@@ -37,11 +37,11 @@ const COLS = [
   { label: 'NO.',           w: 56  },
   { label: 'PLAYER NAME',   w: 180 },
   { label: 'DISCORD',       w: 175 },
-  { label: 'DEVICE',        w: 130 },
+  { label: 'DEVICE',        w: 180 },
   { label: 'USER ID',       w: 195 },
-  { label: 'SERIAL NUMBER', w: 344 },
+  { label: 'SERIAL NUMBER', w: 294 },
 ];
-// 56+180+175+130+195+344 = 1080 ✓
+// 56+180+175+180+195+294 = 1080 ✓
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
