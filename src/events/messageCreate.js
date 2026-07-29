@@ -50,8 +50,65 @@ module.exports = {
         });
       }
 
-      return message.reply({
-        content: '✅ <@' + mentioned.id + '> has been assigned as a **Clan Leader** and can now use `=frosters` to register their clan.',
+      return message.channel.send({
+        flags: 32768,
+        components: [{
+          type: 17,
+          accent_color: 0x00FF8C,
+          components: [
+            { type: 10, content: '<@' + mentioned.id + '> you are now a Clan Leader. Use `=frosters` to open your clan registration panel.' },
+          ],
+        }],
+      });
+    }
+
+
+    // ── =fcoleader ────────────────────────────────────────────────────────────
+    if (lower.startsWith('=fcoleader')) {
+      const cfg = getRosterConfig();
+      if (!cfg.leaderRoleId) {
+        return message.reply({ content: '❌ No Clan Leader role configured yet.', flags: 64 });
+      }
+      if (!message.member.roles.cache.has(cfg.leaderRoleId)) {
+        return message.reply({ content: '❌ You do not have the Clan Leader role.', flags: 64 });
+      }
+      const mentioned = message.mentions.members.first();
+      if (!mentioned) {
+        return message.reply({ content: '❌ Mention a member — usage: `=fcoleader @user`', flags: 64 });
+      }
+      if (mentioned.id === message.author.id) {
+        return message.reply({ content: '❌ You cannot add yourself as co-leader.', flags: 64 });
+      }
+
+      const roster = getRoster(message.author.id);
+      if (!roster || roster.leader_discord_id !== message.author.id) {
+        return message.reply({ content: '❌ You must be the main leader to assign co-leaders.', flags: 64 });
+      }
+
+      const coLeaders = roster.co_leaders || [];
+      if (coLeaders.includes(mentioned.id)) {
+        return message.reply({ content: '❌ <@' + mentioned.id + '> is already a co-leader of your clan.', flags: 64 });
+      }
+
+      // Add to co_leaders list in roster
+      db.update('fed_rosters', roster.id, {
+        co_leaders: [...coLeaders, mentioned.id],
+        updated_at: new Date().toISOString(),
+      });
+
+      // Give them the leader role so they can open the panel
+      try { await mentioned.roles.add(cfg.leaderRoleId); } catch (_) {}
+
+      await message.delete().catch(() => {});
+      return message.channel.send({
+        flags: 32768,
+        components: [{
+          type: 17,
+          accent_color: 0x00FF8C,
+          components: [
+            { type: 10, content: '<@' + mentioned.id + '> has been assigned as co-leader of **' + (roster.clan_name || 'your clan') + '**. They can now use `=frosters` to manage the roster.' },
+          ],
+        }],
       });
     }
 
@@ -68,8 +125,9 @@ module.exports = {
       // Delete the command message to keep channel clean
       await message.delete().catch(() => {});
 
-      // Post launcher with Open button
-      return message.channel.send(buildRosterLauncher(message.member));
+      // Post launcher with Open button — auto-delete after 10 s
+      const launcher = await message.channel.send(buildRosterLauncher(message.member));
+      setTimeout(() => launcher.delete().catch(() => {}), 10_000);
     }
 
     // ── ?referee ──────────────────────────────────────────────────────────────

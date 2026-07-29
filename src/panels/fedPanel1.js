@@ -170,7 +170,7 @@ function buildFedPanel1() {
 
   inner.push(SEP);
   inner.push(txt('-# \u00a9 24 2026  |  Goatsi Bot'));
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
 
 module.exports = { buildFedPanel1, getFed, saveFed, getFedClans, getFedMatches, getFedStage };

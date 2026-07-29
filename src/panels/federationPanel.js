@@ -35,7 +35,7 @@ function buildFederationPanel() {
   inner.push(SEP);
   inner.push(txt('-# \u00a9 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0xE67E22, components: inner }] };
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
 
 // ── Channels & Roles panel ────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ function buildFedSetupPanel() {
   const staffRole= fed.staff_role_id;
   return {
     flags: 32768,
-    components: [{ type: 17, accent_color: 0x5865F2, components: [
+    components: [{ type: 17, accent_color: 0x00FF8C, components: [
       txt('**\uD83D\uDCFA  Channels & Roles \u2014 ' + (fed.name || 'Federation of Clans') + '**\nSelect channels. Changes save instantly.\n-# Reg Role \u2192 ' + (regRole ? '<@&' + regRole + '>' : '`not set`') + '  \u2022  Staff Role \u2192 ' + (staffRole ? '<@&' + staffRole + '>' : '`not set`')),
       SEP,
       chSel('Management',        'management'),
@@ -81,7 +81,7 @@ function buildFedRolePanel(type) {
   const label   = isStaff ? '\uD83D\uDEE1\uFE0F  Staff Role' : '\uD83C\uDF9F\uFE0F  Registration Role';
   return {
     flags: 32768,
-    components: [{ type: 17, accent_color: 0xFFD700, components: [
+    components: [{ type: 17, accent_color: 0x00FF8C, components: [
       txt('**' + label + ' \u2014 ' + (fed.name || 'Federation of Clans') + '**\n> Current: ' + (roleId ? '<@&' + roleId + '>' : '`Not set`') + '\n-# Selection saves immediately.'),
       SEP,
       { type: 1, components: [{ type: 6, custom_id: cid, placeholder: label + '\u2026', min_values: 0, max_values: 1 }]},
@@ -105,7 +105,7 @@ function buildFedSetupSettingsPanel() {
   };
   return {
     flags: 32768,
-    components: [{ type: 17, accent_color: 0xE67E22, components: [
+    components: [{ type: 17, accent_color: 0x00FF8C, components: [
       txt('**\u2699\uFE0F  Setup Settings \u2014 ' + (fed.name || 'Federation of Clans') + '**'),
       SEP,
       mkSel('Players per Clan', 'fed_cfg_players_per_clan',
@@ -141,7 +141,7 @@ function buildFedMainSettingsPanel() {
   };
   return {
     flags: 32768,
-    components: [{ type: 17, accent_color: 0xFF0049, components: [
+    components: [{ type: 17, accent_color: 0x00FF8C, components: [
       txt('**\u2699\uFE0F  Main Settings \u2014 ' + (fed.name || 'Federation of Clans') + '**'),
       SEP,
       mkSel('Number of Clans', 'fed_cfg_clan_count',

@@ -4,7 +4,7 @@ const {
 } = require('discord.js');
 const { db }                = require('../utils/database');
 const { isBotolaManager }   = require('../utils/permissions');
-const { generateRosterPdf } = require('../utils/fedRosterPdf');
+const { generateRosterPng } = require('../utils/fedRosterPng');
 const {
   getRosterConfig, getRoster,
   buildLeaderDashboard, buildPickUserPanel,
@@ -64,9 +64,9 @@ function buildClanInfoModal(roster) {
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
   m.addComponents(
-    row(ti('clan_name',    'Clan Name',     'e.g. Night Stars',         roster?.clan_name    || '')),
-    row(ti('clan_tag',     'Clan Tag',      'e.g. NST',                 roster?.clan_tag     || '')),
-    row(ti('social_media', 'Social Media',  'e.g. @NightStarsMEF',      roster?.social_media || '', false)),
+    row(ti('clan_name',    'Clan Name',     '',         roster?.clan_name    || '')),
+    row(ti('clan_tag',     'Clan Tag',      '',                 roster?.clan_tag     || '')),
+    row(ti('social_media', 'Social Media',  '@...',      roster?.social_media || '', false)),
     row(ti('logo_url',     'Clan Logo URL', 'https://i.imgur.com/...',  roster?.logo_url     || '', false)),
   );
   return m;
@@ -83,10 +83,10 @@ function buildAddPlayerModal(slot, discordUserId, existing = null) {
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
   m.addComponents(
-    row(ti('name',          'Player Name',     'e.g. Ahmed',           existing?.name          || '')),
-    row(ti('device',        'Device',          'Android or iOS',       existing?.device        || '')),
-    row(ti('user_id',       'In-Game User ID', 'e.g. 1234567890',      existing?.user_id       || '')),
-    row(ti('serial_number', 'Serial Number',   'e.g. A1B2C3D4',        existing?.serial_number || '')),
+    row(ti('name',          'Player Name',     '',           existing?.name          || '')),
+    row(ti('device',        'Device',          'e.g. iPhone 13 Pro',       existing?.device        || '')),
+    row(ti('user_id',       'In-Game User ID', 'e.g. ASMN-034-912-924',      existing?.user_id       || '')),
+    row(ti('serial_number', 'Serial Number',   'e.g. GV8G94MALMK1',        existing?.serial_number || '')),
   );
   return m;
 }
@@ -102,11 +102,11 @@ function buildEditPlayerModal(slot, existing) {
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
   m.addComponents(
-    row(ti('name',          'Player Name',             'e.g. Ahmed',            existing?.name          || '')),
+    row(ti('name',          'Player Name',             '',            existing?.name          || '')),
     row(ti('discord_user',  'Discord User ID',         'e.g. 123456789',        existing?.discord_user  || '')),
-    row(ti('device',        'Device',                  'Android or iOS',        existing?.device        || '')),
-    row(ti('user_id',       'In-Game User ID',         'e.g. 1234567890',       existing?.user_id       || '')),
-    row(ti('serial_number', 'Serial Number',           'e.g. A1B2C3D4',         existing?.serial_number || '')),
+    row(ti('device',        'Device',                  'e.g. iPhone 13 Pro',        existing?.device        || '')),
+    row(ti('user_id',       'In-Game User ID',         'e.g. ASMN-034-912-924',       existing?.user_id       || '')),
+    row(ti('serial_number', 'Serial Number',           'e.g. GV8G94MALMK1',         existing?.serial_number || '')),
   );
   return m;
 }
@@ -123,6 +123,8 @@ async function handleFedRosterInteraction(interaction, client) {
   // ── Open ephemeral dashboard ─────────────────────────────────────────────
   if (id === 'fr_open') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
+    // Delete the launcher message immediately, then open the ephemeral dashboard
+    await interaction.message.delete().catch(() => {});
     return interaction.reply(buildLeaderDashboard(mid));
   }
 
@@ -169,6 +171,7 @@ async function handleFedRosterInteraction(interaction, client) {
         leader_discord_id: mid,
         clan_name, clan_tag, social_media, logo_url,
         players: [],
+        co_leaders: [],
         status: 'draft',
         clan_role_id: null,
         season: fed.season || 1,
@@ -197,8 +200,26 @@ async function handleFedRosterInteraction(interaction, client) {
     const usedSlots = players.map(p => p.slot);
     let slot = 1;
     while (usedSlots.includes(slot)) slot++;
+    // Build filtered member list for StringSelect (excludes already-registered)
+    const inThisRoster = new Set(
+      (roster?.players || []).map(p => String(p.discord_user || '').replace(/\D/g, '')).filter(Boolean)
+    );
+    const acrossAll = getRegisteredDiscordIds(roster?.id || null);
+    const excluded  = new Set([...inThisRoster, ...acrossAll]);
+
+    let memberOptions = [];
+    try {
+      const members = interaction.guild.members.cache.size > 1
+        ? interaction.guild.members.cache
+        : await interaction.guild.members.fetch();
+      memberOptions = members
+        .filter(m => !m.user.bot && !excluded.has(m.id))
+        .map(m => ({ label: (m.nickname || m.user.displayName || m.user.username).slice(0, 100), value: m.id }))
+        .slice(0, 25);
+    } catch (_) { /* fall back to UserSelect */ }
+
     await interaction.deferUpdate();
-    return interaction.editReply(buildPickUserPanel(slot));
+    return interaction.editReply(buildPickUserPanel(slot, {}, memberOptions));
   }
 
   // ── Add Player: step 1 result — user selected, show modal ─────────────────
@@ -262,7 +283,16 @@ async function handleFedRosterInteraction(interaction, client) {
 
     const players   = roster.players || [];
     const existing  = players.find(p => p.slot === slot);
-    const newPlayer = { slot, name, discord_user: discordUserId || '', device, user_id, serial_number };
+    // Resolve Discord username from guild cache for display
+    let discord_username = '';
+    if (discordUserId) {
+      try {
+        const mem = interaction.guild.members.cache.get(discordUserId)
+          || await interaction.guild.members.fetch(discordUserId).catch(() => null);
+        if (mem) discord_username = mem.user.username;
+      } catch (_) {}
+    }
+    const newPlayer = { slot, name, discord_user: discordUserId || '', discord_username, device, user_id, serial_number };
 
     if (existing) {
       db.update('fed_rosters', roster.id, {
@@ -394,15 +424,15 @@ async function handleFedRosterInteraction(interaction, client) {
     }
     await interaction.deferUpdate();
     try {
-      const pdfBuf = await generateRosterPdf(roster, cfg.maxPlayers, cfg.minPlayers);
+      const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
       await interaction.followUp({
-        content: '👁️  **' + (roster.clan_name || 'Roster') + '** — preview PDF',
-        files: [{ attachment: pdfBuf, name: (roster.clan_tag || 'roster') + '_preview.pdf' }],
+        content: '👁️  **' + (roster.clan_name || 'Roster') + '** — roster preview',
+        files: [{ attachment: pngBuf, name: (roster.clan_tag || 'roster') + '_preview.png' }],
         flags: 64,
       });
     } catch (e) {
-      console.error('[FedRoster] PDF error:', e.message);
-      await interaction.followUp({ content: '❌ Failed to generate PDF: ' + e.message, flags: 64 });
+      console.error('[FedRoster] PNG error:', e.message);
+      await interaction.followUp({ content: '❌ Failed to generate image: ' + e.message, flags: 64 });
     }
     return;
   }
@@ -418,15 +448,15 @@ async function handleFedRosterInteraction(interaction, client) {
     }
     await interaction.deferUpdate();
     try {
-      const pdfBuf = await generateRosterPdf(roster, cfg.maxPlayers, cfg.minPlayers);
+      const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
       await interaction.followUp({
-        content: '📄  **' + (roster.clan_name || 'Roster') + '** — official roster PDF',
-        files: [{ attachment: pdfBuf, name: (roster.clan_tag || 'roster') + '_roster.pdf' }],
+        content: '🖼️  **' + (roster.clan_name || 'Roster') + '** — official roster',
+        files: [{ attachment: pngBuf, name: (roster.clan_tag || 'roster') + '_roster.png' }],
         flags: 64,
       });
     } catch (e) {
-      console.error('[FedRoster] PDF error:', e.message);
-      await interaction.followUp({ content: '❌ Failed to generate PDF: ' + e.message, flags: 64 });
+      console.error('[FedRoster] PNG error:', e.message);
+      await interaction.followUp({ content: '❌ Failed to generate image: ' + e.message, flags: 64 });
     }
     return;
   }
@@ -610,15 +640,15 @@ async function handleFedRosterInteraction(interaction, client) {
       if (!roster) { await interaction.deferUpdate(); return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' })); }
       await interaction.deferUpdate();
       try {
-        const pdfBuf = await generateRosterPdf(roster, cfg.maxPlayers, cfg.minPlayers);
+        const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
         await interaction.followUp({
-          content: '📄  **' + (roster.clan_name || 'Roster') + '** — official roster PDF',
-          files: [{ attachment: pdfBuf, name: (roster.clan_tag || 'roster') + '_roster.pdf' }],
+          content: '🖼️  **' + (roster.clan_name || 'Roster') + '** — official roster',
+          files: [{ attachment: pngBuf, name: (roster.clan_tag || 'roster') + '_roster.png' }],
           flags: 64,
         });
       } catch (e) {
-        console.error('[FedRoster] Admin PDF error:', e.message);
-        await interaction.followUp({ content: '❌ PDF error: ' + e.message, flags: 64 });
+        console.error('[FedRoster] Admin PNG error:', e.message);
+        await interaction.followUp({ content: '❌ Image error: ' + e.message, flags: 64 });
       }
       return;
     }

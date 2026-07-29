@@ -47,7 +47,7 @@ function buildRosterLauncher(member) {
     SEP,
     txt('-# © 24 2026  |  Goatsi Bot'),
   ];
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { components: [{ type: 17, accent_color: 0x9B59B6, components: inner }] };
 }
 
 // ── LEADER: Main ephemeral dashboard ────────────────────────────────────────
@@ -107,43 +107,43 @@ function buildLeaderDashboard(leaderId, opts = {}) {
   ]});
   inner.push({ type: 1, components: [
     btn('👁️  Preview',      'fr_preview', 2, !canPdf),
-    btn('🖼️  Download PNG', 'fr_pdf',     2, !canPdf),
+    btn('📄  Download PDF', 'fr_pdf',     2, !canPdf),
   ]});
   inner.push({ type: 1, components: [
     btn('✅  Submit',   'fr_submit',   isSubmitted ? 2 : 3, !canSub),
     btn('↩️  Unsubmit', 'fr_unsubmit', 2, !isSubmitted || locked),
   ]});
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0x9B59B6, components: inner }] };
 }
 
 // ── LEADER: Pick Discord user step (live member select) ──────────────────────
-function buildPickUserPanel(slot, opts = {}, memberOptions = []) {
+function buildPickUserPanel(slot, opts = {}) {
   const { error } = opts;
-  const inner = [];
+  const inner = [
+    txt(
+      '## ➕  Add Player — Step 1 of 2\n' +
+      '> Select a **server member** for slot **#' + slot + '**.\n' +
+      '> Members already registered in this federation are excluded.'
+    ),
+  ];
   if (error) inner.push(txt('> ❌  ' + error));
   inner.push(SEP);
-  if (memberOptions.length > 0) {
-    inner.push({ type: 1, components: [{
-      type: 3,
-      custom_id: 'fr_pick_user_' + slot,
-      placeholder: '👤 Select a member…',
-      min_values: 1,
-      max_values: 1,
-      options: memberOptions,
-    }]});
-  } else {
-    inner.push({ type: 1, components: [{
-      type: 5,
-      custom_id: 'fr_pick_user_' + slot,
-      placeholder: '👤 Select a member…',
-      min_values: 1,
-      max_values: 1,
-    }]});
-  }
+  inner.push({ type: 1, components: [{
+    type: 5,
+    custom_id: 'fr_pick_user_' + slot,
+    placeholder: '👤 Select a member…',
+    min_values: 1,
+    max_values: 1,
+  }]});
+  inner.push(SEP);
+  inner.push({ type: 1, components: [btn('◄ Back', 'fr_refresh', 2)] });
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
 // ── LEADER: Edit player select ───────────────────────────────────────────────
@@ -153,6 +153,8 @@ function buildEditPlayerSelect(leaderId) {
   if (!players.length) return buildLeaderDashboard(leaderId, { error: 'No players to edit.' });
 
   const inner = [
+    txt('**✏️  Edit Player** — select a player:'),
+    SEP,
     { type: 1, components: [{
       type: 3,
       custom_id: 'fr_sel_edit_player',
@@ -163,8 +165,12 @@ function buildEditPlayerSelect(leaderId) {
         value: String(p.slot),
       })),
     }]},
+    SEP,
+    { type: 1, components: [btn('◄ Back', 'fr_refresh', 2)] },
+    SEP,
+    txt('-# © 24 2026  |  Goatsi Bot'),
   ];
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0x9B59B6, components: inner }] };
 }
 
 // ── LEADER: Remove player select ─────────────────────────────────────────────
@@ -174,6 +180,8 @@ function buildRemovePlayerSelect(leaderId) {
   if (!players.length) return buildLeaderDashboard(leaderId, { error: 'No players to remove.' });
 
   const inner = [
+    txt('**❌  Remove Player** — select a player:'),
+    SEP,
     { type: 1, components: [{
       type: 3,
       custom_id: 'fr_sel_remove_player',
@@ -184,8 +192,12 @@ function buildRemovePlayerSelect(leaderId) {
         value: String(p.slot),
       })),
     }]},
+    SEP,
+    { type: 1, components: [btn('◄ Back', 'fr_refresh', 2)] },
+    SEP,
+    txt('-# © 24 2026  |  Goatsi Bot'),
   ];
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0x9B59B6, components: inner }] };
 }
 
 // ── LEADER: Confirm remove ───────────────────────────────────────────────────
@@ -205,8 +217,10 @@ function buildConfirmRemove(leaderId, slot) {
       btn('Yes, Remove', 'fr_confirm_remove_' + slot, 4),
       btn('Cancel',      'fr_refresh',                2),
     ]},
+    SEP,
+    txt('-# © 24 2026  |  Goatsi Bot'),
   ];
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0xFF0000, components: inner }] };
 }
 
 // ── ADMIN: Main roster management panel ─────────────────────────────────────
@@ -275,9 +289,10 @@ function buildAdminPanel(opts = {}) {
     ]});
   }
 
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
 // ── ADMIN: Clan detail view ──────────────────────────────────────────────────
@@ -318,14 +333,16 @@ function buildAdminClanView(rosterId, opts = {}) {
 
   inner.push({ type: 1, components: [
     btn(roster.status === 'submitted' ? '↩️  Mark Draft' : '✅  Mark Submitted', 'fra_toggle_submit_' + rosterId, 2),
-    btn('🖼️  Download PNG', 'fra_pdf_' + rosterId, 2),
+    btn('📄  Download PDF', 'fra_pdf_' + rosterId, 2),
   ]});
   inner.push({ type: 1, components: [
     btn('🗑️  Remove Clan', 'fra_remove_' + rosterId, 4),
     btn('◄  Back',         'fra_refresh',             2),
   ]});
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: accentColor, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: accentColor, components: inner }] };
 }
 
 // ── ADMIN: Settings panel ────────────────────────────────────────────────────
@@ -358,8 +375,10 @@ function buildAdminSettings(opts = {}) {
   }]});
   inner.push(SEP);
   inner.push({ type: 1, components: [btn('◄  Back', 'fra_refresh', 2)] });
+  inner.push(SEP);
+  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0xFEE75C, components: inner }] };
 }
 
 // ── ADMIN: Confirm remove ────────────────────────────────────────────────────
@@ -379,8 +398,10 @@ function buildAdminConfirmRemove(rosterId) {
       btn('Yes, Remove', 'fra_confirm_remove_' + rosterId, 4),
       btn('Cancel',      'fra_refresh',                    2),
     ]},
+    SEP,
+    txt('-# © 24 2026  |  Goatsi Bot'),
   ];
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { flags: 64, components: [{ type: 17, accent_color: 0xFF0000, components: inner }] };
 }
 
 module.exports = {
