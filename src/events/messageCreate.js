@@ -127,7 +127,7 @@ module.exports = {
 
       // Post launcher with Open button — auto-delete after 10 s
       const launcher = await message.channel.send(buildRosterLauncher(message.member));
-      setTimeout(() => launcher.delete().catch(() => {}), 10_000);
+      setTimeout(() => launcher.delete().catch(() => {}), 15_000);
     }
 
     // ── ?referee ──────────────────────────────────────────────────────────────
