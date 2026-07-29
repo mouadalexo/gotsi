@@ -106,7 +106,7 @@ function buildLeaderDashboard(leaderId, opts = {}) {
     btn('❌  Remove Player', 'fr_remove_player_start', 4, !canEdit),
   ]});
   inner.push({ type: 1, components: [
-    btn('📋  View Roster', 'fr_preview', 2, !canPdf),
+    btn('👁️  View Roster', 'fr_preview', 2, !canPdf),
   ]});
   inner.push({ type: 1, components: [
     btn('✅  Submit',   'fr_submit',   isSubmitted ? 2 : 3, !canSub),
