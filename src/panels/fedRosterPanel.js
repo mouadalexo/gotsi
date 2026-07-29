@@ -106,8 +106,7 @@ function buildLeaderDashboard(leaderId, opts = {}) {
     btn('❌  Remove Player', 'fr_remove_player_start', 4, !canEdit),
   ]});
   inner.push({ type: 1, components: [
-    btn('👁️  Preview',      'fr_preview', 2, !canPdf),
-    btn('🖼️  Download PNG', 'fr_pdf',     2, !canPdf),
+    btn('📋  View Roster', 'fr_preview', 2, !canPdf),
   ]});
   inner.push({ type: 1, components: [
     btn('✅  Submit',   'fr_submit',   isSubmitted ? 2 : 3, !canSub),
@@ -318,7 +317,6 @@ function buildAdminClanView(rosterId, opts = {}) {
 
   inner.push({ type: 1, components: [
     btn(roster.status === 'submitted' ? '↩️  Mark Draft' : '✅  Mark Submitted', 'fra_toggle_submit_' + rosterId, 2),
-    btn('🖼️  Download PNG', 'fra_pdf_' + rosterId, 2),
   ]});
   inner.push({ type: 1, components: [
     btn('🗑️  Remove Clan', 'fra_remove_' + rosterId, 4),
