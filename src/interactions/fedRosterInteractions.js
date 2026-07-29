@@ -437,30 +437,6 @@ async function handleFedRosterInteraction(interaction, client) {
     return;
   }
 
-  // ── Download PDF ─────────────────────────────────────────────────────────
-  if (id === 'fr_pdf') {
-    if (!isLeader(interaction.member)) return noPerm(interaction);
-    const cfg    = getRosterConfig();
-    const roster = getRoster(mid);
-    if (!roster) {
-      await interaction.deferUpdate();
-      return interaction.editReply(buildLeaderDashboard(mid, { error: 'No roster found.' }));
-    }
-    await interaction.deferUpdate();
-    try {
-      const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
-      await interaction.followUp({
-        content: '🖼️  **' + (roster.clan_name || 'Roster') + '** — official roster',
-        files: [{ attachment: pngBuf, name: (roster.clan_tag || 'roster') + '_roster.png' }],
-        flags: 64,
-      });
-    } catch (e) {
-      console.error('[FedRoster] PNG error:', e.message);
-      await interaction.followUp({ content: '❌ Failed to generate image: ' + e.message, flags: 64 });
-    }
-    return;
-  }
-
   // ── Submit ───────────────────────────────────────────────────────────────
   if (id === 'fr_submit') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
