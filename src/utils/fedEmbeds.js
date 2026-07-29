@@ -65,13 +65,13 @@ function fmtScoreSep(m) {
   return m.result === 'home' ? scoreSep(3, 0) : m.result === 'away' ? scoreSep(0, 3) : scoreSep(1, 1);
 }
 
-// ── Clan List Post ────────────────────────────────────────────
+// ── Clans List Post ────────────────────────────────────────────
 function makeFedClanListPost(fed, clans) {
   const tag      = fed.tag || fed.name || 'Federation';
   const season   = fed.season || 1;
   const needsPad = clans.length >= 10;
   const inner    = [];
-  inner.push(txt('# ' + E_CUP + '  ' + tag + ' \u2014 Clan List\n' +
+  inner.push(txt('# ' + E_CUP + '  ' + tag + ' \u2014 Clans List\n' +
     E_CHANNEL + '  The **' + clans.length + '** registered clans for **' + tag + '** **S' + season + '**'));
   inner.push(SEP);
   if (!clans.length) {

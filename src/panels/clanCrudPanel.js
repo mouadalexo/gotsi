@@ -89,6 +89,7 @@ function buildClanAssignPanel(clanId, opts = {}) {
     { type: 1, components: [{ type: 5, custom_id: 'cc_leader_' + clanId,
       placeholder: '\uD83D\uDC51 Select clan leader (1 person)\u2026',
       min_values: 0, max_values: 1,
+      default_values: leader ? [{ id: leader, type: 'user' }] : [],
     }]},
     { type: 1, components: [{ type: 5, custom_id: 'cc_members_' + clanId,
       placeholder: '\uD83D\uDC65 Select members (up to ' + nMembers + ')\u2026',

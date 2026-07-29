@@ -8,7 +8,7 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const DEFAULT_DB = {
   teams: [], players: [], tournaments: [], tournament_teams: [], matches: [],
   admins: [], winners: [], wh_tournaments: [], config: {},
-  fed_clans: [], fed_matches: [], clans: [],
+  fed_clans: [], fed_matches: [], clans: [], fed_rosters: [],
   _nextId: { teams: 1, players: 1, tournaments: 1, tournament_teams: 1, matches: 1, admins: 1, winners: 1, wh_tournaments: 1, fed_clans: 1, fed_matches: 1, clans: 1 },
 };
 
@@ -30,6 +30,8 @@ function load() {
         if (!_db.clans) _db.clans = [];
         if (!_db._nextId.fed_matches)_db._nextId.fed_matches = 1;
         if (!_db._nextId.clans)      _db._nextId.clans      = 1;
+        if (!_db.fed_rosters) _db.fed_rosters = [];
+        if (!_db._nextId.fed_rosters) _db._nextId.fed_rosters = 1;
         // Migrate tournaments to new fields
         for (const t of (_db.tournaments || [])) {
           if (t.type               === undefined) t.type               = 'group_knockout';

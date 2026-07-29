@@ -6,6 +6,24 @@ const { buildClanCrudPanel, buildClanAssignPanel, buildClanSettingsPanel } = req
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
+async function removeRoleFromMember(guild, userId, roleId) {
+  if (!userId || !roleId) return;
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (member) await member.roles.remove(roleId).catch(() => {});
+}
+
+async function addRoleToMember(guild, userId, roleId) {
+  if (!userId || !roleId) return;
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (member) await member.roles.add(roleId).catch(() => {});
+}
+
+async function removeRoleFromMembers(guild, userIds, roleId) {
+  for (const userId of [...new Set((userIds || []).filter(Boolean))]) {
+    await removeRoleFromMember(guild, userId, roleId);
+  }
+}
+
 function fuzzySearch(query, items) {
   const q = query.toLowerCase();
   return items.filter(c =>
@@ -138,8 +156,10 @@ async function handleClanCrudInteraction(interaction) {
     const clan      = (db.get('clans') || []).find(c => c.id === clanId);
     if (!clan) { await interaction.deferUpdate(); return interaction.editReply(buildClanCrudPanel()); }
 
+    const currentPlayers = (clan.players || []).filter(Boolean);
+    const previousLeader = currentPlayers[0] || null;
+    const members = currentPlayers.slice(1);
     const newLeader = (interaction.values || [])[0] || null;
-    const members   = (clan.players || []).filter(Boolean).slice(1);
 
     if (newLeader) {
       const conflict = (db.get('clans') || []).find(c => c.id !== clanId && (c.players || []).includes(newLeader));
@@ -150,7 +170,23 @@ async function handleClanCrudInteraction(interaction) {
         }));
       }
     }
-    db.update('clans', clanId, { players: newLeader ? [newLeader, ...members] : [...members] });
+
+    const updatedPlayers = newLeader
+      ? [newLeader, ...members.filter(uid => uid !== newLeader)]
+      : [...members];
+    db.update('clans', clanId, { players: updatedPlayers });
+
+    const leaderRoleId = db.getConfig('clans_leader_role_id') || null;
+    if (previousLeader && previousLeader !== newLeader) {
+      // The old leader leaves the clan list when leadership is changed or cleared.
+      await removeRoleFromMember(interaction.guild, previousLeader, leaderRoleId);
+      await removeRoleFromMember(interaction.guild, previousLeader, clan.role_id);
+    }
+    if (newLeader && previousLeader !== newLeader) {
+      await addRoleToMember(interaction.guild, newLeader, clan.role_id);
+      await addRoleToMember(interaction.guild, newLeader, leaderRoleId);
+    }
+
     await interaction.deferUpdate();
     return interaction.editReply(buildClanAssignPanel(clanId));
   }
@@ -163,7 +199,9 @@ async function handleClanCrudInteraction(interaction) {
 
     const maxPlayers  = db.getConfig('clans_max_players') || 10;
     const newSel      = (interaction.values || []);
-    const leader      = (clan.players || []).filter(Boolean)[0] || null;
+    const currentPlayers = (clan.players || []).filter(Boolean);
+    const leader      = currentPlayers[0] || null;
+    const previousMembers = currentPlayers.slice(1);
     // Replace — what is submitted IS the new member list (default_values shows current members pre-selected)
     const merged      = newSel.filter(uid => uid !== leader).slice(0, maxPlayers - 1);
 
@@ -178,6 +216,10 @@ async function handleClanCrudInteraction(interaction) {
       return interaction.editReply(buildClanAssignPanel(clanId, { error: conflicts.join('\n') }));
     }
     db.update('clans', clanId, { players: leader ? [leader, ...merged] : [...merged] });
+
+    const removedMembers = previousMembers.filter(uid => !merged.includes(uid));
+    await removeRoleFromMembers(interaction.guild, removedMembers, clan.role_id);
+
     await interaction.deferUpdate();
     return interaction.editReply(buildClanAssignPanel(clanId));
   }
@@ -200,11 +242,21 @@ async function handleClanCrudInteraction(interaction) {
     // Create Discord clan role if not already created
     let roleId = clan.role_id;
     if (!roleId) {
+      let createdRole = null;
       try {
-        const role = await guild.roles.create({ name: clan.name, color: 0x5865F2, reason: 'Clan Database: ' + clan.name });
-        roleId = role.id;
+        createdRole = await guild.roles.create({
+          name: clan.tag,
+          color: 0x00FFAC,
+          reason: 'Clan Database: ' + clan.name + ' [' + clan.tag + ']',
+        });
+        const parentRole = await guild.roles.fetch('1529939492495036456').catch(() => null);
+        if (!parentRole) throw new Error('Target parent role 1529939492495036456 was not found.');
+        if (parentRole.position <= 1) throw new Error('Target parent role is too low to place a clan role below it.');
+        await createdRole.setPosition(parentRole.position - 1);
+        roleId = createdRole.id;
         db.update('clans', clanId, { role_id: roleId });
       } catch (e) {
+        if (createdRole) await createdRole.delete('Clan role setup failed').catch(() => {});
         console.error('[CLAN] Role creation error:', e.message);
         return interaction.editReply(buildClanCrudPanel({ error: 'Failed to create Discord role: ' + e.message }));
       }
@@ -301,6 +353,9 @@ async function handleClanCrudInteraction(interaction) {
         if (member) await member.roles.remove(leaderRoleId).catch(() => {});
       } catch (_) {}
     }
+
+    // Remove the clan role from every assigned player before deleting the role.
+    await removeRoleFromMembers(guild, players, clan.role_id);
 
     // Delete the clan's Discord role
     if (clan.role_id) {

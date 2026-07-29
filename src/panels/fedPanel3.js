@@ -60,11 +60,11 @@ function buildFedPanel3() {
     inner.push({ type: 1, components: [btn('Group Draw', 'fed_p3_groupdraw', 1, !hasGroups), btn('Schedule', 'fed_p3_schedule', 1, !hasMatches)] });
     inner.push({ type: 1, components: [btn('Results', 'fed_p3_results', 3, !hasMatches), btn('Standings', 'fed_p3_standings', 3, !hasGroups)] });
     inner.push({ type: 1, components: [btn('KO Bracket', 'fed_p3_bracket', 4, !hasKO), btn('Winner Ann', 'fed_p3_winner', 4, !finalDone)] });
-    inner.push({ type: 1, components: [btn('\uD83C\uDFDF\uFE0F  Clan List', 'fed_p3_clanlist', 2, !hasClans)] });
+    inner.push({ type: 1, components: [btn('\uD83C\uDFDF\uFE0F  Clans List', 'fed_p3_clanlist', 2, !hasClans)] });
   } else {
     inner.push({ type: 1, components: [btn('Schedule', 'fed_p3_schedule', 1, !hasMatches), btn('Results', 'fed_p3_results', 3, !hasMatches)] });
     inner.push({ type: 1, components: [btn('Standing League', 'fed_p3_standings', 3, !played.length)] });
-    inner.push({ type: 1, components: [btn('\uD83C\uDFDF\uFE0F  Clan List', 'fed_p3_clanlist', 2, !hasClans)] });
+    inner.push({ type: 1, components: [btn('\uD83C\uDFDF\uFE0F  Clans List', 'fed_p3_clanlist', 2, !hasClans)] });
   }
 
   inner.push(SEP);

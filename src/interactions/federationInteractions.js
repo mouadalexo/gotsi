@@ -888,6 +888,19 @@ async function doPublishLive(interaction, buildFn, preferredChKey, liveRefKey) {
 }
 
 // ── Live bracket refresh ────────────────────────────────────────────────────────────────
+async function refreshFedClanListMessage(client) {
+  const ref = db.getConfig('fed_clan_list_ref');
+  if (!ref) return;
+  try {
+    const ch  = await client.channels.fetch(ref.channelId).catch(() => null);
+    const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
+    if (!msg) return;
+    const fed   = getFed();
+    const clans = getFedClans();
+    await msg.edit(makeFedClanListPost(fed, clans));
+  } catch (_) {}
+}
+
 async function refreshFedBracketMessage(client) {
   const ref = db.getConfig('fed_bracket_ref');
   if (!ref) return;
@@ -1346,41 +1359,43 @@ async function handleFederationInteraction(interaction, client) {
     if (!_available.length) {
       return interaction.update(_errPanel('No clans available in the database. Add clans via /clans first.'));
     }
+    const _remaining = (_fed.clan_count || 8) - _fedClans.length;
+    const _maxSel    = Math.min(25, _remaining, _available.length);
     const _opts = _available.slice(0, 25).map(c => ({
       label: c.name + (c.tag ? '  [' + c.tag + ']' : ''),
       value: String(c.id),
       description: (c.players || []).length + ' player' + ((c.players || []).length !== 1 ? 's' : '') + ' registered',
     }));
     return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0x57F287, components: [
-      { type: 10, content: '## \u2795  Register Clan\n> Select a clan from the database to register for this season.' },
+      { type: 10, content: '## \u2795  Register Clans\n> Select one or more clans. (' + _remaining + ' spot' + (_remaining !== 1 ? 's' : '') + ' left)' },
       { type: 14, divider: true, spacing: 1 },
-      { type: 1, components: [{ type: 3, custom_id: 'fed_p2_addclan_sel', placeholder: 'Select a clan\u2026', min_values: 1, max_values: 1, options: _opts }] },
+      { type: 1, components: [{ type: 3, custom_id: 'fed_p2_addclan_sel', placeholder: 'Select clans\u2026', min_values: 1, max_values: _maxSel, options: _opts }] },
       { type: 14, divider: true, spacing: 1 },
       { type: 1, components: [{ type: 2, style: 2, label: '\u25C4  Back', custom_id: 'fed_p2_refresh' }] },
     ]}]});
   }
 
   if (id === 'fed_p2_addclan_sel') {
-    const _srcId  = parseInt(interaction.values[0]);
-    const _src    = (db.get('clans') || []).find(c => c.id === _srcId);
-    const _fed    = getFed();
-    const _season = _fed.season || 1;
-    const _errPanel = msg => ({ flags: 32768, components: [{ type: 17, accent_color: 0xED4245, components: [
-      { type: 10, content: '\u274C  ' + msg },
-      { type: 14, divider: true, spacing: 1 },
-      { type: 1, components: [{ type: 2, style: 2, label: '\u25C4  Back', custom_id: 'fed_p2_refresh' }] },
-    ]}]});
-    if (!_src) { await interaction.deferUpdate(); return interaction.editReply(_errPanel('Clan not found.')); }
-    const _fedClans = getFedClans();
-    if (_fedClans.find(c => c.name.toLowerCase() === _src.name.toLowerCase())) {
-      await interaction.deferUpdate(); return interaction.editReply(_errPanel(_src.name + ' is already registered for this season.')); }
-    if (_fedClans.length >= (_fed.clan_count || 8)) {
-      await interaction.deferUpdate(); return interaction.editReply(_errPanel('The federation is full (' + (_fed.clan_count || 8) + ' clans).')); }
-    db.insert('fed_clans', { name: _src.name, tag: _src.tag || '', players: (_src.players || []).filter(Boolean), fed_season: _season, role_id: _src.role_id || null, group_name: null });
-    const _newClan = (db.get('fed_clans') || []).slice().reverse().find(c => c.name.toLowerCase() === _src.name.toLowerCase() && c.fed_season === _season);
+    const _fed      = getFed();
+    const _season   = _fed.season || 1;
+    const _allSrc   = db.get('clans') || [];
+    const _skipped  = [];
     await interaction.deferUpdate();
-    await interaction.editReply(buildPlayerAssignPanel(_newClan.id));
-    return;
+    for (const _selId of interaction.values) {
+      const _src = _allSrc.find(c => c.id === parseInt(_selId));
+      if (!_src) { _skipped.push('Unknown clan'); continue; }
+      const _fedClans = getFedClans();
+      if (_fedClans.find(c => c.name.toLowerCase() === _src.name.toLowerCase())) {
+        _skipped.push(_src.name + ' (already registered)'); continue; }
+      if (_fedClans.length >= (_fed.clan_count || 8)) {
+        _skipped.push(_src.name + ' (federation full)'); continue; }
+      db.insert('fed_clans', { name: _src.name, tag: _src.tag || '', players: (_src.players || []).filter(Boolean), fed_season: _season, role_id: _src.role_id || null, group_name: null });
+    }
+    if (_skipped.length) {
+      await interaction.followUp({ content: '⚠️ Skipped: ' + _skipped.join(', '), flags: 64 });
+    }
+    refreshFedClanListMessage(client).catch(() => {});
+    return interaction.editReply(buildFedPanel2());
   }
 
   if (id.startsWith('fed_p2_players_')) {
@@ -1459,6 +1474,7 @@ async function handleFederationInteraction(interaction, client) {
     const clanId = parseInt(interaction.values[0]);
     db.delete('fed_clans', clanId);
     refreshFedPanels(client, 'p2').catch(() => {});
+    refreshFedClanListMessage(client).catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
@@ -1529,6 +1545,7 @@ async function handleFederationInteraction(interaction, client) {
     const season = fed.season || 1;
     db.deleteWhere('fed_clans', c => c.fed_season === season);
     refreshFedPanels(client, 'p2').catch(() => {});
+    refreshFedClanListMessage(client).catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 
@@ -1566,6 +1583,7 @@ async function handleFederationInteraction(interaction, client) {
     }
 
     refreshFedPanels(client, 'p2').catch(() => {});
+    refreshFedClanListMessage(client).catch(() => {});
     return interaction.update(buildFedPanel2());
   }
 

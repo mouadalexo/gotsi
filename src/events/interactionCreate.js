@@ -15,6 +15,7 @@ const { handleInfoInteraction }               = require('../interactions/infoInt
 const { handleEnrollInteraction }             = require("../interactions/enrollInteractions");
 const { handleFederationInteraction, refreshFedPanels } = require("../interactions/federationInteractions");
 const { handleAutotestInteraction }           = require("../interactions/autotestInteractions");
+const { handleFedRosterInteraction }          = require("../interactions/fedRosterInteractions");
 const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
 
 const TEAM_IDS = [
@@ -183,6 +184,11 @@ module.exports = {
       // ── New manage panel (mgr2_*) ─────────────────────────────────────────
       if (id.startsWith('mgr2_')) {
         return await handleMgr2Interaction(interaction);
+      }
+
+      // ── Federation Roster interactions ──────────────────────────────────────
+      if (id.startsWith('fr_') || id.startsWith('fra_')) {
+        return await handleFedRosterInteraction(interaction, client);
       }
 
       // ── Old team interactions ──────────────────────────────────────────────
