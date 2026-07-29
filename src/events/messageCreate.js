@@ -14,7 +14,7 @@ module.exports = {
     const lower   = content.toLowerCase();
 
     // ── =fleader @user ────────────────────────────────────────────────────────
-    if (lower.startsWith('=leader')) {
+    if (lower.startsWith('&leader')) {
       if (!isBotolaManager(message.member)) {
         return message.reply({ content: '❌ Managers only.' });
       }
@@ -26,7 +26,7 @@ module.exports = {
 
       const mentioned = message.mentions.members.first();
       if (!mentioned) {
-        return message.reply({ content: '❌ Usage: `=leader @user`' });
+        return message.reply({ content: '❌ Usage: `&leader @user`' });
       }
 
       // Block if mentioned is already a registered player in any clan
@@ -67,7 +67,7 @@ module.exports = {
           type: 17,
           accent_color: 0x00FF8C,
           components: [
-            { type: 10, content: '<@' + mentioned.id + '> you are now a Clan Leader. Use `=clan` to open your clan registration panel.' },
+            { type: 10, content: '<@' + mentioned.id + '> you are now a Clan Leader. Use `&clan` to open your clan registration panel.' },
           ],
         }],
       });
@@ -75,7 +75,7 @@ module.exports = {
 
 
     // ── =coleader ─────────────────────────────────────────────────────────────
-    if (lower.startsWith('=coleader')) {
+    if (lower.startsWith('&coleader')) {
       const cfg = getRosterConfig();
       if (!cfg.leaderRoleId) {
         return message.reply({ content: '❌ No Clan Leader role configured yet.', flags: 64 });
@@ -85,7 +85,7 @@ module.exports = {
       }
       const mentioned = message.mentions.members.first();
       if (!mentioned) {
-        return message.reply({ content: '❌ Mention a member — usage: `=coleader @user`', flags: 64 });
+        return message.reply({ content: '❌ Mention a member — usage: `&coleader @user`', flags: 64 });
       }
       if (mentioned.id === message.author.id) {
         return message.reply({ content: '❌ You cannot add yourself as co-leader.', flags: 64 });
@@ -154,14 +154,14 @@ module.exports = {
           type: 17,
           accent_color: 0x00FF8C,
           components: [
-            { type: 10, content: '<@' + mentioned.id + '> has been assigned as co-leader of **' + (roster.clan_name || 'your clan') + '** (' + (coLeaders.length + 1) + '/3). They can now use `=clan` to manage the roster.' },
+            { type: 10, content: '<@' + mentioned.id + '> has been assigned as co-leader of **' + (roster.clan_name || 'your clan') + '** (' + (coLeaders.length + 1) + '/3). They can now use `&clan` to manage the roster.' },
           ],
         }],
       });
     }
 
     // ── =giveclan ─────────────────────────────────────────────────────────────
-    if (lower.startsWith('=giveclan')) {
+    if (lower.startsWith('&giveclan')) {
       const cfg = getRosterConfig();
       if (!cfg.leaderRoleId) {
         return message.reply({ content: '❌ No Clan Leader role configured yet.' });
@@ -175,7 +175,7 @@ module.exports = {
 
       const mentioned = message.mentions.members.first();
       if (!mentioned) {
-        return message.reply({ content: '❌ Usage: `=giveclan @user`' });
+        return message.reply({ content: '❌ Usage: `&giveclan @user`' });
       }
       if (mentioned.id === message.author.id) {
         return message.reply({ content: '❌ You cannot transfer leadership to yourself.' });
@@ -224,7 +224,7 @@ module.exports = {
     }
 
     // ── =frosters ─────────────────────────────────────────────────────────────
-    if (lower === '=clan') {
+    if (lower === '&clan') {
       const cfg = getRosterConfig();
       if (!cfg.leaderRoleId) {
         return message.reply({ content: '❌ No Clan Leader role configured yet.' });
@@ -242,7 +242,7 @@ module.exports = {
     }
 
     // ── ?referee ──────────────────────────────────────────────────────────────
-    if (!lower.startsWith('?referee')) return;
+    if (!lower.startsWith('&referee')) return;
 
     if (!isBotolaManager(message.member)) {
       return message.reply('❌ Managers only.');
@@ -261,7 +261,7 @@ module.exports = {
 
     const mentioned = message.mentions.users.first();
     if (!mentioned) {
-      return message.reply('❌ Usage: `?referee @user`');
+      return message.reply('❌ Usage: `&referee @user`');
     }
 
     const member = await message.guild.members.fetch(mentioned.id).catch(() => null);
