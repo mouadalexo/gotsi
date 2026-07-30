@@ -834,6 +834,64 @@ async function handleFedRosterInteraction(interaction, client) {
         info: roleId ? 'Co-Leader role set to <@&' + roleId + '>.' : 'Co-Leader role cleared.',
       }));
     }
+
+    // Set Instagram — open modal
+    if (id === 'fra_set_instagram') {
+      const current = db.getConfig('fed_roster_instagram') || '';
+      const modal = new ModalBuilder()
+        .setCustomId('fra_modal_set_instagram')
+        .setTitle('Set Federation Instagram');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('val')
+            .setLabel('Instagram username')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('@mef_federation')
+            .setRequired(false)
+            .setValue(current)
+        )
+      );
+      return interaction.showModal(modal);
+    }
+
+    if (id === 'fra_modal_set_instagram') {
+      const val = interaction.fields.getTextInputValue('val').trim();
+      db.setConfig('fed_roster_instagram', val);
+      await interaction.deferUpdate();
+      return interaction.editReply(buildAdminSettings({
+        info: val ? 'Instagram set to **' + val + '**.' : 'Instagram cleared.',
+      }));
+    }
+
+    // Set Footer Text — open modal
+    if (id === 'fra_set_footer_text') {
+      const current = db.getConfig('fed_roster_footer_text') || 'MEF  ·  Powered by 24';
+      const modal = new ModalBuilder()
+        .setCustomId('fra_modal_set_footer_text')
+        .setTitle('Set Footer Text');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('val')
+            .setLabel('Bottom-left footer text')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('MEF  ·  Powered by 24')
+            .setRequired(false)
+            .setValue(current)
+        )
+      );
+      return interaction.showModal(modal);
+    }
+
+    if (id === 'fra_modal_set_footer_text') {
+      const val = interaction.fields.getTextInputValue('val').trim();
+      db.setConfig('fed_roster_footer_text', val || 'MEF  ·  Powered by 24');
+      await interaction.deferUpdate();
+      return interaction.editReply(buildAdminSettings({
+        info: 'Footer text set to **' + (val || 'MEF  ·  Powered by 24') + '**.',
+      }));
+    }
   }
 }
 

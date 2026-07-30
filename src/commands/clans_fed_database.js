@@ -4,7 +4,7 @@ const { buildAdminPanel } = require('../panels/fedRosterPanel');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('clans_fed_database')
+    .setName('clan_database')
     .setDescription('Federation roster database — manage all clan registrations (admin only)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 

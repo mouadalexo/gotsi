@@ -17,6 +17,8 @@ function getRosterConfig() {
     locked:         db.getConfig('fed_roster_locked')            ?? false,
     leaderRoleId:   db.getConfig('fed_roster_leader_role_id')    ?? null,
     coLeaderRoleId: db.getConfig('fed_roster_co_leader_role_id') ?? null,
+    instagram:      db.getConfig('fed_roster_instagram')         ?? '',
+    footerText:     db.getConfig('fed_roster_footer_text')       ?? 'MEF  ·  Powered by 24',
   };
 }
 
@@ -393,7 +395,9 @@ function buildAdminSettings(opts = {}) {
       '> **Min players to submit:** ' + cfg.minPlayers + '\n' +
       '> **Clan Leader role:** ' + (cfg.leaderRoleId ? '<@&' + cfg.leaderRoleId + '>' : '*Not set*') + '\n' +
       '> **Co-Leader role:** ' + (cfg.coLeaderRoleId ? '<@&' + cfg.coLeaderRoleId + '>' : '*Not set*') + '\n' +
-      '> **Registration:** ' + (cfg.locked ? '🔒 Locked' : '🟢 Open')
+      '> **Registration:** ' + (cfg.locked ? '🔒 Locked' : '🟢 Open') + '\n' +
+      '> **Instagram:** ' + (cfg.instagram || '*Not set*') + '\n' +
+      '> **Footer text:** ' + (cfg.footerText || '*Not set*')
     ),
   ];
   if (error) inner.push(txt('> ❌  ' + error));
@@ -417,6 +421,10 @@ function buildAdminSettings(opts = {}) {
     min_values: 0,
     max_values: 1,
   }]});
+  inner.push({ type: 1, components: [
+    btn('📸  Set Instagram',    'fra_set_instagram',   2),
+    btn('📝  Set Footer Text',  'fra_set_footer_text', 2),
+  ]});
   inner.push(SEP);
   inner.push({ type: 1, components: [btn('◄  Back', 'fra_refresh', 2)] });
 

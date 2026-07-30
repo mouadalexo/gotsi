@@ -2,6 +2,7 @@
 const { createCanvas, loadImage } = require('canvas');
 const path = require('path');
 const fs   = require('fs');
+const { db } = require('./database');
 
 const MEF_LOGO_PATH = path.join(__dirname, '../../assets/mef_logo.png');
 const LOGO_24_PATH  = path.join(__dirname, '../../assets/logo_24.png');
@@ -375,24 +376,27 @@ async function generateRosterPng(roster, maxPlayers) {
   ctx.font      = '11px Arial';
   ctx.fillStyle = C.dim;
   ctx.textAlign = 'left';
-  ctx.fillText('MEF  ·  Powered by 24', MARGIN, footerY + 38);
+  const _footerLeft = db.getConfig('fed_roster_footer_text') || 'MEF  ·  Powered by 24';
+  ctx.fillText(_footerLeft, MARGIN, footerY + 38);
 
   // Center: empty (removed per design)
 
-  // Right: Instagram icon + @mef_federation
-  const igSize   = 16;
-  const igLabel  = '@mef_federation';
-  ctx.font       = '12px Arial';
-  const igLabelW = ctx.measureText(igLabel).width;
-  const igTotalW = igSize + 7 + igLabelW;
-  const igX      = W - MARGIN - igTotalW;
-  const igY      = footerY + (FOOTER_H - igSize) / 2 - 2;
+  // Right: Instagram icon + handle (from DB config)
+  const igLabel = db.getConfig('fed_roster_instagram') || '';
+  if (igLabel) {
+    const igSize   = 16;
+    ctx.font       = '12px Arial';
+    const igLabelW = ctx.measureText(igLabel).width;
+    const igTotalW = igSize + 7 + igLabelW;
+    const igX      = W - MARGIN - igTotalW;
+    const igY      = footerY + (FOOTER_H - igSize) / 2 - 2;
 
-  drawInstagramIcon(ctx, igX, igY, igSize);
-  ctx.font      = '12px Arial';
-  ctx.fillStyle = C.light;
-  ctx.textAlign = 'left';
-  ctx.fillText(igLabel, igX + igSize + 7, igY + igSize - 2);
+    drawInstagramIcon(ctx, igX, igY, igSize);
+    ctx.font      = '12px Arial';
+    ctx.fillStyle = C.light;
+    ctx.textAlign = 'left';
+    ctx.fillText(igLabel, igX + igSize + 7, igY + igSize - 2);
+  }
 
   return canvas.toBuffer('image/png');
 }
