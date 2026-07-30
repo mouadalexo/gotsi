@@ -14,6 +14,9 @@ const {
   buildAdminSettings, buildAdminConfirmRemove,
 } = require('../panels/fedRosterPanel');
 
+// Tracks the last ephemeral preview message ID per user so it can be replaced
+const _previewMsgIds = new Map();
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function noPerm(i) {
   return i.reply({ content: '❌ You do not have permission to do that.', ephemeral: true });
@@ -21,8 +24,10 @@ function noPerm(i) {
 
 function isLeader(member) {
   const cfg = getRosterConfig();
-  if (!cfg.leaderRoleId) return false;
-  return member.roles.cache.has(cfg.leaderRoleId);
+  if (cfg.leaderRoleId && member.roles.cache.has(cfg.leaderRoleId)) return true;
+  if (cfg.coLeaderRoleId && member.roles.cache.has(cfg.coLeaderRoleId)) return true;
+  // Fallback: check DB directly (covers co-leaders who were assigned before role was given)
+  return getRosterForMember(member.id) !== null;
 }
 
 // Returns roster if field/value is already used in another clan (or another slot of same clan)
@@ -133,7 +138,6 @@ function buildEditPlayerModal(slot, existing) {
       .setRequired(required).setValue(val || '');
   m.addComponents(
     row(ti('name',          'Player Name',             '',            existing?.name          || '')),
-    row(ti('discord_user',  'Discord User ID',         'e.g. 123456789',        existing?.discord_user  || '')),
     row(ti('device',        'Device',                  'e.g. iPhone 13 Pro',        existing?.device        || '')),
     row(ti('user_id',       'In-Game User ID',         'e.g. ASMN-034-912-924',       existing?.user_id       || '')),
     row(ti('serial_number', 'Serial Number',           'e.g. GV8G94MALMK1',         existing?.serial_number || '')),
@@ -430,7 +434,6 @@ async function handleFedRosterInteraction(interaction, client) {
     }
 
     const name          = interaction.fields.getTextInputValue('name').trim();
-    const discord_user  = interaction.fields.getTextInputValue('discord_user').trim().replace(/\D/g, '');
     const device        = interaction.fields.getTextInputValue('device').trim();
     const user_id       = interaction.fields.getTextInputValue('user_id').trim();
     const serial_number = interaction.fields.getTextInputValue('serial_number').trim();
@@ -445,16 +448,23 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Serial Number **' + serial_number + '** is already registered in **' + (dupeSerial.clan_name || 'another clan') + '**.' }));
     }
+
+    // Keep existing discord_user from DB — not editable via form
+    const players    = roster.players || [];
+    const _existing  = players.find(p => p.slot === slot);
+    const discord_user = _existing?.discord_user || '';
+
+    // Re-fetch latest discord_username so it stays current
+    let discord_username = _existing?.discord_username || '';
     if (discord_user) {
-      const dupeDiscord = getRegisteredDiscordIds(roster.id);
-      if (dupeDiscord.has(discord_user)) {
-        await interaction.deferUpdate();
-        return interaction.editReply(buildLeaderDashboard(eid, { error: 'Discord user <@' + discord_user + '> is already registered in another clan.' }));
-      }
+      try {
+        const _mem = interaction.guild.members.cache.get(discord_user)
+          || await interaction.guild.members.fetch(discord_user).catch(() => null);
+        if (_mem) discord_username = _mem.user.username;
+      } catch (_) {}
     }
 
-    const players   = roster.players || [];
-    const newPlayer = { slot, name, discord_user, device, user_id, serial_number };
+    const newPlayer = { slot, name, discord_user, discord_username, device, user_id, serial_number };
     db.update('fed_rosters', roster.id, {
       players: players.map(p => p.slot === slot ? newPlayer : p),
       updated_at: new Date().toISOString(),
@@ -503,19 +513,43 @@ async function handleFedRosterInteraction(interaction, client) {
   if (id === 'fr_preview') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const cfg    = getRosterConfig();
-    const roster = getRoster(eid);
+    let roster   = getRoster(eid);
     if (!roster) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'No roster found.' }));
     }
     await interaction.deferUpdate();
+    // Delete the previous preview for this user if one exists
+    const _prevId = _previewMsgIds.get(mid);
+    if (_prevId) {
+      await interaction.webhook.deleteMessage(_prevId).catch(() => {});
+      _previewMsgIds.delete(mid);
+    }
+    // Refresh all players' discord_username from live Discord data
+    try {
+      const _refreshedPlayers = await Promise.all((roster.players || []).map(async p => {
+        if (!p.discord_user) return p;
+        try {
+          const _m = interaction.guild.members.cache.get(p.discord_user)
+            || await interaction.guild.members.fetch(p.discord_user).catch(() => null);
+          if (_m) return Object.assign({}, p, { discord_username: _m.user.username });
+        } catch (_) {}
+        return p;
+      }));
+      if (_refreshedPlayers.some((p, i) => p.discord_username !== (roster.players[i]?.discord_username))) {
+        db.update('fed_rosters', roster.id, { players: _refreshedPlayers, updated_at: new Date().toISOString() });
+        roster = Object.assign({}, roster, { players: _refreshedPlayers });
+      }
+    } catch (_) {}
+
     try {
       const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
-      await interaction.followUp({
+      const _previewMsg = await interaction.followUp({
         content: '👁️  **' + (roster.clan_name || 'Roster') + '** — roster preview',
         files: [{ attachment: pngBuf, name: (roster.clan_tag || 'roster') + '_preview.png' }],
         flags: 64,
       });
+      _previewMsgIds.set(mid, _previewMsg.id);
     } catch (e) {
       console.error('[FedRoster] PNG error:', e.message);
       await interaction.followUp({ content: '❌ Failed to generate image: ' + e.message, flags: 64 });
@@ -697,10 +731,27 @@ async function handleFedRosterInteraction(interaction, client) {
     // Admin PDF
     if (id.startsWith('fra_pdf_')) {
       const rosterId = parseInt(id.replace('fra_pdf_', ''));
-      const roster   = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+      let roster     = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
       const cfg      = getRosterConfig();
       if (!roster) { await interaction.deferUpdate(); return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' })); }
       await interaction.deferUpdate();
+      // Refresh discord_username for all players before image
+      try {
+        const _rp = await Promise.all((roster.players || []).map(async p => {
+          if (!p.discord_user) return p;
+          try {
+            const _m = interaction.guild.members.cache.get(p.discord_user)
+              || await interaction.guild.members.fetch(p.discord_user).catch(() => null);
+            if (_m) return Object.assign({}, p, { discord_username: _m.user.username });
+          } catch (_) {}
+          return p;
+        }));
+        const _changed = _rp.some((p, i) => p.discord_username !== ((roster.players||[])[i]||{}).discord_username);
+        if (_changed) {
+          db.update('fed_rosters', roster.id, { players: _rp, updated_at: new Date().toISOString() });
+          roster = Object.assign({}, roster, { players: _rp });
+        }
+      } catch (_) {}
       try {
         const pngBuf = await generateRosterPng(roster, cfg.maxPlayers, cfg.minPlayers);
         await interaction.followUp({

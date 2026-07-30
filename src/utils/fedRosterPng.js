@@ -257,7 +257,7 @@ async function generateRosterPng(roster, maxPlayers) {
 
   const playerCount = (roster.players || []).filter(p => p && p.name).length;
   const leaderName  = roster.leader_name || roster.clan_leader || '—';
-  const exportedStr = fmtDateTime(new Date().toISOString());
+  const exportedStr = fmtDateTime(new Date(Date.now() + 3600000).toISOString());
 
   drawInfoBox(ctx, bx1, BOX_Y, bw1, BOX_H, 'PLAYERS',  String(playerCount));
   drawInfoBox(ctx, bx2, BOX_Y, bw2, BOX_H, 'LEADER',   leaderName);
@@ -319,7 +319,7 @@ async function generateRosterPng(roster, maxPlayers) {
     ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
     ctx.globalAlpha = 1;
 
-    const discordDisplay = p?.discord_username || p?.discord_user || '';
+    const discordDisplay = p?.discord_username || '';
     const vals = [
       String(row + 1),
       p?.name          || '',
