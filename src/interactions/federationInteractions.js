@@ -115,14 +115,18 @@ async function resetCategoryChannels(guild, fed) {
       matchChs.push(ch);
     }
     matchChs.sort((a, b) => a.position - b.position);
-    // lockPermissions() re-syncs with category — no need to collect clan role IDs
+    // Collect all clan role IDs for this season so we can strip them
+    const _fedClansReset = getFedClans();
+    const _clanRoleIds   = new Set(_fedClansReset.map(c => c.role_id).filter(Boolean));
     for (let i = 0; i < matchChs.length; i++) {
       const ch = matchChs[i];
       try {
         const msgs = await ch.messages.fetch({ limit: 100 }).catch(() => null);
         if (msgs && msgs.size > 0) await ch.bulkDelete(msgs, true).catch(() => {});
-        // Re-sync channel with its parent category — restores original permissions fully
-        await ch.lockPermissions().catch(() => {});
+        // Remove only the two competing clan role overwrites — leave everything else untouched
+        for (const roleId of _clanRoleIds) {
+          await ch.permissionOverwrites.delete(roleId).catch(() => {});
+        }
         await ch.setName('match-' + (i + 1)).catch(() => {});
       } catch (_) {}
       if (i < matchChs.length - 1) await new Promise(r => setTimeout(r, 350));
@@ -290,11 +294,8 @@ async function beginSeason(interaction, client) {
           try {
             const _oldMsgs = await _nc.messages.fetch({ limit: 100 }).catch(() => null);
             if (_oldMsgs && _oldMsgs.size > 0) await _nc.bulkDelete(_oldMsgs, true).catch(() => {});
-            { const _pwSet = [{ id: guild.roles.everyone, deny: ['ViewChannel'] }];
-              if (clanA.role_id) _pwSet.push({ id: clanA.role_id, allow: ['ViewChannel', 'SendMessages'] });
-              if (clanB.role_id) _pwSet.push({ id: clanB.role_id, allow: ['ViewChannel', 'SendMessages'] });
-              if (staffRole) _pwSet.push({ id: staffRole, allow: ['ViewChannel', 'SendMessages', 'ManageMessages'] });
-              await _nc.permissionOverwrites.set(_pwSet).catch(() => {}); }
+            if (clanA.role_id) await _nc.permissionOverwrites.edit(clanA.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
+            if (clanB.role_id) await _nc.permissionOverwrites.edit(clanB.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
             await _nc.setName(chName).catch(() => {});
             _ch = _nc;
           } catch (_re) {
@@ -371,11 +372,8 @@ async function advanceRound(interaction, client) {
           const _lgCh   = _lgPool[_li];
           const _lgMsgs = await _lgCh.messages.fetch({ limit: 100 }).catch(() => null);
           if (_lgMsgs && _lgMsgs.size > 0) await _lgCh.bulkDelete(_lgMsgs, true).catch(() => {});
-          { const _pwSet = [{ id: guild.roles.everyone, deny: ['ViewChannel'] }];
-            if (clanA.role_id) _pwSet.push({ id: clanA.role_id, allow: ['ViewChannel', 'SendMessages'] });
-            if (clanB.role_id) _pwSet.push({ id: clanB.role_id, allow: ['ViewChannel', 'SendMessages'] });
-            if (staffRole) _pwSet.push({ id: staffRole, allow: ['ViewChannel', 'SendMessages', 'ManageMessages'] });
-            await _lgCh.permissionOverwrites.set(_pwSet).catch(() => {}); }
+          if (clanA.role_id) await _lgCh.permissionOverwrites.edit(clanA.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
+          if (clanB.role_id) await _lgCh.permissionOverwrites.edit(clanB.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
           await _lgCh.setName(chName).catch(() => {});
           await _lgCh.send(makeFedMatchChannelMsg(clanA.name || '?', clanB.name || '?')).catch(() => {});
           db.update('fed_matches', im.id, { channel_id: _lgCh.id });
@@ -440,11 +438,8 @@ async function advanceRound(interaction, client) {
             const _grpCh   = _grpPool[_gmi];
             const _grpMsgs = await _grpCh.messages.fetch({ limit: 100 }).catch(() => null);
             if (_grpMsgs && _grpMsgs.size > 0) await _grpCh.bulkDelete(_grpMsgs, true).catch(() => {});
-            { const _pwSet = [{ id: guild.roles.everyone, deny: ['ViewChannel'] }];
-              if (clanA.role_id) _pwSet.push({ id: clanA.role_id, allow: ['ViewChannel', 'SendMessages'] });
-              if (clanB.role_id) _pwSet.push({ id: clanB.role_id, allow: ['ViewChannel', 'SendMessages'] });
-              if (staffRole) _pwSet.push({ id: staffRole, allow: ['ViewChannel', 'SendMessages', 'ManageMessages'] });
-              await _grpCh.permissionOverwrites.set(_pwSet).catch(() => {}); }
+            if (clanA.role_id) await _grpCh.permissionOverwrites.edit(clanA.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
+            if (clanB.role_id) await _grpCh.permissionOverwrites.edit(clanB.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
             await _grpCh.setName(chName).catch(() => {});
             await _grpCh.send(makeFedMatchChannelMsg(clanA.name || '?', clanB.name || '?')).catch(() => {});
             db.update('fed_matches', im.id, { channel_id: _grpCh.id });
@@ -532,11 +527,8 @@ async function advanceRound(interaction, client) {
         const _koaCh   = _koaPool[_koi];
         const _koaMsgs = await _koaCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koaMsgs && _koaMsgs.size > 0) await _koaCh.bulkDelete(_koaMsgs, true).catch(() => {});
-        { const _pwSet = [{ id: guild.roles.everyone, deny: ['ViewChannel'] }];
-          if (clanA.role_id) _pwSet.push({ id: clanA.role_id, allow: ['ViewChannel', 'SendMessages'] });
-          if (clanB.role_id) _pwSet.push({ id: clanB.role_id, allow: ['ViewChannel', 'SendMessages'] });
-          if (staffRole) _pwSet.push({ id: staffRole, allow: ['ViewChannel', 'SendMessages', 'ManageMessages'] });
-          await _koaCh.permissionOverwrites.set(_pwSet).catch(() => {}); }
+        if (clanA.role_id) await _koaCh.permissionOverwrites.edit(clanA.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
+        if (clanB.role_id) await _koaCh.permissionOverwrites.edit(clanB.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
         await _koaCh.setName(chName).catch(() => {});
         await _koaCh.send(makeFedMatchChannelMsg(clanA.name || '?', clanB.name || '?')).catch(() => {});
         db.update('fed_matches', im.id, { channel_id: _koaCh.id });
@@ -626,11 +618,8 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
         const _koCh   = _koPool[_koi2];
         const _koMsgs = await _koCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koMsgs && _koMsgs.size > 0) await _koCh.bulkDelete(_koMsgs, true).catch(() => {});
-        { const _pwSet = [{ id: guild.roles.everyone, deny: ['ViewChannel'] }];
-          if (clanA.role_id) _pwSet.push({ id: clanA.role_id, allow: ['ViewChannel', 'SendMessages'] });
-          if (clanB.role_id) _pwSet.push({ id: clanB.role_id, allow: ['ViewChannel', 'SendMessages'] });
-          if (staffRole) _pwSet.push({ id: staffRole, allow: ['ViewChannel', 'SendMessages', 'ManageMessages'] });
-          await _koCh.permissionOverwrites.set(_pwSet).catch(() => {}); }
+        if (clanA.role_id) await _koCh.permissionOverwrites.edit(clanA.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
+        if (clanB.role_id) await _koCh.permissionOverwrites.edit(clanB.role_id, { ViewChannel: true, SendMessages: true }).catch(() => {});
         await _koCh.setName(chName).catch(() => {});
         await _koCh.send(makeFedMatchChannelMsg(clanA.name || '?', clanB.name || '?')).catch(() => {});
         db.update('fed_matches', im.id, { channel_id: _koCh.id });
@@ -1294,8 +1283,8 @@ async function handleFederationInteraction(interaction, client) {
           try {
             const cA = _getClan(m.home_clan_id);
             const cB = _getClan(m.away_clan_id);
-            // Re-sync channel with its parent category — restores original permissions
-            await ch.lockPermissions().catch(() => {});
+            if (cA.role_id) await ch.permissionOverwrites.delete(cA.role_id).catch(() => {});
+            if (cB.role_id) await ch.permissionOverwrites.delete(cB.role_id).catch(() => {});
             await ch.setName('match-' + (_i + 1)).catch(() => {});
           } catch (_) {}
           if (_i < _chEntries.length - 1) await new Promise(r => setTimeout(r, 300));
@@ -1336,12 +1325,12 @@ async function handleFederationInteraction(interaction, client) {
     const _endedFed  = getFed();
     const _oldSznNum = _endedFed.season || 1;
     const _nextSeason = _oldSznNum + 1;
+    // Reset category channels FIRST — clan role IDs must still be in DB for getFedClans()
+    await resetCategoryChannels(guild, _endedFed).catch(e => console.error('[FED] resetChannels:', e.message));
     // Wipe ALL fed_clans/fed_matches — full clean slate, no carry-over
     db.deleteWhere('fed_clans',   () => true);
     db.deleteWhere('fed_matches', () => true);
     saveFed({ status: 'setup', season: _nextSeason, registration_open: true });
-    // Reset category channels to neutral (rename + strip perms + clear messages)
-    await resetCategoryChannels(guild, _endedFed).catch(e => console.error('[FED] resetChannels:', e.message));
     db.setConfig('fed_bracket_ref', null);
     db.setConfig('fed_standings_ref', null);
     db.setConfig('fed_clan_list_ref', null);
