@@ -430,6 +430,23 @@ async function advanceRound(interaction, client) {
         if (_li < nextMatches.length - 1) await new Promise(r => setTimeout(r, 300));
       }
 
+      // -- Reset surplus channels to default names & clear permissions --
+      if (_lgPool.length > nextMatches.length) {
+        const _lgSurplusRoles = new Set();
+        for (const _src of (updClans || [])) { if (_src.role_id) _lgSurplusRoles.add(_src.role_id); }
+        for (let _lgsi = nextMatches.length; _lgsi < _lgPool.length; _lgsi++) {
+          const _lgsCh = _lgPool[_lgsi];
+          try {
+            for (const _lgrId of _lgSurplusRoles) {
+              if (_lgsCh.permissionOverwrites.cache.has(_lgrId))
+                await _lgsCh.permissionOverwrites.delete(_lgrId).catch(() => {});
+            }
+            _lgsCh.setName('match-' + (_lgsi + 1)).catch(() => {});
+          } catch (_) {}
+          if (_lgsi < _lgPool.length - 1) await new Promise(r => setTimeout(r, 300));
+        }
+      }
+
     } catch (e) { console.error('[FED] League advance round channel error:', e.message); }
     interaction.editReply(buildFedPanel1()).catch(() => {});
     refreshFedPanels(client, 'p1').catch(e => console.error('[FED] league advance refresh:', e?.message));
@@ -495,6 +512,23 @@ async function advanceRound(interaction, client) {
             db.update('fed_matches', im.id, { channel_id: _grpCh.id });
           } catch (e) { console.error('[FED] Group matchday channel error (match ' + im.id + '):', e.message); }
           if (_gmi < freshM.length - 1) await new Promise(r => setTimeout(r, 300));
+        }
+
+        // ── Reset surplus channels to default names & clear permissions ──
+        if (_grpPool.length > freshM.length) {
+          const _grpSurplusRoles = new Set();
+          for (const _src of (updClans || [])) { if (_src.role_id) _grpSurplusRoles.add(_src.role_id); }
+          for (let _grpsi = freshM.length; _grpsi < _grpPool.length; _grpsi++) {
+            const _grpsCh = _grpPool[_grpsi];
+            try {
+              for (const _grprId of _grpSurplusRoles) {
+                if (_grpsCh.permissionOverwrites.cache.has(_grprId))
+                  await _grpsCh.permissionOverwrites.delete(_grprId).catch(() => {});
+              }
+              _grpsCh.setName('match-' + (_grpsi + 1)).catch(() => {});
+            } catch (_) {}
+            if (_grpsi < _grpPool.length - 1) await new Promise(r => setTimeout(r, 300));
+          }
         }
 
       } catch (e) { console.error('[FED] Group matchday channel error:', e.message); }
@@ -584,6 +618,23 @@ async function advanceRound(interaction, client) {
       } catch (e) { console.error('[FED] KO channel error (match ' + im.id + '):', e.message); }
       if (_koi < inserted.length - 1) await new Promise(r => setTimeout(r, 300));
     }
+
+      // ── Reset surplus channels to default names & clear permissions ──
+      if (_koaPool.length > inserted.length) {
+        const _koaSurplusRoles = new Set();
+        for (const _src of (updClans || [])) { if (_src.role_id) _koaSurplusRoles.add(_src.role_id); }
+        for (let _koasi = inserted.length; _koasi < _koaPool.length; _koasi++) {
+          const _koasCh = _koaPool[_koasi];
+          try {
+            for (const _koarId of _koaSurplusRoles) {
+              if (_koasCh.permissionOverwrites.cache.has(_koarId))
+                await _koasCh.permissionOverwrites.delete(_koarId).catch(() => {});
+            }
+            _koasCh.setName('match-' + (_koasi + 1)).catch(() => {});
+          } catch (_) {}
+          if (_koasi < _koaPool.length - 1) await new Promise(r => setTimeout(r, 300));
+        }
+      }
 
   } catch (e) { console.error('[FED] KO channel error:', e.message); }
 
@@ -683,6 +734,22 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
       } catch (e) { console.error('[FED] KO first round channel error (match ' + im.id + '):', e.message); }
       if (_koi2 < inserted.length - 1) await new Promise(r => setTimeout(r, 300));
     }
+      // ── Reset surplus channels to default names & clear permissions ──
+      if (_koPool.length > inserted.length) {
+        const _koSurplusRoles = new Set();
+        for (const _src of (updClans || [])) { if (_src.role_id) _koSurplusRoles.add(_src.role_id); }
+        for (let _kosi = inserted.length; _kosi < _koPool.length; _kosi++) {
+          const _kosCh = _koPool[_kosi];
+          try {
+            for (const _korId of _koSurplusRoles) {
+              if (_kosCh.permissionOverwrites.cache.has(_korId))
+                await _kosCh.permissionOverwrites.delete(_korId).catch(() => {});
+            }
+            _kosCh.setName('match-' + (_kosi + 1)).catch(() => {});
+          } catch (_) {}
+          if (_kosi < _koPool.length - 1) await new Promise(r => setTimeout(r, 300));
+        }
+      }
   } catch (e) { console.error('[FED] KO first round channel error:', e.message); }
 
   interaction.editReply(buildFedPanel1()).catch(() => refreshP1Fallback(client));
