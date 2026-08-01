@@ -1,5 +1,8 @@
 'use strict';
 const { db } = require('../utils/database');
+const fs   = require('fs');
+const path = require('path');
+const LOGO_CACHE_DIR = path.join(__dirname, '../../assets/clan_logos');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -25,12 +28,12 @@ function getRosterConfig() {
 }
 
 function getRoster(leaderDiscordId) {
-  return (db.get('fed_rosters') || []).find(r => r.leader_discord_id === leaderDiscordId) || null;
+  return (db.get('Clan_Registry') || []).find(r => r.leader_discord_id === leaderDiscordId) || null;
 }
 
 // Find roster where user is main leader OR co-leader (DB-only, never role-based)
 function getRosterForMember(discordId) {
-  return (db.get('fed_rosters') || []).find(r =>
+  return (db.get('Clan_Registry') || []).find(r =>
     r.leader_discord_id === discordId ||
     (r.co_leaders || []).includes(discordId)
   ) || null;
@@ -51,20 +54,19 @@ function buildCreateClanPanel() {
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
-// ── LEADER: Launcher message (non-ephemeral, posted by =frosters) ────────────
+// ── LEADER: Launcher message (non-ephemeral, posted by &clan) ────────────────────
+// ── LEADER: Launcher message (non-ephemeral, posted by &clan) ────────────────────
 function buildRosterLauncher(member) {
   const cfg    = getRosterConfig();
   const roster = getRosterForMember(member.id);
   const locked = cfg.locked;
-  const status  = roster?.status || 'none';
-  const players = roster?.players || [];
 
-  const statusLine =
-    status === 'submitted' ? '> ✅ Roster **submitted** — ' + players.length + ' player(s) registered.' :
-    status === 'draft'     ? '> 📝 Draft in progress — **' + players.length + '** player(s) added.' :
-    locked                 ? '> 🔒 Registration is currently locked by admin.' :
-                             '> 📋 No roster started yet — click **Open Dashboard** to begin.';
+  // New leader: no clan yet — bare single button only
+  if (!roster) {
+    return { components: [{ type: 1, components: [{ type: 2, style: 1, label: 'Create Clan', custom_id: 'fr_open' }] }] };
+  }
 
+  // Existing leader / co-leader: Open Dashboard
   return { components: [{ type: 1, components: [btn('🗂️  Open Dashboard', 'fr_open', locked ? 2 : 1)] }] };
 }
 
@@ -96,7 +98,6 @@ function buildLeaderDashboard(leaderId, opts = {}) {
     headerLines.push('> **Clan:** ' + roster.clan_name + (roster.clan_tag ? '  `[' + roster.clan_tag + ']`' : ''));
   }
   if (roster?.social_media) headerLines.push('> **Social:** ' + roster.social_media);
-  if (roster?.logo_url)     headerLines.push('> **Logo:** ' + roster.logo_url);
   if (locked)               headerLines.push('> 🔒 Registration is currently **locked** by the admin.');
   if (!roster?.clan_name)   headerLines.push('> ⚠️ Fill in **Clan Info** first before adding players.');
 
@@ -134,7 +135,12 @@ function buildLeaderDashboard(leaderId, opts = {}) {
   ]});
 
 
-  return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  const _ldOut = { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  if (roster?.id) {
+    const _lp = path.join(LOGO_CACHE_DIR, roster.id + '.img');
+    if (fs.existsSync(_lp)) _ldOut.files = [{ attachment: _lp, name: 'clan_logo.img' }];
+  }
+  return _ldOut;
 }
 
 // ── LEADER: Pick Discord user step (live member select) ──────────────────────
@@ -284,7 +290,7 @@ const PAGE_SIZE = 8;
 function buildAdminPanel(opts = {}) {
   const { page = 0, error, info } = opts;
   const cfg       = getRosterConfig();
-  const rosters   = (db.get('fed_rosters') || []).sort((a, b) => (a.clan_name || '').localeCompare(b.clan_name || ''));
+  const rosters   = (db.get('Clan_Registry') || []).sort((a, b) => (a.clan_name || '').localeCompare(b.clan_name || ''));
   const total     = rosters.length;
   const pages     = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const p         = Math.min(Math.max(0, page), pages - 1);
@@ -353,7 +359,7 @@ function buildAdminPanel(opts = {}) {
 function buildAdminClanView(rosterId, opts = {}) {
   const { error, info } = opts;
   const cfg    = getRosterConfig();
-  const roster = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+  const roster = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
   if (!roster) return buildAdminPanel({ error: 'Clan not found.' });
 
   const players = (roster.players || []).sort((a, b) => a.slot - b.slot);
@@ -366,7 +372,6 @@ function buildAdminClanView(rosterId, opts = {}) {
     '> **Leader:** <@' + roster.leader_discord_id + '>',
   ];
   if (roster.social_media) headerLines.push('> **Social:** ' + roster.social_media);
-  if (roster.logo_url)     headerLines.push('> **Logo:** ' + roster.logo_url);
 
   const inner = [txt(headerLines.join('\n'))];
   if (error) inner.push(txt('> ❌  ' + error));
@@ -394,7 +399,9 @@ function buildAdminClanView(rosterId, opts = {}) {
     btn('◄  Back',         'fra_refresh',             2),
   ]});
 
-  return { flags: 32768, components: [{ type: 17, accent_color: accentColor, components: inner }] };
+  const _adOut = { flags: 32768, components: [{ type: 17, accent_color: accentColor, components: inner }] };
+  { const _lp = path.join(LOGO_CACHE_DIR, roster.id + '.img'); if (fs.existsSync(_lp)) _adOut.files = [{ attachment: _lp, name: 'clan_logo.img' }]; }
+  return _adOut;
 }
 
 // ── ADMIN: Settings panel ────────────────────────────────────────────────────
@@ -458,7 +465,7 @@ function buildAdminSettings(opts = {}) {
 
 // ── ADMIN: Confirm remove ────────────────────────────────────────────────────
 function buildAdminConfirmRemove(rosterId) {
-  const roster = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+  const roster = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
   if (!roster) return buildAdminPanel({ error: 'Clan not found.' });
 
   const inner = [

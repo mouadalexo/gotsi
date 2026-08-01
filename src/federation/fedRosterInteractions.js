@@ -34,7 +34,9 @@ async function downloadAndCacheLogo(rosterId, logoUrl) {
       }
       get(logoUrl, 0);
     });
-  } catch (_) {}
+  } catch (e) {
+    console.error('[FED] Logo cache download failed id=' + rosterId + ':', e.message);
+  }
 }
 const { isBotolaManager }   = require('../utils/permissions');
 const { generateRosterPng } = require('./fedRosterPng');
@@ -74,7 +76,7 @@ function isLeader(member) {
 
 // Returns roster if field/value is already used in another clan (or another slot of same clan)
 function uniqueCheck(excludeRosterId, excludeSlot, field, value) {
-  const rosters = db.get('fed_rosters') || [];
+  const rosters = db.get('Clan_Registry') || [];
   const norm    = v => String(v || '').toLowerCase().trim();
   const target  = norm(value);
   if (!target) return null;
@@ -91,7 +93,7 @@ function uniqueCheck(excludeRosterId, excludeSlot, field, value) {
 function getRegisteredDiscordIds(excludeRosterId) {
   const fed     = db.getConfig('federation') || {};
   const season  = fed.season || 1;
-  const rosters = db.get('fed_rosters') || [];
+  const rosters = db.get('Clan_Registry') || [];
   const ids     = new Set();
   for (const r of rosters) {
     if (r.id === excludeRosterId) continue;
@@ -117,7 +119,7 @@ function getRegisteredDiscordIds(excludeRosterId) {
 function getUserAssignmentInfo(discordId) {
   const id      = String(discordId || '').trim();
   if (!id) return null;
-  const rosters = db.get('fed_rosters') || [];
+  const rosters = db.get('Clan_Registry') || [];
   for (const r of rosters) {
     const lid = String(r.leader_discord_id || '').trim();
     if (lid === id) return { role: 'Leader', clan: r.clan_name || 'a clan' };
@@ -133,19 +135,20 @@ function getUserAssignmentInfo(discordId) {
 }
 
 // Build clan info modal (4 fields: name, tag, social, logo)
-function buildClanInfoModal(roster) {
+function buildClanInfoModal(roster, hidelogo = false) {
   const m = new ModalBuilder().setCustomId('fr_modal_clan_info').setTitle('Clan Information');
   const row = f => new ActionRowBuilder().addComponents(f);
   const ti  = (id, label, ph, val, required = true) =>
     new TextInputBuilder().setCustomId(id).setLabel(label)
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
-  m.addComponents(
-    row(ti('clan_name',    'Clan Name',     '',         roster?.clan_name    || '')),
-    row(ti('clan_tag',     'Clan Tag',      '',                 roster?.clan_tag     || '')),
-    row(ti('social_media', 'Social Media',  '@...',      roster?.social_media || '', false)),
-    row(ti('logo_url',     'Clan Logo URL', 'https://i.imgur.com/...',  roster?.logo_url     || '', false)),
-  );
+  const rows = [
+    row(ti('clan_name',    'Clan Name',    '',      roster?.clan_name    || '')),
+    row(ti('clan_tag',     'Clan Tag',     '',      roster?.clan_tag     || '')),
+    row(ti('social_media', 'Social Media', '@...', roster?.social_media || '', false)),
+  ];
+  if (!hidelogo) rows.push(row(ti('logo_url', 'Clan Logo URL', 'Use Imgur/direct link — Discord links expire!', roster?.logo_url || '', false)));
+  m.addComponents(...rows);
   return m;
 }
 
@@ -211,15 +214,33 @@ async function handleFedRosterInteraction(interaction, client) {
     await interaction.message.delete().catch(() => {});
     const _openRoster = getRoster(eid);
     if (!_openRoster) {
-      // First time — show create clan page directly
-      return interaction.reply(buildCreateClanPanel());
+      // First time: open modal directly (no logo field)
+      return interaction.showModal(buildClanInfoModal(null, true));
     }
     // Refresh leader_name only when the MAIN leader opens (not co-leaders)
     if (mid === eid) {
       const _lName = interaction.member.displayName || interaction.member.user?.username || '';
       if (_lName && _openRoster.leader_name !== _lName) {
-        db.update('fed_rosters', _openRoster.id, { leader_name: _lName });
+        db.update('Clan_Registry', _openRoster.id, { leader_name: _lName });
       }
+    }
+    // ── Self-repair: create Discord role if missing (e.g. creation failed at registration)
+    if (_openRoster.clan_name && !_openRoster.clan_role_id) {
+      try {
+        const _cg2    = interaction.guild;
+        const _mefId2 = db.getConfig('fed_roster_mef_role_id') || null;
+        const _ctag2  = _openRoster.clan_tag || _openRoster.clan_name.slice(0, 5).toUpperCase();
+        const _nr2    = await _cg2.roles.create({ name: _ctag2, colors: 0x00FFAC,
+          reason: 'MEF Federation: ' + _openRoster.clan_name + ' [' + _ctag2 + '] (auto-repair)' });
+        const _pr2 = await _cg2.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
+        if (_pr2 && _pr2.position > 1) await _nr2.setPosition(_pr2.position - 1).catch(() => {});
+        db.update('Clan_Registry', _openRoster.id, { clan_role_id: _nr2.id });
+        const _lm2 = await _cg2.members.fetch(eid).catch(() => null);
+        if (_lm2) {
+          await _lm2.roles.add(_nr2.id).catch(() => {});
+          if (_mefId2) await _lm2.roles.add(_mefId2).catch(() => {});
+        }
+      } catch (_re) { console.error('[FedRoster] Role auto-repair failed:', _re.message); }
     }
     return interaction.reply(buildLeaderDashboard(eid));
   }
@@ -242,6 +263,7 @@ async function handleFedRosterInteraction(interaction, client) {
   // ── Clan Info modal submit ───────────────────────────────────────────────
   if (id === 'fr_modal_clan_info') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
+    const _isFirstTime = !getRoster(eid);
     const cfg = getRosterConfig();
     if (cfg.locked) {
       await interaction.deferUpdate();
@@ -250,7 +272,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const clan_name    = interaction.fields.getTextInputValue('clan_name').trim();
     const clan_tag     = interaction.fields.getTextInputValue('clan_tag').trim().toUpperCase();
     const social_media = interaction.fields.getTextInputValue('social_media').trim();
-    const logo_url     = interaction.fields.getTextInputValue('logo_url').trim();
+    let logo_url = ''; try { logo_url = interaction.fields.getTextInputValue('logo_url').trim(); } catch (_) {}
 
     if (!clan_name) {
       await interaction.deferUpdate();
@@ -261,7 +283,7 @@ async function handleFedRosterInteraction(interaction, client) {
     let roster = getRoster(eid);
     const fed    = db.getConfig('federation') || {};
     if (roster) {
-      db.update('fed_rosters', roster.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
+      db.update('Clan_Registry', roster.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
       if (logo_url && logo_url !== roster.logo_url) downloadAndCacheLogo(roster.id, logo_url);
       // Rename Discord role if tag changed
       if (clan_tag && clan_tag !== roster.clan_tag && roster.clan_role_id) {
@@ -272,13 +294,13 @@ async function handleFedRosterInteraction(interaction, client) {
       }
     } else {
       // Re-check inside the else to guard against concurrent submits
-      const _doubleCheck = (db.get('fed_rosters') || []).find(r => r.leader_discord_id === mid);
+      const _doubleCheck = (db.get('Clan_Registry') || []).find(r => r.leader_discord_id === mid);
       if (_doubleCheck) {
-        db.update('fed_rosters', _doubleCheck.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
+        db.update('Clan_Registry', _doubleCheck.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
         if (logo_url && logo_url !== _doubleCheck.logo_url) downloadAndCacheLogo(_doubleCheck.id, logo_url);
       } else {
         const _ldName = interaction.member.displayName || interaction.member.user?.username || '';
-        const newRoster = db.insert('fed_rosters', {
+        const newRoster = db.insert('Clan_Registry', {
           guild_id: interaction.guild.id,
           leader_discord_id: eid,
           leader_name: _ldName,
@@ -309,7 +331,7 @@ async function handleFedRosterInteraction(interaction, client) {
             const _lm = await _cg.members.fetch(eid).catch(() => null);
             if (_lm) _lun = _lm.user.username;
           } catch (_) {}
-          db.update('fed_rosters', newRoster.id, {
+          db.update('Clan_Registry', newRoster.id, {
             clan_role_id: _crId,
             players: [{ slot: 1, name: _ldName, discord_user: eid,
               discord_username: _lun, device: '', user_id: '', serial_number: '' }],
@@ -324,7 +346,11 @@ async function handleFedRosterInteraction(interaction, client) {
         }
       }
     }
-    await interaction.deferUpdate();
+    if (_isFirstTime) {
+      await interaction.deferReply({ ephemeral: true });
+    } else {
+      await interaction.deferUpdate();
+    }
     return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
   }
 
@@ -392,7 +418,7 @@ async function handleFedRosterInteraction(interaction, client) {
       nextSlot++;
     }
 
-    db.update('fed_rosters', roster.id, { players: compactSlots(players), updated_at: new Date().toISOString() });
+    db.update('Clan_Registry', roster.id, { players: compactSlots(players), updated_at: new Date().toISOString() });
 
     if (!added.length) {
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'No players added — ' + skipped.join(', ') + '.' }));
@@ -475,12 +501,12 @@ async function handleFedRosterInteraction(interaction, client) {
     const newPlayer = { slot, name, discord_user: discordUserId || '', discord_username, device, user_id, serial_number };
 
     if (existing) {
-      db.update('fed_rosters', roster.id, {
+      db.update('Clan_Registry', roster.id, {
         players: compactSlots(players.map(p => p.slot === slot ? newPlayer : p)),
         updated_at: new Date().toISOString(),
       });
     } else {
-      db.update('fed_rosters', roster.id, {
+      db.update('Clan_Registry', roster.id, {
         players: compactSlots([...players, newPlayer]),
         updated_at: new Date().toISOString(),
       });
@@ -525,7 +551,7 @@ async function handleFedRosterInteraction(interaction, client) {
       if (p.slot === slotB) return { ...p, slot: slotA };
       return p;
     });
-    db.update('fed_rosters', roster.id, { players });
+    db.update('Clan_Registry', roster.id, { players });
     await interaction.deferUpdate();
     return interaction.editReply(buildReorderPanel(eid, slotB));
   }
@@ -597,7 +623,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const newPlayer = { slot, name, discord_user, discord_username, device, user_id, serial_number };
     const _lnExtra = (discord_user && discord_user === String(roster.leader_discord_id) && name)
       ? { leader_name: name } : {};
-    db.update('fed_rosters', roster.id, {
+    db.update('Clan_Registry', roster.id, {
       players: players.map(p => p.slot === slot ? newPlayer : p),
       ..._lnExtra,
       updated_at: new Date().toISOString(),
@@ -646,7 +672,7 @@ async function handleFedRosterInteraction(interaction, client) {
       .filter(p => p.slot !== slot)
       .sort((a, b) => a.slot - b.slot)
       .map((p, i) => ({ ...p, slot: i + 1 }));
-    db.update('fed_rosters', roster.id, {
+    db.update('Clan_Registry', roster.id, {
       players: remaining,
       updated_at: new Date().toISOString(),
     });
@@ -694,7 +720,7 @@ async function handleFedRosterInteraction(interaction, client) {
         return p;
       }));
       if (_refreshedPlayers.some((p, i) => p.discord_username !== (roster.players[i]?.discord_username))) {
-        db.update('fed_rosters', roster.id, { players: _refreshedPlayers, updated_at: new Date().toISOString() });
+        db.update('Clan_Registry', roster.id, { players: _refreshedPlayers, updated_at: new Date().toISOString() });
         roster = Object.assign({}, roster, { players: _refreshedPlayers });
       }
     } catch (_) {}
@@ -771,7 +797,7 @@ async function handleFedRosterInteraction(interaction, client) {
       console.error('[FedRoster] Role creation error:', e.message);
     }
 
-    db.update('fed_rosters', roster.id, {
+    db.update('Clan_Registry', roster.id, {
       status: 'submitted',
       clan_role_id: clanRoleId,
       submitted_at: new Date().toISOString(),
@@ -793,7 +819,7 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid));
     }
-    db.update('fed_rosters', roster.id, {
+    db.update('Clan_Registry', roster.id, {
       status: 'draft',
       submitted_at: null,
       updated_at: new Date().toISOString(),
@@ -840,10 +866,10 @@ async function handleFedRosterInteraction(interaction, client) {
     // Toggle submitted / draft
     if (id.startsWith('fra_toggle_submit_')) {
       const rosterId  = parseInt(id.replace('fra_toggle_submit_', ''));
-      const roster    = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+      const roster    = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
       if (!roster) { await interaction.deferUpdate(); return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' })); }
       const newStatus = roster.status === 'submitted' ? 'draft' : 'submitted';
-      db.update('fed_rosters', rosterId, { status: newStatus, updated_at: new Date().toISOString() });
+      db.update('Clan_Registry', rosterId, { status: newStatus, updated_at: new Date().toISOString() });
       await interaction.deferUpdate();
       return interaction.editReply(buildAdminClanView(rosterId, { info: 'Status changed to **' + newStatus + '**.' }));
     }
@@ -857,7 +883,7 @@ async function handleFedRosterInteraction(interaction, client) {
     // Confirm remove
     if (id.startsWith('fra_confirm_remove_')) {
       const rosterId = parseInt(id.replace('fra_confirm_remove_', ''));
-      const roster   = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+      const roster   = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
       await interaction.deferUpdate();
       if (!roster) return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' }));
 
@@ -877,14 +903,19 @@ async function handleFedRosterInteraction(interaction, client) {
       }
 
       const clanName = roster.clan_name;
-      db.delete('fed_rosters', rosterId);
+      db.delete('Clan_Registry', rosterId);
+      // Delete cached logo image
+      try {
+        const _lp = path.join(LOGO_CACHE_DIR, rosterId + '.img');
+        if (fs.existsSync(_lp)) fs.unlinkSync(_lp);
+      } catch (_) {}
       return interaction.editReply(buildAdminPanel({ info: '**' + clanName + '** removed from the federation.' }));
     }
 
     // Admin PDF
     if (id.startsWith('fra_pdf_')) {
       const rosterId = parseInt(id.replace('fra_pdf_', ''));
-      let roster     = (db.get('fed_rosters') || []).find(r => r.id === rosterId);
+      let roster     = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
       const cfg      = getRosterConfig();
       if (!roster) { await interaction.deferUpdate(); return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' })); }
       await interaction.deferUpdate();
@@ -901,7 +932,7 @@ async function handleFedRosterInteraction(interaction, client) {
         }));
         const _changed = _rp.some((p, i) => p.discord_username !== ((roster.players||[])[i]||{}).discord_username);
         if (_changed) {
-          db.update('fed_rosters', roster.id, { players: _rp, updated_at: new Date().toISOString() });
+          db.update('Clan_Registry', roster.id, { players: _rp, updated_at: new Date().toISOString() });
           roster = Object.assign({}, roster, { players: _rp });
         }
       } catch (_) {}
@@ -1052,7 +1083,7 @@ async function handleFedRosterInteraction(interaction, client) {
       db.setConfig('fed_roster_mef_role_id', roleId);
       await interaction.deferUpdate();
       if (roleId) {
-        const _allRosters = db.get('fed_rosters') || [];
+        const _allRosters = db.get('Clan_Registry') || [];
         for (const _r of _allRosters) {
           const _allIds = new Set();
           if (_r.leader_discord_id) _allIds.add(String(_r.leader_discord_id));
