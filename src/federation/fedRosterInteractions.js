@@ -232,14 +232,13 @@ async function handleFedRosterInteraction(interaction, client) {
         const _ctag2  = _openRoster.clan_tag || _openRoster.clan_name.slice(0, 5).toUpperCase();
         const _nr2    = await _cg2.roles.create({ name: _ctag2, colors: 0x00FFAC,
           reason: 'MEF Federation: ' + _openRoster.clan_name + ' [' + _ctag2 + '] (auto-repair)' });
-        const _pr2 = await _cg2.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
+        // Use cache — no extra API call needed for positioning
+        const _pr2 = _cg2.roles.cache.get(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365');
         if (_pr2 && _pr2.position > 1) await _nr2.setPosition(_pr2.position - 1).catch(() => {});
         db.update('Clan_Registry', _openRoster.id, { clan_role_id: _nr2.id });
-        const _lm2 = await _cg2.members.fetch(eid).catch(() => null);
-        if (_lm2) {
-          await _lm2.roles.add(_nr2.id).catch(() => {});
-          if (_mefId2) await _lm2.roles.add(_mefId2).catch(() => {});
-        }
+        // Leader is already interaction.member — no API fetch needed
+        await interaction.member.roles.add(_nr2.id).catch(() => {});
+        if (_mefId2) await interaction.member.roles.add(_mefId2).catch(() => {});
       } catch (_re) { console.error('[FedRoster] Role auto-repair failed:', _re.message); }
     }
     return interaction.reply(buildLeaderDashboard(eid));
@@ -278,6 +277,9 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Clan name is required.' }));
     }
+
+    // Defer BEFORE any async work — Discord token expires in 3s
+    await interaction.deferUpdate();
 
     // Hard dedup: always re-fetch right before insert to prevent double-submit race
     let roster = getRoster(eid);
@@ -322,34 +324,24 @@ async function handleFedRosterInteraction(interaction, client) {
           try {
             const _nr = await _cg.roles.create({ name: _ctag, colors: 0x00FFAC,
               reason: 'MEF Federation: ' + clan_name + ' [' + _ctag + ']' });
-            const _pr = await _cg.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
+            // Use cache — no extra API call needed for positioning
+            const _pr = _cg.roles.cache.get(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365');
             if (_pr && _pr.position > 1) await _nr.setPosition(_pr.position - 1).catch(() => {});
             _crId = _nr.id;
           } catch (_e) { console.error('[FedRoster] Role create error:', _e.message); }
-          let _lun = '';
-          try {
-            const _lm = await _cg.members.fetch(eid).catch(() => null);
-            if (_lm) _lun = _lm.user.username;
-          } catch (_) {}
+          // Leader is already interaction.member — no API fetch needed
+          const _lun = interaction.member.user?.username || '';
           db.update('Clan_Registry', newRoster.id, {
             clan_role_id: _crId,
             players: [{ slot: 1, name: _ldName, discord_user: eid,
               discord_username: _lun, device: '', user_id: '', serial_number: '' }],
           });
           try {
-            const _lm2 = await _cg.members.fetch(eid).catch(() => null);
-            if (_lm2) {
-              if (_crId)   await _lm2.roles.add(_crId).catch(() => {});
-              if (_mefId)  await _lm2.roles.add(_mefId).catch(() => {});
-            }
+            if (_crId)   await interaction.member.roles.add(_crId).catch(() => {});
+            if (_mefId)  await interaction.member.roles.add(_mefId).catch(() => {});
           } catch (_) {}
         }
       }
-    }
-    if (_isFirstTime) {
-      await interaction.deferReply({ ephemeral: true });
-    } else {
-      await interaction.deferUpdate();
     }
     return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
   }
