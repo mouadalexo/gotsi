@@ -568,7 +568,7 @@ async function advanceRound(interaction, client) {
       const clanB = getClan(im.away_clan_id);
       try {
         const koLbl = KO_LABELS_BOLD[nextRound] || ('𝗥' + nextRound);
-        const chName = (koLbl + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗙𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
+        const chName = (koLbl + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗩𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
         const _koaCh   = _koaPool[_koi];
         const _koaMsgs = await _koaCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koaMsgs && _koaMsgs.size > 0) await _koaCh.bulkDelete(_koaMsgs, true).catch(() => {});
@@ -682,7 +682,7 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
       const clanB = getClanU(im.away_clan_id);
       try {
         const koLbl2 = KO_LABELS_BOLD[firstRound] || ('𝗥' + firstRound);
-        const chName = (koLbl2 + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗙𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
+        const chName = (koLbl2 + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗩𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
         const _koCh   = _koPool[_koi2];
         const _koMsgs = await _koCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koMsgs && _koMsgs.size > 0) await _koCh.bulkDelete(_koMsgs, true).catch(() => {});
