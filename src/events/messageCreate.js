@@ -33,7 +33,7 @@ module.exports = {
       }
 
       // Block if mentioned is already a registered player in any clan
-      const _allRostersLdr = db.get('fed_rosters') || [];
+      const _allRostersLdr = db.get('Clan_Registry') || [];
       const _playerClan = _allRostersLdr.find(r =>
         (r.players || []).some(p => String(p.discord_user || '').replace(/\D/g, '') === mentioned.id)
       );
@@ -44,25 +44,6 @@ module.exports = {
       // Give them the leader role
       await mentioned.roles.add(cfg.leaderRoleId).catch(() => {});
 
-      // Create empty roster entry if none exists
-      const existing = (db.get('fed_rosters') || []).find(r => r.leader_discord_id === mentioned.id);
-      if (!existing) {
-        const fed = db.getConfig('federation') || {};
-        db.insert('fed_rosters', {
-          guild_id: message.guild.id,
-          leader_discord_id: mentioned.id,
-          leader_name: mentioned.displayName || mentioned.user?.username || '',
-          clan_name: '',
-          clan_tag: '',
-          social_media: '',
-          players: [],
-          co_leaders: [],
-          status: 'draft',
-          clan_role_id: null,
-          season: fed.season || 1,
-          updated_at: new Date().toISOString(),
-        });
-      }
 
       return message.channel.send({
         flags: 32768,
@@ -100,7 +81,7 @@ module.exports = {
       }
 
       // Block: cannot give co-leader to someone who is already a main leader of their own clan
-      const _allRostersCL = db.get('fed_rosters') || [];
+      const _allRostersCL = db.get('Clan_Registry') || [];
       const _mentionedIsLeader = _allRostersCL.find(r => r.leader_discord_id === mentioned.id);
       if (_mentionedIsLeader) {
         return message.reply({ content: '❌ <@' + mentioned.id + '> is already a Clan Leader of **' + (_mentionedIsLeader.clan_name || 'a clan') + '** and cannot be assigned as co-leader.', flags: 64 });
@@ -110,12 +91,12 @@ module.exports = {
 
       // Toggle: if already co-leader, remove them
       if (coLeaders.includes(mentioned.id)) {
-        db.update('fed_rosters', roster.id, {
+        db.update('Clan_Registry', roster.id, {
           co_leaders: coLeaders.filter(uid => uid !== mentioned.id),
           updated_at: new Date().toISOString(),
         });
         // Only remove the role if this person is no longer a leader or co-leader in ANY clan
-        const _rostersAfterRemove = db.get('fed_rosters') || [];
+        const _rostersAfterRemove = db.get('Clan_Registry') || [];
         const _stillNeedsRole = _rostersAfterRemove.some(r =>
           r.leader_discord_id === mentioned.id ||
           (r.co_leaders || []).includes(mentioned.id)
@@ -142,7 +123,7 @@ module.exports = {
       }
 
       // Add to co_leaders list in roster
-      db.update('fed_rosters', roster.id, {
+      db.update('Clan_Registry', roster.id, {
         co_leaders: [...coLeaders, mentioned.id],
         updated_at: new Date().toISOString(),
       });
@@ -171,7 +152,7 @@ module.exports = {
       }
 
       // Must be main leader (not just co-leader)
-      const senderRoster = (db.get('fed_rosters') || []).find(r => r.leader_discord_id === message.author.id);
+      const senderRoster = (db.get('Clan_Registry') || []).find(r => r.leader_discord_id === message.author.id);
       if (!senderRoster) {
         return message.reply({ content: '❌ Only the **main leader** of a clan can transfer leadership.' });
       }
@@ -185,7 +166,7 @@ module.exports = {
       }
 
       // Block if mentioned is already a main leader of a DIFFERENT clan
-      const _allR = db.get('fed_rosters') || [];
+      const _allR = db.get('Clan_Registry') || [];
       const _theirClan = _allR.find(r => r.leader_discord_id === mentioned.id);
       if (_theirClan) {
         return message.reply({ content: '❌ <@' + mentioned.id + '> is already the main leader of **' + (_theirClan.clan_name || 'another clan') + '**.' });
@@ -203,7 +184,7 @@ module.exports = {
       ];
 
       // Transfer in DB
-      db.update('fed_rosters', senderRoster.id, {
+      db.update('Clan_Registry', senderRoster.id, {
         leader_discord_id: newLeaderId,
         leader_name:       newLeaderName,
         co_leaders:        updatedCo,
@@ -221,6 +202,113 @@ module.exports = {
           accent_color: 0xF0B429,
           components: [
             { type: 10, content: '👑 Leadership of **' + (senderRoster.clan_name || 'the clan') + '** has been transferred to <@' + newLeaderId + '>.\n<@' + oldLeaderId + '> is now a co-leader.' },
+          ],
+        }],
+      });
+    }
+
+
+    // ── &removeleader @user ─────────────────────────────────────────────────────────────────────────────
+    if (lower.startsWith('&removeleader')) {
+      if (!isBotolaManager(message.member)) {
+        return message.reply({ content: '❌ Managers only.' });
+      }
+      const cfg = getRosterConfig();
+      const mentioned = message.mentions.members.first();
+      if (!mentioned) {
+        return message.reply({ content: '❌ Usage: `&removeleader @user`' });
+      }
+
+      const roster = getRoster(mentioned.id);
+
+      // Remove leader Discord role
+      if (cfg.leaderRoleId) await mentioned.roles.remove(cfg.leaderRoleId).catch(() => {});
+
+      // Strip co-leader roles from this clan's co-leaders if they hold no other co-leader slot
+      if (roster && cfg.coLeaderRoleId) {
+        const allRosters = db.get('Clan_Registry') || [];
+        for (const coId of (roster.co_leaders || [])) {
+          const stillNeeds = allRosters.some(r =>
+            r.id !== roster.id && (
+              r.leader_discord_id === coId ||
+              (r.co_leaders || []).includes(coId)
+            )
+          );
+          if (!stillNeeds) {
+            const coMember = await message.guild.members.fetch(coId).catch(() => null);
+            if (coMember) await coMember.roles.remove(cfg.coLeaderRoleId).catch(() => {});
+          }
+        }
+      }
+
+      // Delete clan Discord role if one was created
+      if (roster?.clan_role_id) {
+        const clanRole = message.guild.roles.cache.get(roster.clan_role_id);
+        if (clanRole) await clanRole.delete('Clan removed via &removeleader').catch(() => {});
+      }
+
+      // Delete Clan_Registry entry
+      if (roster) db.delete('Clan_Registry', roster.id);
+
+      await message.delete().catch(() => {});
+      return message.channel.send({
+        flags: 32768,
+        components: [{
+          type: 17,
+          accent_color: 0xED4245,
+          components: [
+            { type: 10, content: '❌ <@' + mentioned.id + '> has been removed as Clan Leader' + (roster?.clan_name ? ' of **' + roster.clan_name + '**' : '') + '. Their clan registration has been deleted.' },
+          ],
+        }],
+      });
+    }
+
+
+    // ── &removecoleader @user ───────────────────────────────────────────────────────────────────────
+    if (lower.startsWith('&removecoleader')) {
+      const cfg = getRosterConfig();
+      const mentioned = message.mentions.members.first();
+      if (!mentioned) {
+        return message.reply({ content: '❌ Usage: `&removecoleader @user`' });
+      }
+
+      // Find which clan this person is co-leader of
+      const allRosters = db.get('Clan_Registry') || [];
+      const targetRoster = allRosters.find(r => (r.co_leaders || []).includes(mentioned.id));
+      if (!targetRoster) {
+        return message.reply({ content: '❌ <@' + mentioned.id + '> is not a co-leader of any clan.' });
+      }
+
+      // Only allow: manager OR the main leader of that clan
+      const isManager = isBotolaManager(message.member);
+      const isOwnLeader = message.author.id === targetRoster.leader_discord_id;
+      if (!isManager && !isOwnLeader) {
+        return message.reply({ content: '❌ Only managers or the clan’s main leader can remove a co-leader.' });
+      }
+
+      // Remove from co_leaders list
+      db.update('Clan_Registry', targetRoster.id, {
+        co_leaders: (targetRoster.co_leaders || []).filter(id => id !== mentioned.id),
+        updated_at: new Date().toISOString(),
+      });
+
+      // Remove co-leader Discord role if they don’t hold it elsewhere
+      if (cfg.coLeaderRoleId) {
+        const stillNeeds = (db.get('Clan_Registry') || []).some(r =>
+          r.leader_discord_id === mentioned.id ||
+          (r.co_leaders || []).includes(mentioned.id)
+        );
+        if (!stillNeeds) await mentioned.roles.remove(cfg.coLeaderRoleId).catch(() => {});
+      }
+
+      await message.delete().catch(() => {});
+      return message.channel.send({
+        flags: 32768,
+        components: [{
+          type: 17,
+          accent_color: 0xED4245,
+          components: [
+            { type: 10, content: '❌ <@' + mentioned.id + '> has been removed as co-leader of **' + (targetRoster.clan_name || 'the clan') + '**.' },
           ],
         }],
       });

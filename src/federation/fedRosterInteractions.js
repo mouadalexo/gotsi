@@ -230,10 +230,9 @@ async function handleFedRosterInteraction(interaction, client) {
         const _cg2    = interaction.guild;
         const _mefId2 = db.getConfig('fed_roster_mef_role_id') || null;
         const _ctag2  = _openRoster.clan_tag || _openRoster.clan_name.slice(0, 5).toUpperCase();
-        const _nr2    = await _cg2.roles.create({ name: _ctag2, colors: 0x00FFAC,
+        const _nr2    = await _cg2.roles.create({ name: _ctag2, color: 0x00FFAC,
           reason: 'MEF Federation: ' + _openRoster.clan_name + ' [' + _ctag2 + '] (auto-repair)' });
-        // Use cache — no extra API call needed for positioning
-        const _pr2 = _cg2.roles.cache.get(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365');
+        const _pr2 = await _cg2.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
         if (_pr2 && _pr2.position > 1) await _nr2.setPosition(_pr2.position - 1).catch(() => {});
         db.update('Clan_Registry', _openRoster.id, { clan_role_id: _nr2.id });
         // Leader is already interaction.member — no API fetch needed
@@ -322,10 +321,9 @@ async function handleFedRosterInteraction(interaction, client) {
           const _ctag  = clan_tag || clan_name.slice(0, 5).toUpperCase();
           let _crId = null;
           try {
-            const _nr = await _cg.roles.create({ name: _ctag, colors: 0x00FFAC,
+            const _nr = await _cg.roles.create({ name: _ctag, color: 0x00FFAC,
               reason: 'MEF Federation: ' + clan_name + ' [' + _ctag + ']' });
-            // Use cache — no extra API call needed for positioning
-            const _pr = _cg.roles.cache.get(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365');
+            const _pr = await _cg.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
             if (_pr && _pr.position > 1) await _nr.setPosition(_pr.position - 1).catch(() => {});
             _crId = _nr.id;
           } catch (_e) { console.error('[FedRoster] Role create error:', _e.message); }
@@ -765,7 +763,7 @@ async function handleFedRosterInteraction(interaction, client) {
       if (!clanRoleId) {
         const newRole = await guild.roles.create({
           name:   tag,
-          colors: 0x00FFAC,
+          color: 0x00FFAC,
           reason: 'MEF Federation: ' + roster.clan_name + ' [' + tag + ']',
         });
         // Position just below the federation parent role — same as /clans
