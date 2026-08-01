@@ -157,14 +157,9 @@ async function resetCategoryChannels(guild, fed, clansSnapshot) {
   const catId = fed.channels?.category || null;
   if (!catId) return;
   try {
-    const cat = guild.channels.cache.get(catId) || null;
-    if (!cat || !cat.children) return;
     const mgmtIds = new Set(Object.values(fed.channels || {}).filter(v => v && v !== catId));
-    const matchChs = [];
-    for (const [, ch] of cat.children.cache) {
-      if (mgmtIds.has(ch.id)) continue;
-      matchChs.push(ch);
-    }
+    const matchChs = [...guild.channels.cache.values()]
+      .filter(ch => ch.parentId === catId && ch.type === 0 && !mgmtIds.has(ch.id));
     matchChs.sort((a, b) => a.position - b.position);
     // Use the snapshot passed in — DB is already wiped by the time this runs
     const _clanRoleIds = new Set((clansSnapshot || []).map(c => c.role_id).filter(Boolean));
@@ -348,7 +343,6 @@ async function advanceRound(interaction, client) {
   if (system === 'league') {
     // League: delete previous round channels, create new round channels
     await interaction.deferUpdate();
-    await interaction.editReply({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [{ type: 10, content: '## ⏳  Advancing Round…\n> Setting up next round channels, please wait.' }]}]});
     try {
       const guild     = interaction.guild;
       await guild.roles.fetch();
@@ -420,7 +414,6 @@ async function advanceRound(interaction, client) {
 
   // Acknowledge immediately — channel creation can take several seconds
   await interaction.deferUpdate();
-  await interaction.editReply({ flags: 32768, components: [{ type: 17, accent_color: 0xFEE75C, components: [{ type: 10, content: '## ⏳  Processing…\n> Setting up next matchday channels, please wait.' }]}]});
 
   // Cup: check if all group matches done → generate knockout
   const groupMatches  = matches.filter(m => m.stage === 'group');
