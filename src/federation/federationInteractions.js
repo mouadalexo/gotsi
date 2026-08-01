@@ -7,6 +7,13 @@ const BOLD_MD = ['', '𝗠𝗗𝟭', '𝗠𝗗𝟮', '𝗠𝗗𝟯', '𝗠𝗗�
 const BOLD_NUM = BOLD_MD.map((s, i) => i === 0 ? "" : [...s].slice(2).join(""));
 const BOLD_R  = ['', '𝗥𝟭', '𝗥𝟮', '𝗥𝟯', '𝗥𝟰', '𝗥𝟱', '𝗥𝟲', '𝗥𝟳', '𝗥𝟴', '𝗥𝟵'];
 const getClanTag = c => (c && c.tag) ? c.tag.toUpperCase() : (c ? (c.name || 'clan').slice(0, 5).toUpperCase() : 'clan');
+// Discord lowercases ASCII channel names — use Unicode bold sans-serif so tags appear in caps
+const toBoldTag = str => String(str).toUpperCase().split('').map(c => {
+  const code = c.charCodeAt(0);
+  if (code >= 65 && code <= 90) return String.fromCodePoint(0x1D5D4 + (code - 65));
+  if (code >= 48 && code <= 57) return String.fromCodePoint(0x1D7EC + (code - 48));
+  return c;
+}).join('');
 const mdLabel    = n => BOLD_MD[n] || ('𝗠𝗗' + n);
 const boldNum    = n => BOLD_NUM[n] || String(n);
 const rLabel     = n => BOLD_R[n]  || ('𝗥' + n);
@@ -304,10 +311,10 @@ async function beginSeason(interaction, client) {
         let chName;
         if (system === 'cup') {
           const grpLetter = BOLD_GROUP[im.group_name] || (im.group_name || '');
-          chName = (grpLetter + boldNum(1) + "〡" + getClanTag(clanA) + "・𝗩𝗦・" + getClanTag(clanB)).slice(0, 100);
+          chName = (grpLetter + boldNum(1) + "〡" + toBoldTag(getClanTag(clanA)) + "・𝗩𝗦・" + toBoldTag(getClanTag(clanB))).slice(0, 100);
         } else {
           const circleNum = CIRCLE_NUMS[_chi] || String(_chi + 1);
-          chName = (circleNum + '\u30fb' + rLabel(1) + '\u30fb' + getClanTag(clanA) + '\u30fb\uD835\uDDE9\uD835\uDDE6\u30fb' + getClanTag(clanB)).slice(0, 100);
+          chName = (circleNum + '\u30fb' + rLabel(1) + '\u30fb' + toBoldTag(getClanTag(clanA)) + '\u30fb\uD835\uDDE9\uD835\uDDE6\u30fb' + toBoldTag(getClanTag(clanB))).slice(0, 100);
         }
         const _nc = _neutralChs[_chi];
         if (!_nc) { console.error('[FED] No available channel for match ' + im.id + ' — all category channels used up.'); continue; }
@@ -377,7 +384,7 @@ async function advanceRound(interaction, client) {
         if (!clanA.id || !clanB.id) continue;
         try {
           const circleNum = CIRCLE_NUMS[_li] || String(_li + 1);
-          const chName = (circleNum + '\u30fb' + rLabel(nextRnd) + '\u30fb' + getClanTag(clanA) + '\u30fb\uD835\uDDE9\uD835\uDDE6\u30fb' + getClanTag(clanB)).slice(0, 100);
+          const chName = (circleNum + '\u30fb' + rLabel(nextRnd) + '\u30fb' + toBoldTag(getClanTag(clanA)) + '\u30fb\uD835\uDDE9\uD835\uDDE6\u30fb' + toBoldTag(getClanTag(clanB))).slice(0, 100);
           const _lgCh   = _lgPool[_li];
           const _lgMsgs = await _lgCh.messages.fetch({ limit: 100 }).catch(() => null);
           if (_lgMsgs && _lgMsgs.size > 0) await _lgCh.bulkDelete(_lgMsgs, true).catch(() => {});
@@ -457,7 +464,7 @@ async function advanceRound(interaction, client) {
           const clanB = getClanG(im.away_clan_id);
           try {
             const grpLetter = BOLD_GROUP[im.group_name] || (im.group_name || '');
-            const chName = (grpLetter + boldNum(_nextRound) + "〡" + getClanTag(clanA) + "・𝗩𝗦・" + getClanTag(clanB)).slice(0, 100);
+            const chName = (grpLetter + boldNum(_nextRound) + "〡" + toBoldTag(getClanTag(clanA)) + "・𝗩𝗦・" + toBoldTag(getClanTag(clanB))).slice(0, 100);
             const _grpCh   = _grpPool[_gmi];
             const _grpMsgs = await _grpCh.messages.fetch({ limit: 100 }).catch(() => null);
             if (_grpMsgs && _grpMsgs.size > 0) await _grpCh.bulkDelete(_grpMsgs, true).catch(() => {});
@@ -561,7 +568,7 @@ async function advanceRound(interaction, client) {
       const clanB = getClan(im.away_clan_id);
       try {
         const koLbl = KO_LABELS_BOLD[nextRound] || ('𝗥' + nextRound);
-        const chName = (koLbl + '〡' + getClanTag(clanA) + '・𝗙𝗦・' + getClanTag(clanB)).slice(0, 100);
+        const chName = (koLbl + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗙𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
         const _koaCh   = _koaPool[_koi];
         const _koaMsgs = await _koaCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koaMsgs && _koaMsgs.size > 0) await _koaCh.bulkDelete(_koaMsgs, true).catch(() => {});
@@ -675,7 +682,7 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
       const clanB = getClanU(im.away_clan_id);
       try {
         const koLbl2 = KO_LABELS_BOLD[firstRound] || ('𝗥' + firstRound);
-        const chName = (koLbl2 + '〡' + getClanTag(clanA) + '・𝗙𝗦・' + getClanTag(clanB)).slice(0, 100);
+        const chName = (koLbl2 + '〡' + toBoldTag(getClanTag(clanA)) + '・𝗙𝗦・' + toBoldTag(getClanTag(clanB))).slice(0, 100);
         const _koCh   = _koPool[_koi2];
         const _koMsgs = await _koCh.messages.fetch({ limit: 100 }).catch(() => null);
         if (_koMsgs && _koMsgs.size > 0) await _koCh.bulkDelete(_koMsgs, true).catch(() => {});
