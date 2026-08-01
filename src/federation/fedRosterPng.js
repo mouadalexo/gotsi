@@ -2,10 +2,11 @@
 const { createCanvas, loadImage } = require('canvas');
 const path = require('path');
 const fs   = require('fs');
-const { db } = require('./database');
+const { db } = require('../utils/database');
 
-const MEF_LOGO_PATH = path.join(__dirname, '../../assets/mef_logo.png');
-const LOGO_24_PATH  = path.join(__dirname, '../../assets/logo_24.png');
+const MEF_LOGO_PATH   = path.join(__dirname, '../../assets/mef_logo.png');
+const LOGO_24_PATH    = path.join(__dirname, '../../assets/logo_24.png');
+const LOGO_CACHE_DIR  = path.join(__dirname, '../../assets/clan_logos');
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -163,7 +164,15 @@ async function generateRosterPng(roster, maxPlayers) {
   let logo24 = null, mefLogo = null, clanLogoImg = null;
   try { if (fs.existsSync(LOGO_24_PATH))  logo24      = await loadImage(LOGO_24_PATH);  } catch (_) {}
   try { if (fs.existsSync(MEF_LOGO_PATH)) mefLogo     = await loadImage(MEF_LOGO_PATH); } catch (_) {}
-  if (roster.logo_url) {
+  // Use locally cached logo first (downloaded when leader saved clan info),
+  // fall back to URL only if cache file doesn't exist yet
+  if (roster.id) {
+    const cachedPath = path.join(LOGO_CACHE_DIR, roster.id + '.img');
+    if (fs.existsSync(cachedPath)) {
+      try { clanLogoImg = await loadImage(cachedPath); } catch (_) {}
+    }
+  }
+  if (!clanLogoImg && roster.logo_url) {
     try { clanLogoImg = await loadImage(roster.logo_url); } catch (_) {}
   }
 

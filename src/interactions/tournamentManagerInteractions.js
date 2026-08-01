@@ -3,7 +3,7 @@ const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = req
 const { db } = require('../utils/database');
 const { requireManager } = require('../utils/permissions');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { makeSchedulePost, makeResultsPost } = require('../utils/tournamentEmbeds');
+const { makeSchedulePost, makeResultsPost } = require('../botola/tournamentEmbeds');
 const { buildNewSeasonModal } = require('../panels/managePanel');
 const {
   buildTournamentListPanel,

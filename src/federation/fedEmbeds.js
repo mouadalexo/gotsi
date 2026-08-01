@@ -1,5 +1,5 @@
 'use strict';
-const { db } = require('./database');
+const { db } = require('../utils/database');
 
 const RED    = 0xCC0000;
 const GOLD   = 0xFFD700;
@@ -13,6 +13,8 @@ const VS_SEP = ' vs ';
 const trunc  = (s, n) => s.length > n ? s.slice(0, n - 3) + '...' : s;
 const tPad   = (s, n) => { const x = trunc(s, n); return x.padEnd(n); };
 const scoreSep  = (h, a) => ' ' + String(h).padStart(2) + '-' + String(a).padEnd(2) + ' ';
+
+const getClanTag = c => (c && c.tag) ? c.tag.toUpperCase() : (c ? (c.name || 'TBD').slice(0, 5).toUpperCase() : 'TBD');
 
 function fmtMatchLine(home, away, sep) {
   const half = Math.floor((LINE_W - sep.length) / 2);
@@ -82,7 +84,7 @@ function makeFedClanListPost(fed, clans) {
       const clan     = clans[i];
       const num      = String(i + 1);
       const spacing  = needsPad ? (num.length === 1 ? '    ' : '   ') : '   ';
-      const leaderId = (clan.players || [])[0] || null;
+      const leaderId = clan.leader_id || (clan.players || []).find(player => typeof player === 'string') || null;
       const noLeader = "`No leader assigned`";
       let line = '**' + num + spacing + 'Clan name   ' + E_ARROW + '   ' + clan.name + '**';
       line += '\n\u3000 Leader   ' + E_ARR + '   ' + (leaderId ? '<@' + leaderId + '>' : noLeader);
@@ -116,12 +118,12 @@ function makeFedSchedulePost(fed, allMatches, round, clans) {
       groups[g].push(m);
     }
     Object.entries(groups).sort().forEach(([g, gm], i) => {
-      const lines = gm.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), VS_SEP));
+      const lines = gm.map(m => fmtMatchLine(getClanTag(getClan(m.home_clan_id)), getClanTag(getClan(m.away_clan_id)), VS_SEP));
       inner.push(txt(E_HASH + '  **GROUP ' + g + '**\n' + lines.join('\n')));
       if (i < Object.keys(groups).length - 1) inner.push(SEP);
     });
   } else {
-    const lines = rMatches.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), VS_SEP));
+    const lines = rMatches.map(m => fmtMatchLine(getClanTag(getClan(m.home_clan_id)), getClanTag(getClan(m.away_clan_id)), VS_SEP));
     inner.push(txt(lines.join('\n')));
   }
 
@@ -153,12 +155,12 @@ function makeFedResultsPost(fed, allMatches, round, clans) {
       groups[g].push(m);
     }
     Object.entries(groups).sort().forEach(([g, gm], i) => {
-      const lines = gm.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), fmtScoreSep(m)));
+      const lines = gm.map(m => fmtMatchLine(getClanTag(getClan(m.home_clan_id)), getClanTag(getClan(m.away_clan_id)), fmtScoreSep(m)));
       inner.push(txt(E_HASH + '  **GROUP ' + g + '**\n' + lines.join('\n')));
       if (i < Object.keys(groups).length - 1) inner.push(SEP);
     });
   } else {
-    const lines = rMatches.map(m => fmtMatchLine(getClan(m.home_clan_id).name.toUpperCase(), getClan(m.away_clan_id).name.toUpperCase(), fmtScoreSep(m)));
+    const lines = rMatches.map(m => fmtMatchLine(getClanTag(getClan(m.home_clan_id)), getClanTag(getClan(m.away_clan_id)), fmtScoreSep(m)));
     inner.push(txt(lines.join('\n')));
   }
 
@@ -199,7 +201,7 @@ function makeFedStandingsPost(fed, allMatches, clans, isLeague, round) {
     // League: one big table
     const allC = clans.map(c => {
       const s = stats[c.id] || init();
-      return { name: c.name, played: s.w + s.d + s.l, ...s };
+      return { name: getClanTag(c), played: s.w + s.d + s.l, ...s };
     }).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
 
     const header = '`#  ' + 'Clan'.padEnd(NW) + '  P  Dif  Pts`';
@@ -223,7 +225,7 @@ function makeFedStandingsPost(fed, allMatches, clans, isLeague, round) {
     entries.forEach(([g, gClans], idx) => {
       const sorted = gClans.map(c => {
         const s = stats[c.id] || init();
-        return { name: c.name, played: s.w + s.d + s.l, ...s };
+        return { name: getClanTag(c), played: s.w + s.d + s.l, ...s };
       }).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
 
       const header = '`#  ' + 'Clan'.padEnd(NW) + '  P  Dif  Pts`';
@@ -322,8 +324,8 @@ function makeFedBracketPost(fed, allMatches, clans) {
       if (prevMs.length > 0) {
         // Use result field directly so DM/pen winners are resolved correctly
         const adv = m => {
-          if (m.status !== 'played') return getClan(m.home_clan_id).name + '/' + getClan(m.away_clan_id).name;
-          return getClan(m.result === 'home' ? m.home_clan_id : m.away_clan_id).name;
+          if (m.status !== 'played') return getClanTag(getClan(m.home_clan_id)) + '/' + getClanTag(getClan(m.away_clan_id));
+          return getClanTag(getClan(m.result === 'home' ? m.home_clan_id : m.away_clan_id));
         };
         const lines = [];
         for (let i = 0; i + 1 < prevMs.length; i += 2) {
@@ -337,8 +339,8 @@ function makeFedBracketPost(fed, allMatches, clans) {
       }
     } else {
       const lines = rMatches.map(m => {
-        const hName = getClan(m.home_clan_id).name.toUpperCase();
-        const aName = getClan(m.away_clan_id).name.toUpperCase();
+        const hName = getClanTag(getClan(m.home_clan_id));
+        const aName = getClanTag(getClan(m.away_clan_id));
         return m.status === 'played'
           ? fmtMatchLine(hName, aName, fmtScoreSep(m))
           : fmtMatchLine(hName, aName, VS_SEP);

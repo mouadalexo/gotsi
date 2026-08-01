@@ -2,10 +2,10 @@
 const { db } = require('../utils/database');
 const { requireManager } = require('../utils/permissions');
 const { successEmbed, errorEmbed, warningEmbed, E } = require('../utils/embeds');
-const { buildPendingMatchesSelect, buildResultModal, buildAllResultsEmbed } = require('../panels/resultsPanel');
+const { buildPendingMatchesSelect, buildResultModal, buildAllResultsEmbed } = require('./resultsPanel');
 const { buildTournamentSelectMenu } = require('../panels/tournamentPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
-const { makeResultEmbed } = require('../utils/tournamentEmbeds');
+const { makeResultEmbed } = require('./tournamentEmbeds');
 
 // Reverse a played group match's effect on standings (for edits)
 function _reverseGroupStandings(match, tournamentId) {

@@ -1,8 +1,11 @@
 'use strict';
 const { isBotolaManager } = require('../utils/permissions');
-const { getFed }          = require('../panels/fedPanel1');
+const { getFed }          = require('../federation/fedPanel1');
 const { db }              = require('../utils/database');
-const { buildRosterLauncher, getRosterConfig } = require('../panels/fedRosterPanel');
+const { buildRosterLauncher, getRosterConfig, getRoster, getRosterForMember } = require('../federation/fedRosterPanel');
+
+// Track last &clan launcher message per user so it can be deleted on next use
+const _lastLauncherMsg = new Map();
 
 module.exports = {
   name: 'messageCreate',
@@ -117,8 +120,8 @@ module.exports = {
           r.leader_discord_id === mentioned.id ||
           (r.co_leaders || []).includes(mentioned.id)
         );
-        if (!_stillNeedsRole) {
-          try { await mentioned.roles.remove(cfg.leaderRoleId); } catch (_) {}
+        if (!_stillNeedsRole && cfg.coLeaderRoleId) {
+          try { await mentioned.roles.remove(cfg.coLeaderRoleId); } catch (_) {}
         }
         await message.delete().catch(() => {});
         return message.channel.send({
@@ -144,8 +147,8 @@ module.exports = {
         updated_at: new Date().toISOString(),
       });
 
-      // Give them the leader role so they can open the panel
-      try { await mentioned.roles.add(cfg.leaderRoleId); } catch (_) {}
+      // Give them the co-leader role so they can open the panel
+      if (cfg.coLeaderRoleId) { try { await mentioned.roles.add(cfg.coLeaderRoleId); } catch (_) {} }
 
       await message.delete().catch(() => {});
       return message.channel.send({
@@ -229,16 +232,25 @@ module.exports = {
       if (!cfg.leaderRoleId) {
         return message.reply({ content: '❌ No Clan Leader role configured yet.' });
       }
-      if (!message.member.roles.cache.has(cfg.leaderRoleId)) {
-        return message.reply({ content: '❌ You do not have the Clan Leader role.' });
+      const _membership = getRosterForMember(message.author.id);
+      if (!message.member.roles.cache.has(cfg.leaderRoleId) && !(cfg.coLeaderRoleId && message.member.roles.cache.has(cfg.coLeaderRoleId)) && !_membership) {
+        return message.reply({ content: '❌ You do not have the Clan Leader or Co-Leader role.' });
       }
 
       // Delete the command message to keep channel clean
       await message.delete().catch(() => {});
 
-      // Post launcher with Open button — auto-delete after 10 s
+      // Delete previous launcher for this user if it still exists
+      const prevMsg = _lastLauncherMsg.get(message.author.id);
+      if (prevMsg) prevMsg.delete().catch(() => {});
+
+      // Post new launcher and track it
       const launcher = await message.channel.send(buildRosterLauncher(message.member));
-      setTimeout(() => launcher.delete().catch(() => {}), 15_000);
+      _lastLauncherMsg.set(message.author.id, launcher);
+      setTimeout(() => {
+        launcher.delete().catch(() => {});
+        _lastLauncherMsg.delete(message.author.id);
+      }, 15_000);
     }
 
     // ── ?referee ──────────────────────────────────────────────────────────────

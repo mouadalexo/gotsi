@@ -5,7 +5,7 @@ const {
 } = require("discord.js");
 const { db } = require("../utils/database");
 const { E } = require("../utils/embeds");
-const { fmtMatchLine, scoreSep, scoreSepF } = require("../utils/tournamentEmbeds");
+const { fmtMatchLine, scoreSep, scoreSepF } = require("./tournamentEmbeds");
 
 const E_CUP     = "<a:cup:1501741159557500971>";
 const E_HASHTAG = "<a:hashtag:1501741088736678069>";

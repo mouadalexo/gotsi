@@ -3,7 +3,7 @@ const { db } = require('../utils/database');
 const {
   makeSchedulePost, makeResultsPost, makeStandingsPost,
   makeGroupDrawPost, makeBracketPost, makeChampionPost,
-} = require('../utils/tournamentEmbeds');
+} = require('../botola/tournamentEmbeds');
 const { buildTeamsListEmbed } = require('../panels/teamListPanel');
 
 const SEP    = { type: 14, divider: true, spacing: 1 };

@@ -2,21 +2,21 @@
 const { errorEmbed } = require('../utils/embeds');
 const { handleTeamInteraction }               = require('../interactions/teamInteractions');
 const { handleTournamentInteraction }         = require('../interactions/tournamentInteractions');
-const { handleResultInteraction }             = require('../interactions/resultInteractions');
+const { handleResultInteraction }             = require('../botola/resultInteractions');
 const { handleMgr2Interaction }              = require('../interactions/manageInteractionsNew');
 const { handleTestInteraction }               = require('../interactions/testInteractions');
 const { handleWHInteraction }                 = require('../interactions/whInteractions');
 const { handleTournamentManagerInteraction }  = require('../interactions/tournamentManagerInteractions');
 const { handleTeamCrudInteraction }           = require("../interactions/teamCrudInteractions");
 const { handleClanCrudInteraction }           = require("../interactions/clanCrudInteractions");
-const { handleBotolaInteraction }             = require('../interactions/botolaInteractions');
+const { handleBotolaInteraction }             = require('../botola/botolaInteractions');
 const { handleSettingsInteraction }           = require('../interactions/settingsInteractions');
 const { handleInfoInteraction }               = require('../interactions/infoInteractions');
-const { handleEnrollInteraction }             = require("../interactions/enrollInteractions");
-const { handleFederationInteraction, refreshFedPanels } = require("../interactions/federationInteractions");
+const { handleEnrollInteraction }             = require("../botola/enrollInteractions");
+const { handleFederationInteraction, refreshFedPanels } = require("../federation/federationInteractions");
 const { handleAutotestInteraction }           = require("../interactions/autotestInteractions");
-const { handleFedRosterInteraction }          = require("../interactions/fedRosterInteractions");
-const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
+const { handleFedRosterInteraction }          = require("../federation/fedRosterInteractions");
+const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../botola/standingsPanel');
 
 const TEAM_IDS = [
   'team_add_predefined', 'team_predefined_select', 'team_add_custom',

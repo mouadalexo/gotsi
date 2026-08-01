@@ -1,6 +1,6 @@
 'use strict';
 const { SlashCommandBuilder } = require('discord.js');
-const { buildFederationPanel } = require('../panels/federationPanel');
+const { buildFederationPanel } = require('../federation/federationPanel');
 const { isBotolaManager } = require('../utils/permissions');
 
 module.exports = {

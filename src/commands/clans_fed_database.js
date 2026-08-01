@@ -1,6 +1,6 @@
 'use strict';
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { buildAdminPanel } = require('../panels/fedRosterPanel');
+const { buildAdminPanel } = require('../federation/fedRosterPanel');
 
 module.exports = {
   data: new SlashCommandBuilder()

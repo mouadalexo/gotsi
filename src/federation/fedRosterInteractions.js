@@ -3,19 +3,61 @@ const {
   ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { db }                = require('../utils/database');
+const https                 = require('https');
+const http                  = require('http');
+const fs                    = require('fs');
+const path                  = require('path');
+
+const LOGO_CACHE_DIR = path.join(__dirname, '../../assets/clan_logos');
+
+// Download a logo URL and save it to disk; silently skips on error
+async function downloadAndCacheLogo(rosterId, logoUrl) {
+  if (!logoUrl || !rosterId) return;
+  try {
+    if (!fs.existsSync(LOGO_CACHE_DIR)) fs.mkdirSync(LOGO_CACHE_DIR, { recursive: true });
+    const destPath = path.join(LOGO_CACHE_DIR, rosterId + '.img');
+    await new Promise((resolve, reject) => {
+      function get(url, redirects) {
+        if (redirects > 5) return reject(new Error('too many redirects'));
+        const mod = url.startsWith('https') ? https : http;
+        mod.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            res.resume();
+            return get(res.headers.location, redirects + 1);
+          }
+          if (res.statusCode !== 200) { res.resume(); return reject(new Error('status ' + res.statusCode)); }
+          const out = fs.createWriteStream(destPath);
+          res.pipe(out);
+          out.on('finish', resolve);
+          out.on('error', reject);
+        }).on('error', reject);
+      }
+      get(logoUrl, 0);
+    });
+  } catch (_) {}
+}
 const { isBotolaManager }   = require('../utils/permissions');
-const { generateRosterPng } = require('../utils/fedRosterPng');
+const { generateRosterPng } = require('./fedRosterPng');
 const {
   getRosterConfig, getRoster, getRosterForMember,
-  buildLeaderDashboard, buildPickUserPanel, buildSearchPanel,
+  buildLeaderDashboard, buildCreateClanPanel, buildPickUserPanel, buildSearchPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect,
   buildConfirmRemove, buildReorderPanel,
   buildAdminPanel, buildAdminClanView,
   buildAdminSettings, buildAdminConfirmRemove,
-} = require('../panels/fedRosterPanel');
+} = require('./fedRosterPanel');
 
 // Tracks the last ephemeral preview message ID per user so it can be replaced
 const _previewMsgIds = new Map();
+
+// Safety: renumber players 1..N by slot order, eliminating any gaps or duplicates
+function compactSlots(players) {
+  const seen = new Map();
+  for (const p of (players || [])) seen.set(p.slot, p); // last write wins on duplicate slot
+  return [...seen.values()]
+    .sort((a, b) => a.slot - b.slot)
+    .map((p, i) => ({ ...p, slot: i + 1 }));
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function noPerm(i) {
@@ -156,6 +198,8 @@ async function handleFedRosterInteraction(interaction, client) {
   const _eidRoster = getRosterForMember(mid);
   const eid = _eidRoster ? _eidRoster.leader_discord_id : mid;
 
+  try {
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LEADER INTERACTIONS  (prefix: fr_)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -163,11 +207,15 @@ async function handleFedRosterInteraction(interaction, client) {
   // ── Open ephemeral dashboard ─────────────────────────────────────────────
   if (id === 'fr_open') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    // Delete the launcher message immediately, then open the ephemeral dashboard
+    // Delete the launcher message immediately
     await interaction.message.delete().catch(() => {});
-    // Refresh leader_name only when the MAIN leader opens (not co-leaders)
     const _openRoster = getRoster(eid);
-    if (_openRoster && mid === eid) {
+    if (!_openRoster) {
+      // First time — show create clan page directly
+      return interaction.reply(buildCreateClanPanel());
+    }
+    // Refresh leader_name only when the MAIN leader opens (not co-leaders)
+    if (mid === eid) {
       const _lName = interaction.member.displayName || interaction.member.user?.username || '';
       if (_lName && _openRoster.leader_name !== _lName) {
         db.update('fed_rosters', _openRoster.id, { leader_name: _lName });
@@ -214,16 +262,26 @@ async function handleFedRosterInteraction(interaction, client) {
     const fed    = db.getConfig('federation') || {};
     if (roster) {
       db.update('fed_rosters', roster.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
+      if (logo_url && logo_url !== roster.logo_url) downloadAndCacheLogo(roster.id, logo_url);
+      // Rename Discord role if tag changed
+      if (clan_tag && clan_tag !== roster.clan_tag && roster.clan_role_id) {
+        try {
+          const _tagRole = await interaction.guild.roles.fetch(roster.clan_role_id).catch(() => null);
+          if (_tagRole) await _tagRole.setName(clan_tag).catch(() => {});
+        } catch (_) {}
+      }
     } else {
       // Re-check inside the else to guard against concurrent submits
       const _doubleCheck = (db.get('fed_rosters') || []).find(r => r.leader_discord_id === mid);
       if (_doubleCheck) {
         db.update('fed_rosters', _doubleCheck.id, { clan_name, clan_tag, social_media, logo_url, updated_at: new Date().toISOString() });
+        if (logo_url && logo_url !== _doubleCheck.logo_url) downloadAndCacheLogo(_doubleCheck.id, logo_url);
       } else {
-        db.insert('fed_rosters', {
+        const _ldName = interaction.member.displayName || interaction.member.user?.username || '';
+        const newRoster = db.insert('fed_rosters', {
           guild_id: interaction.guild.id,
           leader_discord_id: eid,
-          leader_name: interaction.member.displayName || interaction.member.user?.username || '',
+          leader_name: _ldName,
           clan_name, clan_tag, social_media, logo_url,
           players: [],
           co_leaders: [],
@@ -232,13 +290,45 @@ async function handleFedRosterInteraction(interaction, client) {
           season: fed.season || 1,
           updated_at: new Date().toISOString(),
         });
+        if (logo_url && newRoster?.id) downloadAndCacheLogo(newRoster.id, logo_url);
+        // Create clan Discord role + auto-add leader as Player #1
+        if (newRoster?.id) {
+          const _cg = interaction.guild;
+          const _mefId = db.getConfig('fed_roster_mef_role_id') || null;
+          const _ctag  = clan_tag || clan_name.slice(0, 5).toUpperCase();
+          let _crId = null;
+          try {
+            const _nr = await _cg.roles.create({ name: _ctag, colors: 0x00FFAC,
+              reason: 'MEF Federation: ' + clan_name + ' [' + _ctag + ']' });
+            const _pr = await _cg.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
+            if (_pr && _pr.position > 1) await _nr.setPosition(_pr.position - 1).catch(() => {});
+            _crId = _nr.id;
+          } catch (_e) { console.error('[FedRoster] Role create error:', _e.message); }
+          let _lun = '';
+          try {
+            const _lm = await _cg.members.fetch(eid).catch(() => null);
+            if (_lm) _lun = _lm.user.username;
+          } catch (_) {}
+          db.update('fed_rosters', newRoster.id, {
+            clan_role_id: _crId,
+            players: [{ slot: 1, name: _ldName, discord_user: eid,
+              discord_username: _lun, device: '', user_id: '', serial_number: '' }],
+          });
+          try {
+            const _lm2 = await _cg.members.fetch(eid).catch(() => null);
+            if (_lm2) {
+              if (_crId)   await _lm2.roles.add(_crId).catch(() => {});
+              if (_mefId)  await _lm2.roles.add(_mefId).catch(() => {});
+            }
+          } catch (_) {}
+        }
       }
     }
     await interaction.deferUpdate();
     return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
   }
 
-  // ── Add Player: step 1 — show Discord user select ─────────────────────────
+  // ── Add Player: step 1 — show multi-select Discord user select ──────────────
   if (id === 'fr_add_player') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const cfg = getRosterConfig();
@@ -248,44 +338,84 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Fill in Clan Info before adding players.' }));
     }
-    const players       = roster.players || [];
-    const leaderInList2 = players.some(p => p.discord_user === eid);
-    const effectiveMax2 = leaderInList2 ? cfg.maxPlayers : cfg.maxPlayers - 1;
-    if (players.length >= effectiveMax2) {
+    const players    = roster.players || [];
+    const emptySlots = cfg.maxPlayers - players.length;
+    if (emptySlots <= 0) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Roster is full (' + cfg.maxPlayers + ' players max).' }));
     }
-    const usedSlots = players.map(p => p.slot);
-    let slot = 1;
-    while (usedSlots.includes(slot)) slot++;
-    // Show UserSelect (type 5) directly — Discord renders it with live search built in.
-    // Blocking already-assigned users happens post-selection in fr_pick_user_ below.
     await interaction.deferUpdate();
-    return interaction.editReply(buildPickUserPanel(slot));
+    return interaction.editReply(buildPickUserPanel(emptySlots));
   }
 
-  // ── Add Player: step 1 result — member selected from live search ──────────
-  if (id.startsWith('fr_pick_user_')) {
+  // ── Add Player: members selected — add directly, no form ────────────────────
+  if (id === 'fr_pick_user') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    const slot          = parseInt(id.replace('fr_pick_user_', ''));
-    const discordUserId = interaction.values[0];
+    await interaction.deferUpdate();
+    const cfg       = getRosterConfig();
+    const roster    = getRoster(eid);
+    if (!roster) return interaction.editReply(buildLeaderDashboard(eid, { error: 'Set Clan Info first.' }));
+    const players   = roster.players || [];
+    const added     = [];
+    const skipped   = [];
+    // Always base next slot on the highest existing slot, not player count
+    // (count can differ from max slot if gaps ever exist)
+    let   nextSlot  = players.length > 0 ? Math.max(...players.map(p => p.slot)) + 1 : 1;
 
-    // Block if assigned to a DIFFERENT clan (player, leader, or co-leader).
-    // Leaders and co-leaders of their OWN clan can register themselves as players.
-    const assign      = getUserAssignmentInfo(discordUserId);
-    const ownRoster   = getRoster(eid);
-    const isOwnLeader = ownRoster && String(ownRoster.leader_discord_id || '') === String(discordUserId);
-    const isOwnCoLead = ownRoster && (ownRoster.co_leaders || []).map(c => String(c)).includes(String(discordUserId));
-    const isOwnClan   = isOwnLeader || isOwnCoLead;
-    if (assign && !isOwnClan) {
-      await interaction.deferUpdate();
-      const msg = assign.role === 'Player'
-        ? '<@' + discordUserId + '> is already registered as a **player** in **' + assign.clan + '**.'
-        : '<@' + discordUserId + '> is the **' + assign.role + '** of **' + assign.clan + '** — they cannot be added to another clan.';
-      return interaction.editReply(buildPickUserPanel(slot, { error: msg }));
+    for (const discordUserId of interaction.values) {
+      const assign      = getUserAssignmentInfo(discordUserId);
+      const isOwnLeader = String(roster.leader_discord_id || '') === String(discordUserId);
+      const isOwnCoLead = (roster.co_leaders || []).map(c => String(c)).includes(String(discordUserId));
+      const isOwnClan   = isOwnLeader || isOwnCoLead;
+      if (assign && !isOwnClan) {
+        skipped.push('<@' + discordUserId + '> (already in **' + assign.clan + '**)');
+        continue;
+      }
+      // Check not already in this clan's player list
+      if (players.some(p => String(p.discord_user || '') === String(discordUserId))) {
+        skipped.push('<@' + discordUserId + '> (already in your roster)');
+        continue;
+      }
+      let discord_username = '';
+      let defaultName = '';
+      try {
+        const mem = interaction.guild.members.cache.get(discordUserId)
+          || await interaction.guild.members.fetch(discordUserId).catch(() => null);
+        if (mem) {
+          discord_username = mem.user.username;
+          defaultName = mem.displayName || mem.user.globalName || mem.user.username || '';
+        }
+      } catch (_) {}
+
+      players.push({ slot: nextSlot, name: defaultName, discord_user: discordUserId, discord_username, device: '', user_id: '', serial_number: '' });
+      added.push('<@' + discordUserId + '>');
+      nextSlot++;
     }
 
-    return interaction.showModal(buildAddPlayerModal(slot, discordUserId));
+    db.update('fed_rosters', roster.id, { players: compactSlots(players), updated_at: new Date().toISOString() });
+
+    if (!added.length) {
+      return interaction.editReply(buildLeaderDashboard(eid, { error: 'No players added — ' + skipped.join(', ') + '.' }));
+    }
+    // Assign clan role + MEF role to newly added players
+    const _addR = getRoster(eid);
+    const _addC = _addR?.clan_role_id || null;
+    const _addM = db.getConfig('fed_roster_mef_role_id') || null;
+    if (_addC || _addM) {
+      for (const _addUid of interaction.values) {
+        try {
+          const _am = interaction.guild.members.cache.get(_addUid)
+            || await interaction.guild.members.fetch(_addUid).catch(() => null);
+          if (_am) {
+            if (_addC) await _am.roles.add(_addC).catch(() => {});
+            if (_addM) await _am.roles.add(_addM).catch(() => {});
+          }
+        } catch (_) {}
+      }
+    }
+    const info  = added.length + ' player(s) added: ' + added.join(', ') + '.';
+    const error = skipped.length ? skipped.join(', ') + ' were skipped.' : null;
+    return interaction.editReply(buildLeaderDashboard(eid, { info, error }));
   }
 
   // ── Add Player: step 2 modal submit ─────────────────────────────────────
@@ -346,12 +476,12 @@ async function handleFedRosterInteraction(interaction, client) {
 
     if (existing) {
       db.update('fed_rosters', roster.id, {
-        players: players.map(p => p.slot === slot ? newPlayer : p),
+        players: compactSlots(players.map(p => p.slot === slot ? newPlayer : p)),
         updated_at: new Date().toISOString(),
       });
     } else {
       db.update('fed_rosters', roster.id, {
-        players: [...players, newPlayer],
+        players: compactSlots([...players, newPlayer]),
         updated_at: new Date().toISOString(),
       });
     }
@@ -465,8 +595,11 @@ async function handleFedRosterInteraction(interaction, client) {
     }
 
     const newPlayer = { slot, name, discord_user, discord_username, device, user_id, serial_number };
+    const _lnExtra = (discord_user && discord_user === String(roster.leader_discord_id) && name)
+      ? { leader_name: name } : {};
     db.update('fed_rosters', roster.id, {
       players: players.map(p => p.slot === slot ? newPlayer : p),
+      ..._lnExtra,
       updated_at: new Date().toISOString(),
     });
     await interaction.deferUpdate();
@@ -482,7 +615,15 @@ async function handleFedRosterInteraction(interaction, client) {
 
   if (id === 'fr_sel_remove_player') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    const slot = parseInt(interaction.values[0]);
+    const slot  = parseInt(interaction.values[0]);
+    const _rSel = getRoster(eid);
+    const _pSel = (_rSel?.players || []).find(p => p.slot === slot);
+    if (_pSel && String(_pSel.discord_user || '') === String(eid)) {
+      await interaction.deferUpdate();
+      return interaction.editReply(buildLeaderDashboard(eid, {
+        error: 'The leader cannot remove themselves. Transfer or remove leadership first.',
+      }));
+    }
     await interaction.deferUpdate();
     return interaction.editReply(buildConfirmRemove(eid, slot));
   }
@@ -500,11 +641,27 @@ async function handleFedRosterInteraction(interaction, client) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid));
     }
-    const player = (roster.players || []).find(p => p.slot === slot);
+    const player    = (roster.players || []).find(p => p.slot === slot);
+    const remaining = (roster.players || [])
+      .filter(p => p.slot !== slot)
+      .sort((a, b) => a.slot - b.slot)
+      .map((p, i) => ({ ...p, slot: i + 1 }));
     db.update('fed_rosters', roster.id, {
-      players: (roster.players || []).filter(p => p.slot !== slot),
+      players: remaining,
       updated_at: new Date().toISOString(),
     });
+    // Remove clan role + MEF role from removed player
+    const _remUid = player?.discord_user;
+    if (_remUid) {
+      const _remMef = db.getConfig('fed_roster_mef_role_id') || null;
+      try {
+        const _remMem = await interaction.guild.members.fetch(_remUid).catch(() => null);
+        if (_remMem) {
+          if (roster.clan_role_id) await _remMem.roles.remove(roster.clan_role_id).catch(() => {});
+          if (_remMef)             await _remMem.roles.remove(_remMef).catch(() => {});
+        }
+      } catch (_) {}
+    }
     await interaction.deferUpdate();
     return interaction.editReply(buildLeaderDashboard(eid, { info: 'Player **' + (player?.name || '#' + slot) + '** removed.' }));
   }
@@ -560,25 +717,21 @@ async function handleFedRosterInteraction(interaction, client) {
   // ── Submit ───────────────────────────────────────────────────────────────
   if (id === 'fr_submit') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
+    try { await interaction.deferUpdate(); } catch (_) {}
     const cfg    = getRosterConfig();
     if (cfg.locked) {
-      await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
     const roster  = getRoster(eid);
     const players = roster?.players || [];
     if (!roster?.clan_name) {
-      await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Fill in Clan Info before submitting.' }));
     }
     if (players.length < cfg.minPlayers) {
-      await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, {
         error: 'Need at least **' + cfg.minPlayers + '** players to submit (currently ' + players.length + ').',
       }));
     }
-
-    await interaction.deferUpdate();
 
     // Create / update clan role — matching /clans behavior exactly
     let clanRoleId = roster.clan_role_id || null;
@@ -594,11 +747,11 @@ async function handleFedRosterInteraction(interaction, client) {
       if (!clanRoleId) {
         const newRole = await guild.roles.create({
           name:   tag,
-          color:  0x00FFAC,
+          colors: 0x00FFAC,
           reason: 'MEF Federation: ' + roster.clan_name + ' [' + tag + ']',
         });
         // Position just below the federation parent role — same as /clans
-        const parentRole = await guild.roles.fetch('1529939492495036456').catch(() => null);
+        const parentRole = await guild.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
         if (parentRole && parentRole.position > 1) {
           await newRole.setPosition(parentRole.position - 1).catch(() => {});
         }
@@ -892,6 +1045,45 @@ async function handleFedRosterInteraction(interaction, client) {
         info: 'Footer text set to **' + (val || 'MEF  ·  Powered by 24') + '**.',
       }));
     }
+
+    // ── Set MEF member role ──────────────────────────────────────────────
+    if (id === 'fra_set_mef_role') {
+      const roleId = (interaction.values || [])[0] || null;
+      db.setConfig('fed_roster_mef_role_id', roleId);
+      await interaction.deferUpdate();
+      if (roleId) {
+        const _allRosters = db.get('fed_rosters') || [];
+        for (const _r of _allRosters) {
+          const _allIds = new Set();
+          if (_r.leader_discord_id) _allIds.add(String(_r.leader_discord_id));
+          for (const _co of (_r.co_leaders || [])) { if (_co) _allIds.add(String(_co)); }
+          for (const _p of (_r.players || [])) {
+            const _uid = String(_p.discord_user || '').replace(/\D/g, '');
+            if (_uid) _allIds.add(_uid);
+          }
+          for (const _uid of _allIds) {
+            try {
+              const _mem = await interaction.guild.members.fetch(_uid).catch(() => null);
+              if (_mem) await _mem.roles.add(roleId).catch(() => {});
+            } catch (_) {}
+          }
+        }
+      }
+      return interaction.editReply(buildAdminSettings({
+        info: roleId
+          ? 'MEF role set to <@&' + roleId + '> — assigned to all current roster members.'
+          : 'MEF role cleared.',
+      }));
+    }
+  }
+
+  } catch (err) {
+    // Discord token expired (>15 min) — delete the ephemeral message silently
+    if (err?.code === 10062) {
+      await interaction.message?.delete().catch(() => {});
+      return;
+    }
+    throw err;
   }
 }
 

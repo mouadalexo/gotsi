@@ -1,5 +1,5 @@
 'use strict';
-const { db } = require('./database');
+const { db } = require('../utils/database');
 
 const RED    = 0xCC0000;
 const GOLD   = 0xFFD700;

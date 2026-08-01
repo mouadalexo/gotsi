@@ -3,6 +3,7 @@ const { db } = require('../utils/database');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
+const trunc = (s, n) => { const str = String(s || ''); return str.length > n ? str.slice(0, n - 3) + '...' : str; };
 const btn = (label, id, style, disabled = false, emoji = null) => {
   const b = { type: 2, style, label, custom_id: id, disabled };
   if (emoji) b.emoji = emoji;
@@ -19,6 +20,7 @@ function getRosterConfig() {
     coLeaderRoleId: db.getConfig('fed_roster_co_leader_role_id') ?? null,
     instagram:      db.getConfig('fed_roster_instagram')         ?? '',
     footerText:     db.getConfig('fed_roster_footer_text')       ?? 'MEF  ·  Powered by 24',
+    mefRoleId:      db.getConfig('fed_roster_mef_role_id')       ?? null,
   };
 }
 
@@ -32,6 +34,21 @@ function getRosterForMember(discordId) {
     r.leader_discord_id === discordId ||
     (r.co_leaders || []).includes(discordId)
   ) || null;
+}
+
+// ── LEADER: First-time "Create Clan" panel ───────────────────────────────────────────
+function buildCreateClanPanel() {
+  const inner = [
+    txt(
+      '## 🏟️  Create Your Clan\n' +
+      '> You don\'t have a clan registered yet.\n' +
+      '> Fill in your clan name and tag to get started.\n' +
+      '> Your clan role will be created automatically and you\'ll be added as the first player.'
+    ),
+    SEP,
+    { type: 1, components: [btn('📋  Fill In Clan Info', 'fr_clan_info', 1)] },
+  ];
+  return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
 
 // ── LEADER: Launcher message (non-ephemeral, posted by =frosters) ────────────
@@ -48,10 +65,7 @@ function buildRosterLauncher(member) {
     locked                 ? '> 🔒 Registration is currently locked by admin.' :
                              '> 📋 No roster started yet — click **Open Dashboard** to begin.';
 
-  const inner = [
-    { type: 1, components: [btn('🗂️  Open Dashboard', 'fr_open', locked ? 2 : 1)] },
-  ];
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
+  return { components: [{ type: 1, components: [btn('🗂️  Open Dashboard', 'fr_open', locked ? 2 : 1)] }] };
 }
 
 // ── LEADER: Main ephemeral dashboard ────────────────────────────────────────
@@ -108,7 +122,7 @@ function buildLeaderDashboard(leaderId, opts = {}) {
     btn('➕  Add Player', 'fr_add_player', 1, !canAdd),
   ]});
   inner.push({ type: 1, components: [
-    btn('✏️  Edit Player',   'fr_edit_player_start',   2, !canEdit),
+    btn('✏️  Players Info',  'fr_edit_player_start',   2, !canEdit),
     btn('❌  Remove Player', 'fr_remove_player_start', 4, !canEdit),
   ]});
   inner.push({ type: 1, components: [
@@ -124,10 +138,10 @@ function buildLeaderDashboard(leaderId, opts = {}) {
 }
 
 // ── LEADER: Pick Discord user step (live member select) ──────────────────────
-function buildPickUserPanel(slot, opts = {}) {
+function buildPickUserPanel(emptySlots, opts = {}) {
   const { error } = opts;
   const inner = [];
-  inner.push(txt('**👤  Add Player — Select Member**\n> Search by typing a name in the dropdown below.'));
+  inner.push(txt('**👤  Add Player — Select Members**\n> You can select up to **' + emptySlots + '** member(s). Players are added directly — use **✏️ Players Info** afterwards to fill in their details.'));
   inner.push(SEP);
   if (error) {
     inner.push(txt('> ❌  ' + error));
@@ -135,10 +149,10 @@ function buildPickUserPanel(slot, opts = {}) {
   }
   inner.push({ type: 1, components: [{
     type: 5,
-    custom_id: 'fr_pick_user_' + slot,
-    placeholder: '👤 Search and select a member…',
+    custom_id: 'fr_pick_user',
+    placeholder: '👤 Select member(s) to add…',
     min_values: 1,
-    max_values: 1,
+    max_values: emptySlots,
   }]});
   inner.push(SEP);
   inner.push({ type: 1, components: [btn('◄  Back', 'fr_refresh', 2)] });
@@ -160,8 +174,8 @@ function buildEditPlayerSelect(leaderId) {
       custom_id: 'fr_sel_edit_player',
       placeholder: 'Choose a player to edit…',
       options: players.map(p => ({
-        label: '#' + p.slot + '  ' + (p.name || '(no name)'),
-        description: (p.device || '') + (p.user_id ? '  •  ID: ' + p.user_id : ''),
+        label: trunc('#' + p.slot + '  ' + (p.name || '(no name)'), 100),
+        description: trunc((p.device || '') + (p.user_id ? '  •  ID: ' + p.user_id : ''), 100),
         value: String(p.slot),
       })),
     }]},
@@ -232,8 +246,8 @@ function buildRemovePlayerSelect(leaderId) {
       custom_id: 'fr_sel_remove_player',
       placeholder: 'Choose a player to remove…',
       options: players.map(p => ({
-        label: '#' + p.slot + '  ' + (p.name || '(no name)'),
-        description: (p.device || '') + (p.user_id ? '  •  ID: ' + p.user_id : ''),
+        label: trunc('#' + p.slot + '  ' + (p.name || '(no name)'), 100),
+        description: trunc((p.device || '') + (p.user_id ? '  •  ID: ' + p.user_id : ''), 100),
         value: String(p.slot),
       })),
     }]},
@@ -393,6 +407,7 @@ function buildAdminSettings(opts = {}) {
       '## ⚙️  Roster Settings\n' +
       '> **Max players per clan:** ' + cfg.maxPlayers + '\n' +
       '> **Min players to submit:** ' + cfg.minPlayers + '\n' +
+      '> **MEF role:** ' + (cfg.mefRoleId ? '<@&' + cfg.mefRoleId + '>' : '*Not set*') + '\n' +
       '> **Clan Leader role:** ' + (cfg.leaderRoleId ? '<@&' + cfg.leaderRoleId + '>' : '*Not set*') + '\n' +
       '> **Co-Leader role:** ' + (cfg.coLeaderRoleId ? '<@&' + cfg.coLeaderRoleId + '>' : '*Not set*') + '\n' +
       '> **Registration:** ' + (cfg.locked ? '🔒 Locked' : '🟢 Open') + '\n' +
@@ -413,6 +428,7 @@ function buildAdminSettings(opts = {}) {
     placeholder: '👑 Set Clan Leader role…',
     min_values: 0,
     max_values: 1,
+    ...(cfg.leaderRoleId ? { default_values: [{ id: cfg.leaderRoleId, type: 'role' }] } : {}),
   }]});
   inner.push({ type: 1, components: [{
     type: 6,
@@ -420,6 +436,15 @@ function buildAdminSettings(opts = {}) {
     placeholder: 'Set Co-Leader role…',
     min_values: 0,
     max_values: 1,
+    ...(cfg.coLeaderRoleId ? { default_values: [{ id: cfg.coLeaderRoleId, type: 'role' }] } : {}),
+  }]});
+  inner.push({ type: 1, components: [{
+    type: 6,
+    custom_id: 'fra_set_mef_role',
+    placeholder: '⚔️ Set MEF member role…',
+    min_values: 0,
+    max_values: 1,
+    ...(cfg.mefRoleId ? { default_values: [{ id: cfg.mefRoleId, type: 'role' }] } : {}),
   }]});
   inner.push({ type: 1, components: [
     btn('📸  Set Instagram',    'fra_set_instagram',   2),
@@ -498,7 +523,7 @@ function buildSearchPanel(slot, opts = {}, results = []) {
 
 module.exports = {
   getRosterConfig, getRoster, getRosterForMember,
-  buildRosterLauncher, buildLeaderDashboard, buildPickUserPanel,
+  buildRosterLauncher, buildCreateClanPanel, buildLeaderDashboard, buildPickUserPanel,
   buildSearchPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect, buildConfirmRemove,
   buildReorderPanel,

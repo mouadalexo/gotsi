@@ -11,6 +11,15 @@ function getFedClans() { const f = getFed(); return (db.get('fed_clans') || []).
 function getFedMatches(){ const f = getFed(); return (db.get('fed_matches') || []).filter(m => m.fed_season === (f.season || 1)); }
 
 function getFedStage(fed, matches) {
+  // If matches already exist for this season, the season has started — never show setup
+  // regardless of what fed.status says. This prevents any DB timing issue from
+  // reverting the panel to the Begin Season view mid-tournament.
+  if (matches && matches.length > 0) {
+    if (fed && fed.status === 'finished') return 'finished';
+    if ((fed?.system || 'cup') === 'league') return 'league';
+    if (matches.some(m => m.stage === 'knockout')) return 'knockout';
+    return 'group';
+  }
   if (!fed || !fed.status || fed.status === 'setup') return 'setup';
   if (fed.status === 'finished') return 'finished';
   if ((fed.system || 'cup') === 'league') return 'league';
@@ -119,8 +128,8 @@ function buildFedPanel1() {
     inner.push({ type: 1, components: [
       btn('Add Result',                       'fed_p1_addresult',     1, false),
       ...(roundClosed
-        ? [btn('\u25b6  Start Next Matchday', 'fed_p1_startround',    3, false)]
-        : [btn('\u2705  Complete Matchday',   'fed_p1_completeround', 3, !roundDone && !allDone)]),
+        ? [btn(allDone ? '\u25b6  Advance to Knockout' : '\u25b6  Start Next Matchday', 'fed_p1_startround', 3, false)]
+        : [btn('\u2705  Complete Matchday', 'fed_p1_completeround', 3, !roundDone && !allDone)]),
       btn('Refresh',     'fed_p1_refresh',    2),
       btn('End Season',  'fed_p1_end',        4, false),
     ]});

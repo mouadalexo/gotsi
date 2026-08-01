@@ -5,14 +5,14 @@ const { fuzzyTeamSearch } = require('../utils/fuzzyTeam');
 const { set: tmpSet, get: tmpGet, del: tmpDel } = require('../utils/tempState');
 const {
   buildEnrollStep1, buildEnrollStep2, buildEnrollFuzzyResults, buildEnrollStep3,
-} = require('../panels/enrollPanel');
+} = require('./enrollPanel');
 
 async function updateLivePanels(client, tid) {
   const t = db.findById('tournaments', tid);
   if (!t) return;
   if (t.panel2_ref) {
     try {
-      const { buildPanel2 } = require('../panels/panel2');
+      const { buildPanel2 } = require('./panel2');
       const ch  = await client.channels.fetch(t.panel2_ref.channelId);
       const msg = await ch.messages.fetch(t.panel2_ref.messageId);
       await msg.edit(buildPanel2(t));

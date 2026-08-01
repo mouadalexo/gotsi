@@ -5,7 +5,7 @@ const {
   buildTournamentListEmbed, buildTournamentButtons, buildTemplateSelectMenu,
   buildTournamentCreateModal, buildTournamentSelectMenu, TEMPLATES,
 } = require('../panels/tournamentPanel');
-const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../panels/standingsPanel');
+const { buildGroupStandingsEmbed, buildKnockoutBracketEmbed } = require('../botola/standingsPanel');
 const { getTargetChannel } = require('../utils/channelRouter');
 const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const { COLORS } = require('../utils/embeds');

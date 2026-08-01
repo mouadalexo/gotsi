@@ -5,18 +5,18 @@ const {
 const { db }          = require('../utils/database');
 const { getTplCfg }   = require('../utils/templateConfig');
 const { isBotolaManager } = require('../utils/permissions');
-const { buildPanel1, getStage } = require('../panels/panel1');
-const { buildPanel2 } = require('../panels/panel2');
-const { buildPanel3 } = require('../panels/panel3');
+const { buildPanel1, getStage } = require('./panel1');
+const { buildPanel2 } = require('./panel2');
+const { buildPanel3 } = require('./panel3');
 const {
   buildGroupStandingsEmbed,
   buildKnockoutBracketEmbed,
-} = require('../panels/standingsPanel');
-const { buildAllResultsEmbed } = require('../panels/resultsPanel');
+} = require('./standingsPanel');
+const { buildAllResultsEmbed } = require('./resultsPanel');
 const {
   makeSchedulePost, makeResultsPost, makeGroupDrawPost, makeBracketPost,
   makeScheduleEmbed, makeChampionPost,
-} = require('../utils/tournamentEmbeds');
+} = require('./tournamentEmbeds');
 const { buildWinnersHistoryPayload } = require('../utils/winnersHistory');
 const { buildTeamsListEmbed } = require('../panels/teamListPanel');
 const { get: tmpGet, set: tmpSet } = require('../utils/tempState');

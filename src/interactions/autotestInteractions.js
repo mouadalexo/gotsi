@@ -8,7 +8,7 @@ const {
   makeStandingsPost,
   makeBracketPost,
   makeChampionPost,
-} = require('../utils/tournamentEmbeds');
+} = require('../botola/tournamentEmbeds');
 
 function getOrCreateTestTid() {
   // Find existing test tournament or create one

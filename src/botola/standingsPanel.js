@@ -1,6 +1,6 @@
 'use strict';
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { makeStandingsPost, makeBracketPost } = require('../utils/tournamentEmbeds');
+const { makeStandingsPost, makeBracketPost } = require('./tournamentEmbeds');
 
 function buildGroupStandingsEmbed(tournamentId, upToRound = null) {
   return makeStandingsPost(tournamentId, upToRound);

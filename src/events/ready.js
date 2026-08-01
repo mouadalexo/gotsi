@@ -34,7 +34,7 @@ module.exports = {
       try {
         const { db }       = require('../utils/database');
         const { getTplCfg } = require('../utils/templateConfig');
-        const { refreshAll } = require('../interactions/botolaInteractions');
+        const { refreshAll } = require('../botola/botolaInteractions');
         const tournaments = db.get('tournaments');
         const toRefresh = [];
         for (const t of tournaments) {

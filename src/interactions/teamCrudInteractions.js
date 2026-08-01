@@ -3,7 +3,7 @@ const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = req
 const { db } = require('../utils/database');
 const { fuzzyTeamSearch } = require('../utils/fuzzyTeam');
 const { buildTeamCrudPanel, buildPostListPickerPanel, buildSearchResultsPanel } = require('../panels/teamCrudPanel');
-const { buildEnrollStep1 } = require('../panels/enrollPanel');
+const { buildEnrollStep1 } = require('../botola/enrollPanel');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
