@@ -135,7 +135,7 @@ function getUserAssignmentInfo(discordId) {
 }
 
 // Build clan info modal (4 fields: name, tag, social, logo)
-function buildClanInfoModal(roster, hidelogo = false) {
+function buildClanInfoModal(roster, hidelogo = false, hidesocial = false) {
   const m = new ModalBuilder().setCustomId('fr_modal_clan_info').setTitle('Clan Information');
   const row = f => new ActionRowBuilder().addComponents(f);
   const ti  = (id, label, ph, val, required = true) =>
@@ -143,11 +143,11 @@ function buildClanInfoModal(roster, hidelogo = false) {
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
   const rows = [
-    row(ti('clan_name',    'Clan Name',    '',      roster?.clan_name    || '')),
-    row(ti('clan_tag',     'Clan Tag',     '',      roster?.clan_tag     || '')),
-    row(ti('social_media', 'Social Media', '@...', roster?.social_media || '', false)),
+    row(ti('clan_name', 'Clan Name', '', roster?.clan_name || '')),
+    row(ti('clan_tag',  'Clan Tag',  '', roster?.clan_tag  || '')),
   ];
-  if (!hidelogo) rows.push(row(ti('logo_url', 'Clan Logo URL', 'Use Imgur/direct link — Discord links expire!', roster?.logo_url || '', false)));
+  if (!hidesocial) rows.push(row(ti('social_media', 'Social Media', '@...', roster?.social_media || '', false)));
+  if (!hidelogo)   rows.push(row(ti('logo_url', 'Clan Logo URL', 'Use Imgur/direct link — Discord links expire!', roster?.logo_url || '', false)));
   m.addComponents(...rows);
   return m;
 }
@@ -215,7 +215,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const _openRoster = getRoster(eid);
     if (!_openRoster) {
       // First time: open modal directly (no logo field)
-      return interaction.showModal(buildClanInfoModal(null, true));
+      return interaction.showModal(buildClanInfoModal(null, true, true));
     }
     // Refresh leader_name only when the MAIN leader opens (not co-leaders)
     if (mid === eid) {
@@ -269,7 +269,7 @@ async function handleFedRosterInteraction(interaction, client) {
     }
     const clan_name    = interaction.fields.getTextInputValue('clan_name').trim();
     const clan_tag     = interaction.fields.getTextInputValue('clan_tag').trim().toUpperCase();
-    const social_media = interaction.fields.getTextInputValue('social_media').trim();
+    let social_media = ''; try { social_media = interaction.fields.getTextInputValue('social_media').trim(); } catch (_) {}
     let logo_url = ''; try { logo_url = interaction.fields.getTextInputValue('logo_url').trim(); } catch (_) {}
 
     if (!clan_name) {
@@ -278,7 +278,12 @@ async function handleFedRosterInteraction(interaction, client) {
     }
 
     // Defer BEFORE any async work — Discord token expires in 3s
-    await interaction.deferUpdate();
+    // First-time: launcher message was deleted, so we can't update it — open a new ephemeral reply instead
+    if (_isFirstTime) {
+      await interaction.deferReply({ ephemeral: true });
+    } else {
+      await interaction.deferUpdate();
+    }
 
     // Hard dedup: always re-fetch right before insert to prevent double-submit race
     let roster = getRoster(eid);
@@ -341,7 +346,10 @@ async function handleFedRosterInteraction(interaction, client) {
         }
       }
     }
-    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
+    const _dashMsg = _isFirstTime
+      ? buildLeaderDashboard(eid, { info: '\uD83C\uDF89 Clan created! Welcome to the federation.' })
+      : buildLeaderDashboard(eid, { info: 'Clan info saved.' });
+    return interaction.editReply(_dashMsg);
   }
 
   // ── Add Player: step 1 — show multi-select Discord user select ──────────────

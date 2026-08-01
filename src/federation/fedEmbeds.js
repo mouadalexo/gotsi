@@ -35,7 +35,7 @@ const box  = (color, inner) => ({ flags: 32768, components: [{ type: 17, accent_
 
 function getContext() {
   const fed    = db.getConfig('federation') || {};
-  const clans  = (db.get('fed_clans') || []).filter(c => c.fed_season === (fed.season || 1));
+  const clans  = (db.get('season_clans') || []).filter(c => c.fed_season === (fed.season || 1));
   const matches= (db.get('fed_matches') || []).filter(m => m.fed_season === (fed.season || 1));
   const getClan = id => clans.find(c => c.id === id) || { name: 'TBD' };
   return { fed, clans, matches, getClan };

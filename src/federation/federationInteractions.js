@@ -57,9 +57,13 @@ function normalizeFederationRoster(roster) {
 
 async function applyClanMatchPermissions(channel, clan) {
   const writes = [];
-  if (clan?.role_id) writes.push(channel.permissionOverwrites.edit(clan.role_id, {
-    ViewChannel: true, SendMessages: true,
-  }).catch(() => {}));
+  if (clan?.role_id) {
+    const roleObj = channel.guild.roles.cache.get(clan.role_id);
+    const target  = roleObj || clan.role_id;
+    writes.push(channel.permissionOverwrites.edit(target, {
+      ViewChannel: true, SendMessages: true,
+    }).catch(e => console.error('[FED] perm edit failed ch=' + channel.id + ' role=' + clan.role_id + ':', e.message, e.code || '')));
+  }
   await Promise.all(writes);
 }
 
@@ -146,33 +150,49 @@ async function cleanupFedSeason(guild, clans, matches, fed) {
   try {
     for (const c of clans) {
       if (c.role_id) {
-        db.update('fed_clans', c.id, { role_id: null });
+        db.update('season_clans', c.id, { role_id: null });
       }
     }
   } catch (e) { console.error('[FED] cleanup roles error:', e.message); }
 }
 
 // ── Reset category channels to neutral names (reuse for next season) ───────────
-async function resetCategoryChannels(guild, fed, clansSnapshot) {
-  const catId = fed.channels?.category || null;
-  if (!catId) return;
+async function resetCategoryChannels(guild, fed, clansSnapshot, matchChannelIds) {
+  // Combine saved match channel IDs + all text channels in the category (catches leftovers)
+  const catId   = fed.channels?.category || null;
+  const mgmtIds = new Set(Object.values(fed.channels || {}).filter(v => v && v !== catId));
+  const allIds  = new Set((matchChannelIds || []).filter(Boolean));
+  if (catId) {
+    for (const ch of guild.channels.cache.values()) {
+      if (ch.parentId === catId && ch.type === 0 && !mgmtIds.has(ch.id)) allIds.add(ch.id);
+    }
+  }
+  if (!allIds.size) { console.error('[FED] resetCategoryChannels: no match channels found'); return; }
   try {
-    const mgmtIds = new Set(Object.values(fed.channels || {}).filter(v => v && v !== catId));
-    const matchChs = [...guild.channels.cache.values()]
-      .filter(ch => ch.parentId === catId && ch.type === 0 && !mgmtIds.has(ch.id));
-    matchChs.sort((a, b) => a.position - b.position);
-    // Use the snapshot passed in — DB is already wiped by the time this runs
-    const _clanRoleIds = new Set((clansSnapshot || []).map(c => c.role_id).filter(Boolean));
+    // Build set of known federation clan role IDs:
+    // 1. From current season snapshot (covers test/fake clans too)
+    // 2. From Clan_Registry (covers all registered clans across seasons)
+    const _fedRoleIds = new Set();
+    for (const c of (clansSnapshot || [])) { if (c.role_id) _fedRoleIds.add(c.role_id); }
+    for (const c of (db.get('Clan_Registry') || [])) { if (c.clan_role_id) _fedRoleIds.add(c.clan_role_id); }
+    const matchChs = [...allIds]
+      .map(id => guild.channels.cache.get(id))
+      .filter(Boolean)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+    db.setConfig('fed_last_channel_rename', Date.now());
     for (let i = 0; i < matchChs.length; i++) {
       const ch = matchChs[i];
       try {
         const msgs = await ch.messages.fetch({ limit: 100 }).catch(() => null);
         if (msgs && msgs.size > 0) await ch.bulkDelete(msgs, true).catch(() => {});
-        for (const roleId of _clanRoleIds) {
-          await ch.permissionOverwrites.delete(roleId).catch(() => {});
+        // Only remove known federation clan role overwrites — leave other roles untouched
+        for (const roleId of _fedRoleIds) {
+          if (ch.permissionOverwrites.cache.has(roleId)) {
+            await ch.permissionOverwrites.delete(roleId).catch(e => console.error('[FED] resetCat perm del ch=' + ch.id + ' role=' + roleId + ':', e.message, e.code || ''));
+          }
         }
-        await ch.setName('match-' + (i + 1)).catch(() => {});
-      } catch (_) {}
+        ch.setName('match-' + (i + 1)).catch(e => console.error('[FED] resetCat setName ch=' + ch.id + ':', e.message, e.code || ''));
+      } catch (e) { console.error('[FED] resetCat channel error ch=' + ch.id + ':', e.message); }
       if (i < matchChs.length - 1) await new Promise(r => setTimeout(r, 300));
     }
   } catch (e) { console.error('[FED] resetCategoryChannels error:', e.message); }
@@ -180,7 +200,34 @@ async function resetCategoryChannels(guild, fed, clansSnapshot) {
 
 // ── Begin Season ─────────────────────────────────────────────────────────────
 
+async function _sendProgressEmbed(interaction, msg) {
+  try {
+    const _pm = await interaction.followUp({
+      flags: 32768,
+      components: [{ type: 17, accent_color: 0xF59E0B, components: [
+        { type: 10, content: msg },
+      ]}],
+    });
+    setTimeout(() => _pm?.delete().catch(() => {}), 10000);
+  } catch (_) {}
+}
+
+function _channelRenameGuard(interaction) {
+  const _last   = db.getConfig('fed_last_channel_rename') || 0;
+  const _elapsed = Date.now() - _last;
+  const _limit  = 10 * 60 * 1000; // 10 min Discord rename rate limit
+  if (_elapsed < _limit) {
+    const _mins = Math.ceil((_limit - _elapsed) / 60000);
+    const _msg = '\u23f3 Channels were renamed recently \u2014 Discord limits channel renames to once every 10 minutes.\nTry again in **' + _mins + ' minute' + (_mins !== 1 ? 's' : '') + '**.';
+    interaction.reply({ content: _msg, ephemeral: true }).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
 async function beginSeason(interaction, client) {
+  if (_channelRenameGuard(interaction)) return;
+
   const fed   = getFed();
   const clans = getFedClans();
   const season = fed.season || 1;
@@ -201,9 +248,10 @@ async function beginSeason(interaction, client) {
   // We update panels via direct msg.edit() through stored refs (more reliable
   // than interaction.editReply() for non-ephemeral panel messages).
   await interaction.deferUpdate();
+  _sendProgressEmbed(interaction, '⏳ Renaming channels, setting up groups and assigning clan roles…');
 
   // Ensure fed_clans/fed_matches tables exist
-  if (!db.get('fed_clans'))   { db._ensure('fed_clans'); }
+  if (!db.get('season_clans'))   { db._ensure('season_clans'); }
   if (!db.get('fed_matches')) { db._ensure('fed_matches'); }
 
   let matchesToInsert = [];
@@ -235,7 +283,7 @@ async function beginSeason(interaction, client) {
     for (let i = 0; i < shuffled.length; i += groupSize) groups.push(shuffled.slice(i, i + groupSize));
     groups.forEach((group, gi) => {
       const gName = String.fromCharCode(65 + gi);
-      group.forEach(c => db.update('fed_clans', c.id, { group_name: gName }));
+      group.forEach(c => db.update('season_clans', c.id, { group_name: gName }));
       const schedule = roundRobinSchedule(group);
       schedule.forEach((rnd, ri) => {
         for (const [home, away] of rnd) {
@@ -248,19 +296,8 @@ async function beginSeason(interaction, client) {
   db.insertMany('fed_matches', matchesToInsert);
   saveFed({ status: 'active' });
 
-  // Link clan roles: find existing server role by clan name, save ID (no creation)
-  try {
-    const _rGuild = interaction.guild;
-    const _allRoles = await _rGuild.roles.fetch();
-    for (const clan of getFedClans()) {
-      if (!clan.role_id) {
-        const _found = _allRoles.find(r => r.name.toLowerCase() === clan.name.toLowerCase());
-        if (_found) db.update('fed_clans', clan.id, { role_id: _found.id });
-      }
-    }
-  } catch (e) { console.error('[FED] Role link error:', e.message, e.code || ''); }
-
   // Create match channels for first round
+  db.setConfig('fed_last_channel_rename', Date.now());
   try {
     const guild      = interaction.guild;
     await guild.roles.fetch();
@@ -318,7 +355,7 @@ async function beginSeason(interaction, client) {
           if (_oldMsgs && _oldMsgs.size > 0) await _nc.bulkDelete(_oldMsgs, true).catch(() => {});
           await applyClanMatchPermissions(_nc, clanA);
           await applyClanMatchPermissions(_nc, clanB);
-          await _nc.setName(chName).catch(() => {});
+          _nc.setName(chName).catch(e => console.error('[FED] beginSeason setName failed ch=' + _nc.id + ':', e.message, e.code || ''));
           db.update('fed_matches', im.id, { channel_id: _nc.id });
         } catch (_re) { console.error('[FED] Channel reuse failed (match ' + im.id + '):', _re.message); }
       } catch (e) { console.error('[FED] Channel setup error (match ' + im.id + '):', e.message, e.code || ''); }
@@ -334,6 +371,8 @@ async function beginSeason(interaction, client) {
 
 // ── Advance Round ─────────────────────────────────────────────────────────────
 async function advanceRound(interaction, client) {
+  if (_channelRenameGuard(interaction)) return;
+
   const fed     = getFed();
   const matches = getFedMatches();
   const clans   = getFedClans();
@@ -343,9 +382,10 @@ async function advanceRound(interaction, client) {
   if (system === 'league') {
     // League: delete previous round channels, create new round channels
     await interaction.deferUpdate();
+    _sendProgressEmbed(interaction, '⏳ Renaming channels, clearing messages and replacing clan roles…');
+    db.setConfig('fed_last_channel_rename', Date.now());
     try {
       const guild     = interaction.guild;
-      await guild.roles.fetch();
       const staffRole = fed.staff_role_id;
       const parentCat = fed.channels?.category || null;
       const updClans  = getFedClans();
@@ -384,28 +424,12 @@ async function advanceRound(interaction, client) {
           if (_lgMsgs && _lgMsgs.size > 0) await _lgCh.bulkDelete(_lgMsgs, true).catch(() => {});
           await applyClanMatchPermissions(_lgCh, clanA);
           await applyClanMatchPermissions(_lgCh, clanB);
-          await _lgCh.setName(chName).catch(() => {});
+          _lgCh.setName(chName).catch(e => console.error('[FED] league setName failed ch=' + _lgCh.id + ':', e.message, e.code || ''));
           db.update('fed_matches', im.id, { channel_id: _lgCh.id });
         } catch (e) { console.error('[FED] League channel error (match ' + im.id + '):', e.message); }
         if (_li < nextMatches.length - 1) await new Promise(r => setTimeout(r, 300));
       }
-      // Background: reset leftover pool channels not used this round
-      const _lgLeftover = _lgPool.slice(nextMatches.length);
-      if (_lgLeftover.length) (async () => {
-        for (let _ui = 0; _ui < _lgLeftover.length; _ui++) {
-          const ch = _lgLeftover[_ui];
-          try {
-            const _msgs = await ch.messages.fetch({ limit: 100 }).catch(() => null);
-            if (_msgs && _msgs.size > 0) await ch.bulkDelete(_msgs, true).catch(() => {});
-            const _owIds = [...ch.permissionOverwrites.cache.keys()];
-            for (const oid of _owIds) {
-              if (oid !== ch.guild.id) await ch.permissionOverwrites.delete(oid).catch(() => {});
-            }
-            await ch.setName('match-' + (_ui + 1)).catch(() => {});
-          } catch (_) {}
-          if (_ui < _lgLeftover.length - 1) await new Promise(r => setTimeout(r, 300));
-        }
-      })().catch(() => {});
+
     } catch (e) { console.error('[FED] League advance round channel error:', e.message); }
     interaction.editReply(buildFedPanel1()).catch(() => {});
     refreshFedPanels(client, 'p1').catch(e => console.error('[FED] league advance refresh:', e?.message));
@@ -414,11 +438,15 @@ async function advanceRound(interaction, client) {
 
   // Acknowledge immediately — channel creation can take several seconds
   await interaction.deferUpdate();
-
   // Cup: check if all group matches done → generate knockout
   const groupMatches  = matches.filter(m => m.stage === 'group');
   const koMatches     = matches.filter(m => m.stage === 'knockout');
   const allGroupDone  = groupMatches.length > 0 && groupMatches.every(m => m.status === 'played');
+  _sendProgressEmbed(interaction,
+    (allGroupDone && !koMatches.length)
+      ? '⏳ Generating knockout bracket, renaming channels, clearing messages and replacing clan roles…'
+      : '⏳ Renaming channels, clearing messages and replacing clan roles…'
+  );
 
   // Cup: if group stage not fully done, advance to next group matchday
   if (!allGroupDone && koMatches.length === 0) {
@@ -429,8 +457,8 @@ async function advanceRound(interaction, client) {
     if (_gRounds.includes(_nextRound)) {
       db.setConfig('fed_p3_round', _nextRound);
       try {
+        db.setConfig('fed_last_channel_rename', Date.now());
         const guild     = interaction.guild;
-        await guild.roles.fetch();
         const staffRole = fed.staff_role_id;
         const parentCat = fed.channels?.category || null;
         const updClans  = getFedClans();
@@ -463,28 +491,12 @@ async function advanceRound(interaction, client) {
             if (_grpMsgs && _grpMsgs.size > 0) await _grpCh.bulkDelete(_grpMsgs, true).catch(() => {});
             await applyClanMatchPermissions(_grpCh, clanA);
             await applyClanMatchPermissions(_grpCh, clanB);
-            await _grpCh.setName(chName).catch(() => {});
+            _grpCh.setName(chName).catch(e => console.error('[FED] group setName failed ch=' + _grpCh.id + ':', e.message, e.code || ''));
             db.update('fed_matches', im.id, { channel_id: _grpCh.id });
           } catch (e) { console.error('[FED] Group matchday channel error (match ' + im.id + '):', e.message); }
           if (_gmi < freshM.length - 1) await new Promise(r => setTimeout(r, 300));
         }
-        // Background: reset leftover pool channels not used this matchday
-        const _grpLeftover = _grpPool.slice(freshM.length);
-        if (_grpLeftover.length) (async () => {
-          for (let _ui = 0; _ui < _grpLeftover.length; _ui++) {
-            const ch = _grpLeftover[_ui];
-            try {
-              const _msgs = await ch.messages.fetch({ limit: 100 }).catch(() => null);
-              if (_msgs && _msgs.size > 0) await ch.bulkDelete(_msgs, true).catch(() => {});
-              const _owIds = [...ch.permissionOverwrites.cache.keys()];
-              for (const oid of _owIds) {
-                if (oid !== ch.guild.id) await ch.permissionOverwrites.delete(oid).catch(() => {});
-              }
-              await ch.setName('match-' + (_ui + 1)).catch(() => {});
-            } catch (_) {}
-            if (_ui < _grpLeftover.length - 1) await new Promise(r => setTimeout(r, 300));
-          }
-        })().catch(() => {});
+
       } catch (e) { console.error('[FED] Group matchday channel error:', e.message); }
       interaction.editReply(buildFedPanel1()).catch(() => {});
       refreshFedPanels(client, 'p1').catch(e => console.error('[FED] group matchday refresh:', e?.message));
@@ -531,8 +543,8 @@ async function advanceRound(interaction, client) {
 
   // Reuse category channels for next KO round (no create/delete)
   try {
+    db.setConfig('fed_last_channel_rename', Date.now());
     const guild     = interaction.guild;
-    await guild.roles.fetch();
     const staffRole = fed.staff_role_id;
     const parentCat = fed.channels?.category || null;
     const updClans  = getFedClans();
@@ -567,28 +579,12 @@ async function advanceRound(interaction, client) {
         if (_koaMsgs && _koaMsgs.size > 0) await _koaCh.bulkDelete(_koaMsgs, true).catch(() => {});
         await applyClanMatchPermissions(_koaCh, clanA);
         await applyClanMatchPermissions(_koaCh, clanB);
-        await _koaCh.setName(chName).catch(() => {});
+        _koaCh.setName(chName).catch(e => console.error('[FED] KO setName failed ch=' + _koaCh.id + ':', e.message, e.code || ''));
         db.update('fed_matches', im.id, { channel_id: _koaCh.id });
       } catch (e) { console.error('[FED] KO channel error (match ' + im.id + '):', e.message); }
       if (_koi < inserted.length - 1) await new Promise(r => setTimeout(r, 300));
     }
-    // Background: reset leftover pool channels not used this KO round
-    const _koaLeftover = _koaPool.slice(inserted.length);
-    if (_koaLeftover.length) (async () => {
-      for (let _ui = 0; _ui < _koaLeftover.length; _ui++) {
-        const ch = _koaLeftover[_ui];
-        try {
-          const _msgs = await ch.messages.fetch({ limit: 100 }).catch(() => null);
-          if (_msgs && _msgs.size > 0) await ch.bulkDelete(_msgs, true).catch(() => {});
-          const _owIds = [...ch.permissionOverwrites.cache.keys()];
-          for (const oid of _owIds) {
-            if (oid !== ch.guild.id) await ch.permissionOverwrites.delete(oid).catch(() => {});
-          }
-          await ch.setName('match-' + (_ui + 1)).catch(() => {});
-        } catch (_) {}
-        if (_ui < _koaLeftover.length - 1) await new Promise(r => setTimeout(r, 300));
-      }
-    })().catch(() => {});
+
   } catch (e) { console.error('[FED] KO channel error:', e.message); }
 
   await interaction.editReply(buildFedPanel1()).catch(() => {});
@@ -652,6 +648,7 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
   } catch (e) { console.error('[FED] Group channel clear error:', e.message); }
 
   // Reuse category channels for first KO round
+  db.setConfig('fed_last_channel_rename', Date.now());
   try {
     const guild     = interaction.guild;
     const staffRole = fed.staff_role_id;
@@ -681,7 +678,7 @@ async function generateKnockoutRound(interaction, client, fed, clans, matches, s
         if (_koMsgs && _koMsgs.size > 0) await _koCh.bulkDelete(_koMsgs, true).catch(() => {});
         await applyClanMatchPermissions(_koCh, clanA);
         await applyClanMatchPermissions(_koCh, clanB);
-        await _koCh.setName(chName).catch(() => {});
+        _koCh.setName(chName).catch(() => {});
         db.update('fed_matches', im.id, { channel_id: _koCh.id });
       } catch (e) { console.error('[FED] KO first round channel error (match ' + im.id + '):', e.message); }
       if (_koi2 < inserted.length - 1) await new Promise(r => setTimeout(r, 300));
@@ -1365,6 +1362,7 @@ async function handleFederationInteraction(interaction, client) {
     // Respond instantly — no processing page
     saveFed({ round_closed: true });
     interaction.update(buildFedPanel1()).catch(() => refreshP1Fallback(client));
+    _sendProgressEmbed(interaction, '⏳ Clearing clan roles from match channels…');
     // Background: remove clan role perms from current round's channels only
     ;(async () => {
       try {
@@ -1393,6 +1391,7 @@ async function handleFederationInteraction(interaction, client) {
     return;
   }
   if (id === 'fed_p1_startround') {
+    if (_channelRenameGuard(interaction)) return;
     saveFed({ round_closed: false });
     return advanceRound(interaction, client);
   }
@@ -1422,18 +1421,21 @@ async function handleFederationInteraction(interaction, client) {
     const _endedClans = getFedClans(); // capture BEFORE wipe — reset needs these IDs
     const _oldSznNum  = _endedFed.season || 1;
     const _nextSeason = _oldSznNum + 1;
-    // Wipe DB instantly — capture fed snapshot first for background channel cleanup
-    db.deleteWhere('fed_clans',   () => true);
+    // Capture match channel IDs BEFORE wipe — fed_matches will be deleted next
+    const _endedMatchChannelIds = (db.get('fed_matches') || []).map(m => m.channel_id).filter(Boolean);
+    // Wipe DB instantly
+    db.deleteWhere('season_clans',   () => true);
     db.deleteWhere('fed_matches', () => true);
     saveFed({ status: 'setup', season: _nextSeason, registration_open: true });
     db.setConfig('fed_bracket_ref', null);
     db.setConfig('fed_standings_ref', null);
     db.setConfig('fed_clan_list_ref', null);
-    // Respond instantly — no progress page
-    interaction.update(buildFedPanel1()).catch(() => {});
+    // Acknowledge interaction first so followUp (progress message) works
+    await interaction.update(buildFedPanel1());
+    _sendProgressEmbed(interaction, '⏳ Resetting channels to default, clearing all messages and removing clan roles…');
     refreshFedPanels(client, 'p1').catch(e => console.error('[FED] end_confirm refresh:', e?.message));
-    // Background: clean up channels using the pre-wipe fed snapshot (clan role IDs still available)
-    resetCategoryChannels(guild, _endedFed, _endedClans).catch(e => console.error('[FED] resetChannels:', e.message));
+    // Background: clean up channels using pre-wipe snapshots
+    resetCategoryChannels(guild, _endedFed, _endedClans, _endedMatchChannelIds).catch(e => console.error('[FED] resetChannels:', e.message));
     return;
   }
   // fed_p1_newedition removed — End Season is the only reset path
@@ -1443,7 +1445,7 @@ async function handleFederationInteraction(interaction, client) {
     const _fed      = getFed();
     const _season   = _fed.season || 1;
     const _fedClans = getFedClans();
-    const _allRosters = (db.get('fed_rosters') || [])
+    const _allRosters = (db.get('Clan_Registry') || [])
       .filter(r => r.clan_name && r.clan_name.trim())
       .sort((a, b) => (a.clan_name || '').localeCompare(b.clan_name || ''));
     // Only show clans not already registered this season
@@ -1478,13 +1480,9 @@ async function handleFederationInteraction(interaction, client) {
   if (id === 'fed_p2_addclan_sel') {
     const _fed      = getFed();
     const _season   = _fed.season || 1;
-    const _allSrc   = (db.get('fed_rosters') || []).filter(r => r.clan_name && r.clan_name.trim());
+    const _allSrc   = (db.get('Clan_Registry') || []).filter(r => r.clan_name && r.clan_name.trim());
     const _skipped  = [];
     await interaction.deferUpdate();
-    // Fetch all guild roles once — if a clan has no role_id saved in the roster
-    // (e.g. clans created before role tracking was added), look it up by clan tag
-    // then by clan name so it is stored correctly from the moment of enrollment.
-    const _allRolesMap = await interaction.guild.roles.fetch().catch(() => null);
     for (const _selId of interaction.values) {
       const _src = _allSrc.find(r => r.id === parseInt(_selId));
       if (!_src) { _skipped.push('Unknown clan'); continue; }
@@ -1494,18 +1492,8 @@ async function handleFederationInteraction(interaction, client) {
       if (_fedClans.length >= (_fed.clan_count || 8)) {
         _skipped.push(_src.clan_name + ' (federation full)'); continue; }
       const _normalized = normalizeFederationRoster(_src);
-      // Use saved role_id if available; otherwise look up by tag then by name
-      let _roleId = _normalized.role_id;
-      if (!_roleId && _allRolesMap) {
-        const _tag  = (_src.clan_tag  || '').trim().toLowerCase();
-        const _name = (_src.clan_name || '').trim().toLowerCase();
-        const _found = _allRolesMap.find(r =>
-          (_tag && r.name.toLowerCase() === _tag) ||
-          r.name.toLowerCase() === _name
-        );
-        if (_found) _roleId = _found.id;
-      }
-      db.insert('fed_clans', {
+      const _roleId = _normalized.role_id;
+      db.insert('season_clans', {
         name: _src.clan_name,
         tag: _src.clan_tag || '',
         source_roster_id: _normalized.source_roster_id,
@@ -1527,14 +1515,14 @@ async function handleFederationInteraction(interaction, client) {
     // fed_p2_players_<clanId> — single multi-select: replaces all slots at once
     const clanId     = parseInt(id.replace('fed_p2_players_', ''));
     const selectedIds = (interaction.values || []).slice(0, (getFed().players_per_clan || 8));
-    const clan        = (db.get('fed_clans') || []).find(c => c.id === clanId);
+    const clan        = (db.get('season_clans') || []).find(c => c.id === clanId);
     if (!clan) return interaction.update(buildFedPanel2());
 
     const fed    = getFed();
     const season = fed.season || 1;
 
     // Check if any selected player is already in another clan
-    const allClans = (db.get('fed_clans') || []).filter(c => c.fed_season === season && c.id !== clanId);
+    const allClans = (db.get('season_clans') || []).filter(c => c.fed_season === season && c.id !== clanId);
     const conflicts = [];
     for (const uid of selectedIds) {
       const otherClan = allClans.find(c => (c.players || []).filter(Boolean).includes(uid));
@@ -1547,7 +1535,7 @@ async function handleFederationInteraction(interaction, client) {
 
     const prevLeader = ((clan.players || []).filter(Boolean))[0] || null;
     const newLeader  = selectedIds[0] || null;
-    db.update('fed_clans', clanId, { players: selectedIds });
+    db.update('season_clans', clanId, { players: selectedIds });
 
     // Leader changed: update federation registration role
     if (prevLeader !== newLeader) {
@@ -1597,7 +1585,7 @@ async function handleFederationInteraction(interaction, client) {
 
   if (id === 'fed_p2_remove_sel') {
     const clanId = parseInt(interaction.values[0]);
-    db.delete('fed_clans', clanId);
+    db.delete('season_clans', clanId);
     refreshFedPanels(client, 'p2').catch(() => {});
     refreshFedClanListMessage(client).catch(() => {});
     return interaction.update(buildFedPanel2());
@@ -1626,7 +1614,7 @@ async function handleFederationInteraction(interaction, client) {
   // ── Edit clan tag modal ──────────────────────────────────────────────────────
   if (id.startsWith('fed_p2_edit_tag_') && !id.endsWith('_modal')) {
     const clanId = parseInt(id.replace('fed_p2_edit_tag_', ''));
-    const _clan  = (db.get('fed_clans') || []).find(c => c.id === clanId);
+    const _clan  = (db.get('season_clans') || []).find(c => c.id === clanId);
     return interaction.showModal(
       new ModalBuilder().setCustomId('fed_p2_edit_tag_' + clanId + '_modal').setTitle('Edit Clan Tag')
         .addComponents(new ActionRowBuilder().addComponents(
@@ -1643,7 +1631,7 @@ async function handleFederationInteraction(interaction, client) {
     const _clans = getFedClans();
     const _dup   = _clans.find(c => c.id !== clanId && (c.tag || '').toLowerCase() === tag.toLowerCase());
     if (_dup) return interaction.reply({ content: '\u274C Tag **' + tag + '** is already used by **' + _dup.name + '**.', ephemeral: true });
-    db.update('fed_clans', clanId, { tag });
+    db.update('season_clans', clanId, { tag });
     await interaction.deferUpdate();
     return interaction.editReply(buildPlayerAssignPanel(clanId));
   }
@@ -1668,7 +1656,7 @@ async function handleFederationInteraction(interaction, client) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return noAdmin(interaction);
     const fed    = getFed();
     const season = fed.season || 1;
-    db.deleteWhere('fed_clans', c => c.fed_season === season);
+    db.deleteWhere('season_clans', c => c.fed_season === season);
     refreshFedPanels(client, 'p2').catch(() => {});
     refreshFedClanListMessage(client).catch(() => {});
     return interaction.update(buildFedPanel2());
@@ -1704,7 +1692,7 @@ async function handleFederationInteraction(interaction, client) {
           roleId = _nr.id; _permRoles[clanName] = roleId; db.setConfig('fed_permanent_roles', _permRoles);
         } catch (_) {}
       }
-      db.insert('fed_clans', { name: clanName, tag: 'C' + num, players: [], fed_season: season, role_id: roleId, group_name: null, temporary: true });
+      db.insert('season_clans', { name: clanName, tag: 'C' + num, players: [], fed_season: season, role_id: roleId, group_name: null, temporary: true });
     }
 
     refreshFedPanels(client, 'p2').catch(() => {});
@@ -1873,7 +1861,7 @@ async function handleFederationInteraction(interaction, client) {
 
 // ── Player assignment panel ───────────────────────────────────────────────────
 function buildPlayerAssignPanel(clanId) {
-  const clan = (db.get('fed_clans') || []).find(c => c.id === clanId);
+  const clan = (db.get('season_clans') || []).find(c => c.id === clanId);
   if (!clan) return buildFedPanel2();
   const fed      = getFed();
   const nPlayers = fed.players_per_clan || 8;

@@ -4,7 +4,8 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs   = require('fs');
 
-const MEF_LOGO_PATH = path.join(__dirname, '../../assets/mef_logo.png');
+const MEF_LOGO_PATH  = path.join(__dirname, '../../assets/mef_logo.png');
+const LOGO_CACHE_DIR = path.join(__dirname, '../../assets/clan_logos');
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -83,11 +84,18 @@ async function generateRosterPdf(roster, maxPlayers, minPlayers) {
   ctx.font = '12px Arial';
   ctx.fillText(fitText(ctx, roster.social_media || '', 118), bx + 174, by + 83);
 
-  // CLAN LOGO (if URL provided — draw small image or a placeholder box)
+  // CLAN LOGO — try disk cache first (downloaded when leader saved), fall back to URL
   const logoBoxY = by + 102;
-  if (roster.logo_url) {
+  const _clanLogoSrc = (() => {
+    if (roster.id) {
+      const cp = require('path').join(LOGO_CACHE_DIR, roster.id + '.img');
+      if (require('fs').existsSync(cp)) return cp;
+    }
+    return roster.logo_url || null;
+  })();
+  if (_clanLogoSrc) {
     try {
-      const clanLogo  = await loadImage(roster.logo_url);
+      const clanLogo  = await loadImage(_clanLogoSrc);
       const lh        = 46;
       const lw        = Math.min(clanLogo.width * (lh / clanLogo.height), 120);
       // White rounded background

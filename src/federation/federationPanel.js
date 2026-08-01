@@ -16,7 +16,7 @@ function buildFederationPanel() {
     inner.push(txt('> \u2699\uFE0F  No federation configured yet.\n> Use **Settings** to set a name and get started.'));
   } else {
     const statusIcon = fed.status === 'active' ? '\uD83D\uDFE2' : fed.status === 'finished' ? '\uD83C\uDFC1' : '\uD83D\uDD27';
-    const clans      = (db.get('fed_clans') || []).filter(c => c.fed_season === (fed.season || 1));
+    const clans      = (db.get('season_clans') || []).filter(c => c.fed_season === (fed.season || 1));
     inner.push(txt(
       '# \uD83D\uDEE1\uFE0F  Setup Panel\n' +
       '-# ' + (fed.name || 'Federation of Clans') + '  \u2022  Season ' + (fed.season || 1) + '  \u2022  ' + statusIcon + ' ' +

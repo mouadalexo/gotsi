@@ -7,7 +7,7 @@ const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, cu
 
 function getFed()      { return db.getConfig('federation') || {}; }
 function saveFed(data) { const c = getFed(); db.setConfig('federation', { ...c, ...data }); }
-function getFedClans() { const f = getFed(); return (db.get('fed_clans') || []).filter(c => c.fed_season === (f.season || 1)); }
+function getFedClans() { const f = getFed(); return (db.get('season_clans') || []).filter(c => c.fed_season === (f.season || 1)); }
 function getFedMatches(){ const f = getFed(); return (db.get('fed_matches') || []).filter(m => m.fed_season === (f.season || 1)); }
 
 function getFedStage(fed, matches) {
