@@ -119,7 +119,8 @@ module.exports = {
 
       // Max 3 co-leaders
       if (coLeaders.length >= 3) {
-        return message.reply({ content: '❌ You already have **3 co-leaders** (maximum). Remove one before adding another.', flags: 64 });
+        const _coLeaderMentions = coLeaders.map(id => '<@' + id + '>').join(', ');
+        return message.reply({ content: '❌ You already have **3 co-leaders** (maximum): ' + _coLeaderMentions + '.\nUse `&removecoleader @user` to remove one first.', flags: 64 });
       }
 
       // Add to co_leaders list in roster
@@ -287,10 +288,15 @@ module.exports = {
       }
 
       // Remove from co_leaders list
-      db.update('Clan_Registry', targetRoster.id, {
+      const _updateResult = db.update('Clan_Registry', targetRoster.id, {
         co_leaders: (targetRoster.co_leaders || []).filter(id => id !== mentioned.id),
         updated_at: new Date().toISOString(),
       });
+
+      // Verify the update actually took effect
+      if (!_updateResult || (_updateResult.co_leaders || []).includes(mentioned.id)) {
+        return message.reply({ content: '❌ Failed to remove co-leader — record not found. Please contact an admin.' });
+      }
 
       // Remove co-leader Discord role if they don’t hold it elsewhere
       if (cfg.coLeaderRoleId) {
@@ -306,9 +312,9 @@ module.exports = {
         flags: 32768,
         components: [{
           type: 17,
-          accent_color: 0xED4245,
+          accent_color: 0x00FF8C,
           components: [
-            { type: 10, content: '❌ <@' + mentioned.id + '> has been removed as co-leader of **' + (targetRoster.clan_name || 'the clan') + '**.' },
+            { type: 10, content: '✅ <@' + mentioned.id + '> has been removed as co-leader of **' + (targetRoster.clan_name || 'the clan') + '**.' },
           ],
         }],
       });
