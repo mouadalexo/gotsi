@@ -117,10 +117,10 @@ module.exports = {
         });
       }
 
-      // Max 3 co-leaders
-      if (coLeaders.length >= 3) {
+      // Max 5 co-leaders
+      if (coLeaders.length >= 5) {
         const _coLeaderMentions = coLeaders.map(id => '<@' + id + '>').join(', ');
-        return message.reply({ content: '❌ You already have **3 co-leaders** (maximum): ' + _coLeaderMentions + '.\nUse `&removecoleader @user` to remove one first.', flags: 64 });
+        return message.reply({ content: '❌ You already have **5 co-leaders** (maximum): ' + _coLeaderMentions + '.\nUse `&removecoleader @user` to remove one first.', flags: 64 });
       }
 
       // Add to co_leaders list in roster
@@ -139,7 +139,7 @@ module.exports = {
           type: 17,
           accent_color: 0x00FF8C,
           components: [
-            { type: 10, content: '<@' + mentioned.id + '> has been assigned as co-leader of **' + (roster.clan_name || 'your clan') + '** (' + (coLeaders.length + 1) + '/3). They can now use `&clan` to manage the roster.' },
+            { type: 10, content: '<@' + mentioned.id + '> has been assigned as co-leader of **' + (roster.clan_name || 'your clan') + '** (' + (coLeaders.length + 1) + '/5). They can now use `&clan` to manage the roster.' },
           ],
         }],
       });
