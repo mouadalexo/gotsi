@@ -17,40 +17,29 @@ const btn = (label, id, style, disabled = false, emoji = null) => {
 const E_CROWN = '<a:crown:1501741170668077127>';
 const CROWN_SPACE = '　';
 const NBSP = '\u00a0';
-const PLAYER_NAME_MAX = 20;
-const CLAN_NAME_MAX = 25;
-const PLAYER_TAG_COLUMN = 30;
-const CLAN_TAG_COLUMN = 35;
-const GAP_AFTER_BULLET = 3;
 
-function spacesToColumn(nameWidth, targetColumn) {
-  return NBSP.repeat(Math.max(0, targetColumn - GAP_AFTER_BULLET - nameWidth));
+function padName(name, width) {
+  const value = String(name || '?');
+  return value + NBSP.repeat(Math.max(0, width - value.length));
 }
 
-function truncateDisplay(value, max) {
-  const text = String(value || '?');
-  return text.length > max ? text.slice(0, max - 3) + '...' : text;
-}
-
-function nameParts(name, max) {
-  const value = truncateDisplay(name, max);
-  return {
-    value,
-    padding: NBSP.repeat(Math.max(0, max - value.length)),
-  };
+function centerName(name, width) {
+  const value = String(name || '?');
+  const extra = Math.max(0, width - value.length);
+  const left = Math.floor(extra / 2);
+  return NBSP.repeat(left) + value + NBSP.repeat(extra - left);
 }
 
 function formatPlayerLines(players, leaderDiscordId, includeUserId = false) {
   if (!players.length) return [];
-  const nameWidth = PLAYER_NAME_MAX;
+  const nameWidth = Math.max(1, ...players.map(p => String(p.name || '?').length));
   return players.map(p => {
     const crown = String(p.discord_user || '') === String(leaderDiscordId || '') ? E_CROWN : CROWN_SPACE;
     const slot = String(p.slot || 0).padStart(2, '0');
-    const name = nameParts(p.name || '?', PLAYER_NAME_MAX);
+    const name = padName(p.name || '?', nameWidth);
     const mention = p.discord_user ? '  <@' + p.discord_user + '>' : '';
     const userId = includeUserId ? '  `' + (p.user_id || '?') + '`' : '';
-    // Keep padding outside bold markup so Discord preserves the visible column.
-    return crown + '  ' + slot + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(PLAYER_NAME_MAX, PLAYER_TAG_COLUMN) + mention + userId;
+    return crown + '  **' + slot + '** •  **' + name + '**' + mention + userId;
   });
 }
 
@@ -231,9 +220,8 @@ function buildEditPlayerSelect(leaderId) {
     }]},
     SEP,
     { type: 1, components: [
-      btn('↕️  Reorder',        'fr_reorder_start',     1),
-      btn('✏️  Edit',          'fr_edit_selected_player', 1),
-      btn('◄  Back',           'fr_refresh',              2),
+      btn('Reorder Players', 'fr_reorder_start', 1),
+      btn('◄  Back',           'fr_refresh',      2),
     ]},
   ];
   return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
@@ -358,15 +346,14 @@ function buildAdminPanel(opts = {}) {
   if (!total) {
     inner.push(txt('*No clans registered yet.*'));
   } else {
-    const nameWidth = CLAN_NAME_MAX;
+    const nameWidth = Math.max(1, ...rosters.map(r => String(r.clan_name || '?').length));
     const numberWidth = Math.max(2, String(total).length);
     const lines = slice.map((r, index) => {
       const icon    = r.status === 'submitted' ? '✅' : '📝';
       const number  = String(p * PAGE_SIZE + index + 1).padStart(numberWidth, '0');
       const players = (r.players || []).length + '/' + cfg.maxPlayers;
-      const name    = nameParts(r.clan_name || '?', CLAN_NAME_MAX);
-      // Keep padding outside bold markup so Discord preserves the visible column.
-      return icon + '  ' + number + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(CLAN_NAME_MAX, CLAN_TAG_COLUMN) + '[' + (r.clan_tag || '?') + ']  **' + players + '**';
+      const name    = centerName(r.clan_name || '?', nameWidth);
+      return icon + '  **' + number + '** •  **' + name + '**  [' + (r.clan_tag || '?') + ']  **' + players + '**';
     });
     inner.push(txt(lines.join('\n')));
   }

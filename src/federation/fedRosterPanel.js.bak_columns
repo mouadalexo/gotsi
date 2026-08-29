@@ -17,27 +17,17 @@ const btn = (label, id, style, disabled = false, emoji = null) => {
 const E_CROWN = '<a:crown:1501741170668077127>';
 const CROWN_SPACE = '　';
 const NBSP = '\u00a0';
-const PLAYER_NAME_MAX = 20;
-const CLAN_NAME_MAX = 25;
-const PLAYER_TAG_COLUMN = 30;
-const CLAN_TAG_COLUMN = 35;
-const GAP_AFTER_BULLET = 3;
-
-function spacesToColumn(nameWidth, targetColumn) {
-  return NBSP.repeat(Math.max(0, targetColumn - GAP_AFTER_BULLET - nameWidth));
-}
+const PLAYER_NAME_MAX = 15;
+const CLAN_NAME_MAX = 15;
 
 function truncateDisplay(value, max) {
   const text = String(value || '?');
   return text.length > max ? text.slice(0, max - 3) + '...' : text;
 }
 
-function nameParts(name, max) {
+function padName(name, width, max = width) {
   const value = truncateDisplay(name, max);
-  return {
-    value,
-    padding: NBSP.repeat(Math.max(0, max - value.length)),
-  };
+  return value + NBSP.repeat(Math.max(0, width - value.length));
 }
 
 function formatPlayerLines(players, leaderDiscordId, includeUserId = false) {
@@ -46,11 +36,10 @@ function formatPlayerLines(players, leaderDiscordId, includeUserId = false) {
   return players.map(p => {
     const crown = String(p.discord_user || '') === String(leaderDiscordId || '') ? E_CROWN : CROWN_SPACE;
     const slot = String(p.slot || 0).padStart(2, '0');
-    const name = nameParts(p.name || '?', PLAYER_NAME_MAX);
+    const name = padName(p.name || '?', nameWidth, PLAYER_NAME_MAX);
     const mention = p.discord_user ? '  <@' + p.discord_user + '>' : '';
     const userId = includeUserId ? '  `' + (p.user_id || '?') + '`' : '';
-    // Keep padding outside bold markup so Discord preserves the visible column.
-    return crown + '  ' + slot + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(PLAYER_NAME_MAX, PLAYER_TAG_COLUMN) + mention + userId;
+    return crown + '  ' + slot + ' •  **' + name + '**' + mention + userId;
   });
 }
 
@@ -231,9 +220,8 @@ function buildEditPlayerSelect(leaderId) {
     }]},
     SEP,
     { type: 1, components: [
-      btn('↕️  Reorder',        'fr_reorder_start',     1),
-      btn('✏️  Edit',          'fr_edit_selected_player', 1),
-      btn('◄  Back',           'fr_refresh',              2),
+      btn('Reorder Players', 'fr_reorder_start', 1),
+      btn('◄  Back',           'fr_refresh',      2),
     ]},
   ];
   return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
@@ -364,9 +352,8 @@ function buildAdminPanel(opts = {}) {
       const icon    = r.status === 'submitted' ? '✅' : '📝';
       const number  = String(p * PAGE_SIZE + index + 1).padStart(numberWidth, '0');
       const players = (r.players || []).length + '/' + cfg.maxPlayers;
-      const name    = nameParts(r.clan_name || '?', CLAN_NAME_MAX);
-      // Keep padding outside bold markup so Discord preserves the visible column.
-      return icon + '  ' + number + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(CLAN_NAME_MAX, CLAN_TAG_COLUMN) + '[' + (r.clan_tag || '?') + ']  **' + players + '**';
+      const name    = padName(r.clan_name || '?', nameWidth, CLAN_NAME_MAX);
+      return icon + '  ' + number + ' •   **' + name + '**  [' + (r.clan_tag || '?') + ']  **' + players + '**';
     });
     inner.push(txt(lines.join('\n')));
   }

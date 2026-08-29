@@ -52,22 +52,6 @@ const {
 // Tracks the last ephemeral preview message ID per user so it can be replaced
 const _previewMsgIds = new Map();
 const _adminCreateDrafts = new Map();
-// Remembers the player selected in the edit menu so the leader can reopen
-// that same player's modal after dismissing it with Discord's X button.
-const _lastEditSlots = new Map();
-
-// Only one private clan dashboard should remain open per user.
-const _activeClanPanels = new Map();
-
-async function closePreviousClanPanel(userId) {
-  const previous = _activeClanPanels.get(String(userId || ''));
-  _activeClanPanels.delete(String(userId || ''));
-  if (previous) await previous.deleteReply().catch(() => {});
-}
-
-function rememberClanPanel(userId, interaction) {
-  _activeClanPanels.set(String(userId || ''), interaction);
-}
 
 // Safety: renumber players 1..N by slot order, eliminating any gaps or duplicates
 function compactSlots(players) {
@@ -230,10 +214,7 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!buttonRoster) {
       return interaction.reply({ content: '❌ You are not assigned as a clan leader or co-leader.', flags: 64 });
     }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(buttonRoster.leader_discord_id));
-    rememberClanPanel(mid, interaction);
-    return;
+    return interaction.reply(buildLeaderDashboard(buttonRoster.leader_discord_id));
   }
 
   // ── Open ephemeral dashboard ─────────────────────────────────────────────
@@ -269,10 +250,7 @@ async function handleFedRosterInteraction(interaction, client) {
         if (_mefId2) await interaction.member.roles.add(_mefId2).catch(() => {});
       } catch (_re) { console.error('[FedRoster] Role auto-repair failed:', _re.message); }
     }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(eid));
-    rememberClanPanel(mid, interaction);
-    return;
+    return interaction.reply(buildLeaderDashboard(eid));
   }
 
   // ── Refresh dashboard ────────────────────────────────────────────────────
@@ -590,27 +568,8 @@ async function handleFedRosterInteraction(interaction, client) {
 
     if (id === 'fr_edit_player_start') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    _lastEditSlots.delete(eid);
     await interaction.deferUpdate();
     return interaction.editReply(buildEditPlayerSelect(eid));
-  }
-
-  // Reopen the player that is still selected in Discord's dropdown.
-  // This is useful after the leader dismisses the modal with the X button.
-  if (id === 'fr_edit_selected_player') {
-    if (!isLeader(interaction.member)) return noPerm(interaction);
-    const slot = _lastEditSlots.get(eid);
-    const roster = getRoster(eid);
-    const player = slot == null
-      ? null
-      : (roster?.players || []).find(p => p.slot === slot);
-    if (!player) {
-      return interaction.reply({
-        content: 'Please select a player first.',
-        ephemeral: true,
-      });
-    }
-    return interaction.showModal(buildEditPlayerModal(slot, player));
   }
 
   if (id === 'fr_sel_edit_player') {
@@ -618,7 +577,6 @@ async function handleFedRosterInteraction(interaction, client) {
     const slot   = parseInt(interaction.values[0]);
     const roster = getRoster(eid);
     const player = (roster?.players || []).find(p => p.slot === slot);
-    if (player) _lastEditSlots.set(eid, slot);
     if (!player) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Player not found.' }));
@@ -1411,8 +1369,4 @@ async function handleFedRosterInteraction(interaction, client) {
   }
 }
 
-module.exports = {
-  handleFedRosterInteraction,
-  closePreviousClanPanel,
-  rememberClanPanel,
-};
+module.exports = { handleFedRosterInteraction };

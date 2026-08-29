@@ -56,19 +56,6 @@ const _adminCreateDrafts = new Map();
 // that same player's modal after dismissing it with Discord's X button.
 const _lastEditSlots = new Map();
 
-// Only one private clan dashboard should remain open per user.
-const _activeClanPanels = new Map();
-
-async function closePreviousClanPanel(userId) {
-  const previous = _activeClanPanels.get(String(userId || ''));
-  _activeClanPanels.delete(String(userId || ''));
-  if (previous) await previous.deleteReply().catch(() => {});
-}
-
-function rememberClanPanel(userId, interaction) {
-  _activeClanPanels.set(String(userId || ''), interaction);
-}
-
 // Safety: renumber players 1..N by slot order, eliminating any gaps or duplicates
 function compactSlots(players) {
   const seen = new Map();
@@ -230,10 +217,7 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!buttonRoster) {
       return interaction.reply({ content: '❌ You are not assigned as a clan leader or co-leader.', flags: 64 });
     }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(buttonRoster.leader_discord_id));
-    rememberClanPanel(mid, interaction);
-    return;
+    return interaction.reply(buildLeaderDashboard(buttonRoster.leader_discord_id));
   }
 
   // ── Open ephemeral dashboard ─────────────────────────────────────────────
@@ -269,10 +253,7 @@ async function handleFedRosterInteraction(interaction, client) {
         if (_mefId2) await interaction.member.roles.add(_mefId2).catch(() => {});
       } catch (_re) { console.error('[FedRoster] Role auto-repair failed:', _re.message); }
     }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(eid));
-    rememberClanPanel(mid, interaction);
-    return;
+    return interaction.reply(buildLeaderDashboard(eid));
   }
 
   // ── Refresh dashboard ────────────────────────────────────────────────────
@@ -1411,8 +1392,4 @@ async function handleFedRosterInteraction(interaction, client) {
   }
 }
 
-module.exports = {
-  handleFedRosterInteraction,
-  closePreviousClanPanel,
-  rememberClanPanel,
-};
+module.exports = { handleFedRosterInteraction };

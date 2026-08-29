@@ -13,55 +13,6 @@ const btn = (label, id, style, disabled = false, emoji = null) => {
   return b;
 };
 
-// Federation roster display emoji. This is the animated server emoji named `crown`.
-const E_CROWN = '<a:crown:1501741170668077127>';
-const CROWN_SPACE = '　';
-const NBSP = '\u00a0';
-const PLAYER_NAME_MAX = 20;
-const CLAN_NAME_MAX = 25;
-const PLAYER_TAG_COLUMN = 30;
-const CLAN_TAG_COLUMN = 35;
-const GAP_AFTER_BULLET = 3;
-
-function spacesToColumn(nameWidth, targetColumn) {
-  return NBSP.repeat(Math.max(0, targetColumn - GAP_AFTER_BULLET - nameWidth));
-}
-
-function truncateDisplay(value, max) {
-  const text = String(value || '?');
-  return text.length > max ? text.slice(0, max - 3) + '...' : text;
-}
-
-function nameParts(name, max) {
-  const value = truncateDisplay(name, max);
-  return {
-    value,
-    padding: NBSP.repeat(Math.max(0, max - value.length)),
-  };
-}
-
-function formatPlayerLines(players, leaderDiscordId, includeUserId = false) {
-  if (!players.length) return [];
-  const nameWidth = PLAYER_NAME_MAX;
-  return players.map(p => {
-    const crown = String(p.discord_user || '') === String(leaderDiscordId || '') ? E_CROWN : CROWN_SPACE;
-    const slot = String(p.slot || 0).padStart(2, '0');
-    const name = nameParts(p.name || '?', PLAYER_NAME_MAX);
-    const mention = p.discord_user ? '  <@' + p.discord_user + '>' : '';
-    const userId = includeUserId ? '  `' + (p.user_id || '?') + '`' : '';
-    // Keep padding outside bold markup so Discord preserves the visible column.
-    return crown + '  ' + slot + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(PLAYER_NAME_MAX, PLAYER_TAG_COLUMN) + mention + userId;
-  });
-}
-
-function compareCreatedNewestFirst(a, b) {
-  const aTime = new Date(a.created_at || 0).getTime() || 0;
-  const bTime = new Date(b.created_at || 0).getTime() || 0;
-  if (bTime !== aTime) return bTime - aTime;
-  // Only a hidden tie-breaker for records created at the exact same time.
-  return Number(b.id || 0) - Number(a.id || 0);
-}
-
 // ── Config helpers ──────────────────────────────────────────────────────────
 function getRosterConfig() {
   return {
@@ -155,10 +106,15 @@ function buildLeaderDashboard(leaderId, opts = {}) {
   if (info)  inner.push(txt('> ✅  ' + info));
   inner.push(SEP);
 
-  // Player list: fixed roster slots, animated leader crown, no device column.
+  // Player list
   if (filled > 0) {
     const sorted = [...players].sort((a, b) => a.slot - b.slot);
-    inner.push(txt(formatPlayerLines(sorted, roster.leader_discord_id).join('\n')));
+    const lines  = sorted.map(p =>
+      (p.discord_user === roster.leader_discord_id ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
+      (p.discord_user ? '  <@' + p.discord_user + '>' : '') +
+      '  `' + (p.device || '?') + '`'
+    );
+    inner.push(txt(lines.join('\n')));
     inner.push(SEP);
   }
 
@@ -231,9 +187,8 @@ function buildEditPlayerSelect(leaderId) {
     }]},
     SEP,
     { type: 1, components: [
-      btn('↕️  Reorder',        'fr_reorder_start',     1),
-      btn('✏️  Edit',          'fr_edit_selected_player', 1),
-      btn('◄  Back',           'fr_refresh',              2),
+      btn('Reorder Players', 'fr_reorder_start', 1),
+      btn('◄  Back',           'fr_refresh',      2),
     ]},
   ];
   return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
@@ -335,7 +290,7 @@ const PAGE_SIZE = 8;
 function buildAdminPanel(opts = {}) {
   const { page = 0, error, info } = opts;
   const cfg       = getRosterConfig();
-  const rosters   = (db.get('Clan_Registry') || []).slice().sort(compareCreatedNewestFirst);
+  const rosters   = (db.get('Clan_Registry') || []).sort((a, b) => (a.clan_name || '').localeCompare(b.clan_name || ''));
   const total     = rosters.length;
   const pages     = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const p         = Math.min(Math.max(0, page), pages - 1);
@@ -358,15 +313,11 @@ function buildAdminPanel(opts = {}) {
   if (!total) {
     inner.push(txt('*No clans registered yet.*'));
   } else {
-    const nameWidth = CLAN_NAME_MAX;
-    const numberWidth = Math.max(2, String(total).length);
-    const lines = slice.map((r, index) => {
+    const lines = slice.map(r => {
       const icon    = r.status === 'submitted' ? '✅' : '📝';
-      const number  = String(p * PAGE_SIZE + index + 1).padStart(numberWidth, '0');
-      const players = (r.players || []).length + '/' + cfg.maxPlayers;
-      const name    = nameParts(r.clan_name || '?', CLAN_NAME_MAX);
-      // Keep padding outside bold markup so Discord preserves the visible column.
-      return icon + '  ' + number + ' •' + NBSP.repeat(GAP_AFTER_BULLET) + '**' + name.value + '**' + name.padding + spacesToColumn(CLAN_NAME_MAX, CLAN_TAG_COLUMN) + '[' + (r.clan_tag || '?') + ']  **' + players + '**';
+      const players = (r.players || []).length;
+      return icon + '  **' + (r.clan_name || '?') + '**  `[' + (r.clan_tag || '?') + ']`' +
+             '  —  ' + players + '/' + cfg.maxPlayers + '  •  <@' + r.leader_discord_id + '>';
     });
     inner.push(txt(lines.join('\n')));
   }
@@ -387,7 +338,6 @@ function buildAdminPanel(opts = {}) {
   }
 
   inner.push({ type: 1, components: [
-    btn('➕  Create Clan', 'fra_create_clan', 1),
     btn('⚙️  Settings', 'fra_settings', 2),
     btn('🔄  Refresh',  'fra_refresh',  2),
     btn(cfg.locked ? '🟢 Unlock All' : '🔒 Lock All', 'fra_toggle_lock', cfg.locked ? 3 : 4),
@@ -402,55 +352,6 @@ function buildAdminPanel(opts = {}) {
 
 
 
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
-}
-
-// ── ADMIN: Create clan — choose leader ───────────────────────────────────────
-function buildAdminCreateLeaderSelect(draft, opts = {}) {
-  const { error } = opts;
-  const inner = [
-    txt(
-      '## ➕  Create Clan\n' +
-      '> **Clan:** ' + (draft.clan_name || 'Unknown') + ' `[' + (draft.clan_tag || '?') + ']`\n' +
-      '> **Logo:** ' + (draft.logo_url ? 'Provided' : '*Not provided*') + '\n' +
-      '> Search and select a server member who is not assigned to another clan.'
-    ),
-    SEP,
-  ];
-  if (error) inner.push(txt('> ❌  ' + error), SEP);
-  inner.push({ type: 1, components: [{
-    type: 5,
-    custom_id: 'fra_create_leader_select',
-    placeholder: '👤 Search for the new clan leader…',
-    min_values: 1,
-    max_values: 1,
-  }]});
-  inner.push(SEP);
-  inner.push({ type: 1, components: [
-    btn('Cancel', 'fra_create_cancel', 2),
-  ]});
-  return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
-}
-
-// ── ADMIN: Create clan — final confirmation ─────────────────────────────────
-function buildAdminCreateConfirm(draft, opts = {}) {
-  const { error } = opts;
-  const inner = [
-    txt(
-      '## ✅  Confirm New Clan\n' +
-      '> **Clan:** ' + (draft.clan_name || 'Unknown') + ' `[' + (draft.clan_tag || '?') + ']`\n' +
-      '> **Leader:** <@' + (draft.leader_id || '0') + '>\n' +
-      '> **Logo:** ' + (draft.logo_url ? 'Provided' : '*Not provided*') + '\n' +
-      '> The selected leader will be registered as Player #1.'
-    ),
-    SEP,
-  ];
-  if (error) inner.push(txt('> ❌  ' + error), SEP);
-  inner.push({ type: 1, components: [
-    btn('✅  Create Clan', 'fra_create_confirm', 1),
-    btn('✏️  Edit Info',   'fra_create_edit_info', 2),
-    btn('Cancel',          'fra_create_cancel', 2),
-  ]});
   return { flags: 32768, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };
 }
 
@@ -478,7 +379,12 @@ function buildAdminClanView(rosterId, opts = {}) {
   inner.push(SEP);
 
   if (players.length) {
-    inner.push(txt(formatPlayerLines(players, roster.leader_discord_id).join('\n')));
+    const lines = players.map(p =>
+      (p.discord_user === roster.leader_discord_id ? '👑' : ' •') + ' **#' + p.slot + '** ' + (p.name || '?') +
+      (p.discord_user ? '  <@' + p.discord_user + '>' : '') +
+      '  `' + (p.device || '?') + '`  `' + (p.user_id || '?') + '`'
+    );
+    inner.push(txt(lines.join('\n')));
     inner.push(SEP);
   }
 
@@ -512,7 +418,7 @@ function buildAdminLeaderSelect(rosterId, opts = {}) {
       '## 👑  Change Clan Leader\n' +
       '> **Clan:** ' + (roster.clan_name || 'Unknown') + ' `[' + (roster.clan_tag || '?') + ']`\n' +
       '> **Current leader:** <@' + (roster.leader_discord_id || '0') + '>\n' +
-      '> Search for any server member who is not assigned to another clan. The old leader will be replaced in the player roster; other players and the co-leader stay unchanged.'
+      '> Select an existing clan member. The co-leader and roster data will remain unchanged.'
     ),
     SEP,
   ];
@@ -524,6 +430,7 @@ function buildAdminLeaderSelect(rosterId, opts = {}) {
     placeholder: '👤 Select the new clan leader…',
     min_values: 1,
     max_values: 1,
+    default_values: roster.leader_discord_id ? [{ id: String(roster.leader_discord_id), type: 'user' }] : [],
   }]});
   inner.push(SEP);
   inner.push(txt(
@@ -670,5 +577,4 @@ module.exports = {
   buildEditPlayerSelect, buildRemovePlayerSelect, buildConfirmRemove,
   buildReorderPanel,
   buildAdminPanel, buildAdminClanView, buildAdminLeaderSelect, buildAdminSettings, buildAdminConfirmRemove,
-  buildAdminCreateLeaderSelect, buildAdminCreateConfirm,
 };

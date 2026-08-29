@@ -25,11 +25,9 @@ const C = {
   footerBg:  '#050B0D',
 };
 
-// ── Canvas dimensions (logical layout 1080×1500) ────────────────────────────
-// Render at 2× so Discord displays the same layout with sharper text and lines.
+// ── Canvas dimensions (1080×1500) ────────────────────────────────────────────
 const W         = 1080;
 const H         = 1500;
-const OUTPUT_SCALE = 2;
 const MARGIN    = 30;
 const HEADER_H  = 290;   // taller header — gives boxes room to breathe below text
 const TBL_HDR_H = 52;
@@ -137,10 +135,8 @@ async function generateRosterPng(roster, maxPlayers) {
   const rowsArea = H - HEADER_H - TBL_HDR_H - FOOTER_H;
   const ROW_H    = Math.floor(rowsArea / maxPlayers);
 
-  const canvas = createCanvas(W * OUTPUT_SCALE, H * OUTPUT_SCALE);
+  const canvas = createCanvas(W, H);
   const ctx    = canvas.getContext('2d');
-  ctx.scale(OUTPUT_SCALE, OUTPUT_SCALE);
-  ctx.imageSmoothingEnabled = true;
 
   // ── Background ────────────────────────────────────────────────────────────
   const bgGrad = ctx.createLinearGradient(0, 0, W * 0.4, H);

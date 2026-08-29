@@ -1,6 +1,6 @@
 'use strict';
 const { db } = require('../utils/database');
-const { getFed, getFedClans, getFedMatches } = require('./fedPanel1');
+const { getFed, getFedClans } = require('./fedPanel1');
 
 const SEP  = { type: 14, divider: true, spacing: 1 };
 const txt  = c => ({ type: 10, content: c });
@@ -13,8 +13,7 @@ function buildFedPanel2() {
   const required = fed.clan_count || 8;
   const regOpen  = fed.registration_open !== false;
   const locked   = fed.status !== 'setup';
-  const live      = getFedMatches().length > 0 && fed.status !== 'finished';
-  const left      = Math.max(0, required - clans.length);
+  const left     = Math.max(0, required - clans.length);
 
   const inner = [];
   inner.push(txt('## 2 : Registration \u2014 ' + (fed.tag || fed.name || 'Federation')));
@@ -27,7 +26,6 @@ function buildFedPanel2() {
     btn('\u274C  Clear All', 'fed_p2_clear',      4, clans.length === 0 || locked),
   ]});
   inner.push({ type: 1, components: [btn('\uD83C\uDFB2  Fill Random', 'fed_p2_fillrandom', 2, locked || clans.length >= required)] });
-  inner.push({ type: 1, components: [btn('\uD83D\uDD01  Replace Clan', 'fed_p2_replace', 1, !live || clans.length === 0)] });
   inner.push({ type: 1, components: [
     btn(regOpen ? '\uD83D\uDD34  Close Reg' : '\uD83D\uDFE2  Open Reg', 'fed_p2_togglereg', regOpen ? 4 : 3, locked),
     btn('\uD83D\uDD04  Refresh', 'fed_p2_refresh', 2),

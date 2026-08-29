@@ -231,9 +231,8 @@ function buildEditPlayerSelect(leaderId) {
     }]},
     SEP,
     { type: 1, components: [
-      btn('↕️  Reorder',        'fr_reorder_start',     1),
-      btn('✏️  Edit',          'fr_edit_selected_player', 1),
-      btn('◄  Back',           'fr_refresh',              2),
+      btn('Reorder Players', 'fr_reorder_start', 1),
+      btn('◄  Back',           'fr_refresh',      2),
     ]},
   ];
   return { flags: 32832, components: [{ type: 17, accent_color: 0x00FF8C, components: inner }] };

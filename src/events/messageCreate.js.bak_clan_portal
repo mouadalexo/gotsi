@@ -2,8 +2,10 @@
 const { isBotolaManager } = require('../utils/permissions');
 const { getFed }          = require('../federation/fedPanel1');
 const { db }              = require('../utils/database');
-const { getRosterConfig, getRoster, getRosterForMember } = require('../federation/fedRosterPanel');
+const { buildRosterLauncher, getRosterConfig, getRoster, getRosterForMember } = require('../federation/fedRosterPanel');
 
+// Track last &clan launcher message per user so it can be deleted on next use
+const _lastLauncherMsg = new Map();
 
 // Keep leadership-management confirmations visible briefly, then remove them.
 async function sendTemporary(channel, payload, delayMs = 10_000) {
@@ -230,6 +232,35 @@ module.exports = {
         }],
       });
     }
+
+    // ── =frosters ─────────────────────────────────────────────────────────────
+    if (lower === '&clan') {
+      // New clans are created by staff in /clan_database. Keep &clan for
+      // existing clan dashboards, but silently ignore first-time requests.
+      const _membership = getRosterForMember(message.author.id);
+      if (!_membership) return;
+      const cfg = getRosterConfig();
+      if (!cfg.leaderRoleId) return;
+      if (!message.member.roles.cache.has(cfg.leaderRoleId) && !(cfg.coLeaderRoleId && message.member.roles.cache.has(cfg.coLeaderRoleId))) {
+        return;
+      }
+
+      // Delete the command message to keep channel clean
+      await message.delete().catch(() => {});
+
+      // Delete previous launcher for this user if it still exists
+      const prevMsg = _lastLauncherMsg.get(message.author.id);
+      if (prevMsg) prevMsg.delete().catch(() => {});
+
+      // Post new launcher and track it
+      const launcher = await message.channel.send(buildRosterLauncher(message.member));
+      _lastLauncherMsg.set(message.author.id, launcher);
+      setTimeout(() => {
+        launcher.delete().catch(() => {});
+        _lastLauncherMsg.delete(message.author.id);
+      }, 15_000);
+    }
+
 
     // ── &leave ────────────────────────────────────────────────────────────────
     if (lower === '&leave') {

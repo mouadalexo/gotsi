@@ -29,10 +29,10 @@ module.exports = {
   name: 'interactionCreate',
   async execute(interaction, client) {
     try {
-      // Let handlers acknowledge component interactions normally. Discord reports
-      // genuinely expired component tokens as error 10062, which is handled below.
-      // A short local cutoff caused valid buttons on older ephemeral panels to fail.
-
+      // Drop stale component interactions (expired tokens replayed after bot downtime)
+      // Slash commands and autocomplete are always fresh — skip the guard for them
+      if (!interaction.isChatInputCommand() && !interaction.isAutocomplete() &&
+          Date.now() - interaction.createdTimestamp > 5000) return;
       // ── Slash commands ─────────────────────────────────────────────────────
       if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);

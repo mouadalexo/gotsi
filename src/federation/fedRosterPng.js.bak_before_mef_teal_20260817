@@ -10,26 +10,24 @@ const LOGO_CACHE_DIR  = path.join(__dirname, '../../assets/clan_logos');
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
-  bg1:       '#070B0D',
-  bg2:       '#0C1618',
-  teal:      '#12C8BD',
-  deepTeal:  '#0B5660',
+  bg1:       '#08080F',
+  bg2:       '#0E0B1E',
+  gold:      '#F0B429',
+  purple:    '#6B2EFF',
   white:     '#FFFFFF',
-  light:     '#C8D3D4',
-  dim:       '#718285',
-  headerBg:  '#081113',
-  rowOdd:    '#0B1517',
-  rowEven:   '#0F1C1E',
-  captainBg: '#10272A',
-  border:    '#294044',
-  footerBg:  '#050B0D',
+  light:     '#C8C8DC',
+  dim:       '#6A6A88',
+  headerBg:  '#0B0816',
+  rowOdd:    '#0E0E1B',
+  rowEven:   '#121220',
+  captainBg: '#14102A',
+  border:    '#232038',
+  footerBg:  '#060610',
 };
 
-// ── Canvas dimensions (logical layout 1080×1500) ────────────────────────────
-// Render at 2× so Discord displays the same layout with sharper text and lines.
+// ── Canvas dimensions (1080×1500) ────────────────────────────────────────────
 const W         = 1080;
 const H         = 1500;
-const OUTPUT_SCALE = 2;
 const MARGIN    = 30;
 const HEADER_H  = 290;   // taller header — gives boxes room to breathe below text
 const TBL_HDR_H = 52;
@@ -137,10 +135,8 @@ async function generateRosterPng(roster, maxPlayers) {
   const rowsArea = H - HEADER_H - TBL_HDR_H - FOOTER_H;
   const ROW_H    = Math.floor(rowsArea / maxPlayers);
 
-  const canvas = createCanvas(W * OUTPUT_SCALE, H * OUTPUT_SCALE);
+  const canvas = createCanvas(W, H);
   const ctx    = canvas.getContext('2d');
-  ctx.scale(OUTPUT_SCALE, OUTPUT_SCALE);
-  ctx.imageSmoothingEnabled = true;
 
   // ── Background ────────────────────────────────────────────────────────────
   const bgGrad = ctx.createLinearGradient(0, 0, W * 0.4, H);
@@ -149,19 +145,19 @@ async function generateRosterPng(roster, maxPlayers) {
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // Subtle teal glow top-right
+  // Subtle purple glow top-right
   const radial = ctx.createRadialGradient(W, 0, 0, W, 0, 460);
-  radial.addColorStop(0, 'rgba(18,200,189,0.12)');
-  radial.addColorStop(1, 'rgba(18,200,189,0)');
+  radial.addColorStop(0, 'rgba(107,46,255,0.13)');
+  radial.addColorStop(1, 'rgba(107,46,255,0)');
   ctx.fillStyle = radial;
   ctx.fillRect(0, 0, W, HEADER_H);
 
-  // Top teal accent stripe
-  const topTeal = ctx.createLinearGradient(0, 0, W, 0);
-  topTeal.addColorStop(0,   C.teal);
-  topTeal.addColorStop(0.5, '#7AE8DF');
-  topTeal.addColorStop(1,   C.teal);
-  ctx.fillStyle = topTeal;
+  // Top gold accent stripe
+  const topGold = ctx.createLinearGradient(0, 0, W, 0);
+  topGold.addColorStop(0,   C.gold);
+  topGold.addColorStop(0.5, '#FFD460');
+  topGold.addColorStop(1,   C.gold);
+  ctx.fillStyle = topGold;
   ctx.fillRect(0, 0, W, 4);
 
   // ── Load logos ────────────────────────────────────────────────────────────
@@ -211,8 +207,8 @@ async function generateRosterPng(roster, maxPlayers) {
     ctx.clip();
     ctx.drawImage(clanLogoImg, CLCX - CLR, CLCY - CLR, CLR * 2, CLR * 2);
     ctx.restore();
-    // Teal ring
-    ctx.strokeStyle = C.teal;
+    // Gold ring
+    ctx.strokeStyle = C.gold;
     ctx.lineWidth   = 2.5;
     ctx.beginPath();
     ctx.arc(CLCX, CLCY, CLR, 0, Math.PI * 2);
@@ -229,9 +225,9 @@ async function generateRosterPng(roster, maxPlayers) {
   // ── Clan text — right of circle ───────────────────────────────────────────
   const textX = CLCX + CLR + 18;   // ~162px from left
 
-  // TOP: "MEF TEAM ROSTER" subtitle (small, teal)
+  // TOP: "MEF TEAM ROSTER" subtitle (small, gold)
   ctx.font      = 'bold 14px Arial';
-  ctx.fillStyle = C.teal;
+  ctx.fillStyle = C.gold;
   ctx.textAlign = 'left';
   ctx.fillText('MEF TEAM ROSTER', textX, 51);
 
@@ -241,12 +237,12 @@ async function generateRosterPng(roster, maxPlayers) {
   ctx.fillStyle = C.white;
   ctx.fillText(tagText, textX, 87);
 
-  // Teal underline under tag
+  // Gold underline under tag
   ctx.font = 'bold 30px Arial';
   const tagW     = Math.min(ctx.measureText(tagText).width, 400);
   const lineGrad = ctx.createLinearGradient(textX, 0, textX + tagW, 0);
-  lineGrad.addColorStop(0, C.deepTeal);
-  lineGrad.addColorStop(1, 'rgba(18,200,189,0)');
+  lineGrad.addColorStop(0, C.purple);
+  lineGrad.addColorStop(1, 'rgba(107,46,255,0)');
   ctx.fillStyle = lineGrad;
   ctx.fillRect(textX, 92, tagW, 2);
 
@@ -278,15 +274,15 @@ async function generateRosterPng(roster, maxPlayers) {
   drawInfoBox(ctx, bx3, BOX_Y, bw3, BOX_H, 'EXPORTED', exportedStr);
 
   // Header bottom separator
-  ctx.fillStyle   = C.teal;
+  ctx.fillStyle   = C.gold;
   ctx.globalAlpha = 0.3;
   ctx.fillRect(0, HEADER_H - 1, W, 1);
   ctx.globalAlpha = 1;
 
-  // ── Table header — filled MEF deep teal ─────────────────────────────────────
+  // ── Table header — filled MEF purple ─────────────────────────────────────
   const tableY = HEADER_H;
 
-  ctx.fillStyle = C.deepTeal;
+  ctx.fillStyle = C.purple;
   ctx.fillRect(0, tableY, W, TBL_HDR_H);
 
   let colX = 0;
@@ -318,16 +314,16 @@ async function generateRosterPng(roster, maxPlayers) {
     ctx.fillRect(0, rowY, W, ROW_H);
 
     if (isCaptain) {
-      ctx.fillStyle = C.teal;
+      ctx.fillStyle = C.gold;
       ctx.fillRect(0, rowY, 4, ROW_H);
     }
 
-    // Row separator: deep teal (semi-transparent) for empty rows, gray border for filled
+    // Row separator: purple (semi-transparent) for empty rows, dim border for filled
     if (p) {
       ctx.fillStyle   = C.border;
       ctx.globalAlpha = 1;
     } else {
-      ctx.fillStyle   = C.deepTeal;
+      ctx.fillStyle   = C.purple;
       ctx.globalAlpha = 0.4;
     }
     ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
@@ -356,7 +352,7 @@ async function generateRosterPng(roster, maxPlayers) {
 
       if (isNoCol) {
         ctx.font      = isCaptain ? 'bold 20px Arial' : 'bold 15px Arial';
-        ctx.fillStyle = isCaptain ? C.teal : C.dim;
+        ctx.fillStyle = isCaptain ? C.gold : C.dim;
       } else if (isName) {
         ctx.font      = p ? 'bold 14px Arial' : '13px Arial';
         ctx.fillStyle = p ? C.white : C.dim;
@@ -380,7 +376,7 @@ async function generateRosterPng(roster, maxPlayers) {
   ctx.fillStyle = C.footerBg;
   ctx.fillRect(0, footerY, W, FOOTER_H);
 
-  ctx.fillStyle   = C.teal;
+  ctx.fillStyle   = C.gold;
   ctx.globalAlpha = 0.28;
   ctx.fillRect(0, footerY, W, 1);
   ctx.globalAlpha = 1;

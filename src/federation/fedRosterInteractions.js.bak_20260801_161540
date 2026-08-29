@@ -34,9 +34,7 @@ async function downloadAndCacheLogo(rosterId, logoUrl) {
       }
       get(logoUrl, 0);
     });
-  } catch (e) {
-    console.error('[FED] Logo cache download failed id=' + rosterId + ':', e.message);
-  }
+  } catch (_) {}
 }
 const { isBotolaManager }   = require('../utils/permissions');
 const { generateRosterPng } = require('./fedRosterPng');
@@ -45,29 +43,12 @@ const {
   buildLeaderDashboard, buildCreateClanPanel, buildPickUserPanel, buildSearchPanel,
   buildEditPlayerSelect, buildRemovePlayerSelect,
   buildConfirmRemove, buildReorderPanel,
-  buildAdminPanel, buildAdminClanView, buildAdminLeaderSelect,
-  buildAdminSettings, buildAdminConfirmRemove, buildAdminCreateLeaderSelect, buildAdminCreateConfirm,
+  buildAdminPanel, buildAdminClanView,
+  buildAdminSettings, buildAdminConfirmRemove,
 } = require('./fedRosterPanel');
 
 // Tracks the last ephemeral preview message ID per user so it can be replaced
 const _previewMsgIds = new Map();
-const _adminCreateDrafts = new Map();
-// Remembers the player selected in the edit menu so the leader can reopen
-// that same player's modal after dismissing it with Discord's X button.
-const _lastEditSlots = new Map();
-
-// Only one private clan dashboard should remain open per user.
-const _activeClanPanels = new Map();
-
-async function closePreviousClanPanel(userId) {
-  const previous = _activeClanPanels.get(String(userId || ''));
-  _activeClanPanels.delete(String(userId || ''));
-  if (previous) await previous.deleteReply().catch(() => {});
-}
-
-function rememberClanPanel(userId, interaction) {
-  _activeClanPanels.set(String(userId || ''), interaction);
-}
 
 // Safety: renumber players 1..N by slot order, eliminating any gaps or duplicates
 function compactSlots(players) {
@@ -152,19 +133,19 @@ function getUserAssignmentInfo(discordId) {
 }
 
 // Build clan info modal (4 fields: name, tag, social, logo)
-function buildClanInfoModal(roster, hidelogo = false, hidesocial = false, customId = 'fr_modal_clan_info', title = 'Clan Information') {
-  const m = new ModalBuilder().setCustomId(customId).setTitle(title);
+function buildClanInfoModal(roster, hidelogo = false) {
+  const m = new ModalBuilder().setCustomId('fr_modal_clan_info').setTitle('Clan Information');
   const row = f => new ActionRowBuilder().addComponents(f);
   const ti  = (id, label, ph, val, required = true) =>
     new TextInputBuilder().setCustomId(id).setLabel(label)
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
   const rows = [
-    row(ti('clan_name', 'Clan Name', '', roster?.clan_name || '')),
-    row(ti('clan_tag',  'Clan Tag',  '', roster?.clan_tag  || '')),
+    row(ti('clan_name',    'Clan Name',    '',      roster?.clan_name    || '')),
+    row(ti('clan_tag',     'Clan Tag',     '',      roster?.clan_tag     || '')),
+    row(ti('social_media', 'Social Media', '@...', roster?.social_media || '', false)),
   ];
-  if (!hidesocial) rows.push(row(ti('social_media', 'Social Media', '@...', roster?.social_media || '', false)));
-  if (!hidelogo)   rows.push(row(ti('logo_url', 'Clan Logo URL', 'Use Imgur/direct link — Discord links expire!', roster?.logo_url || '', false)));
+  if (!hidelogo) rows.push(row(ti('logo_url', 'Clan Logo URL', 'https://i.imgur.com/...', roster?.logo_url || '', false)));
   m.addComponents(...rows);
   return m;
 }
@@ -175,7 +156,7 @@ function buildAddPlayerModal(slot, discordUserId, existing = null) {
   const cid = 'fr_modal_add_player_' + slot + '|' + (discordUserId || '');
   const m   = new ModalBuilder().setCustomId(cid).setTitle('Add Player #' + slot + ' — Step 2 of 2');
   const row = f => new ActionRowBuilder().addComponents(f);
-  const ti  = (id, label, ph, val, required = false) =>
+  const ti  = (id, label, ph, val, required = true) =>
     new TextInputBuilder().setCustomId(id).setLabel(label)
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
@@ -194,7 +175,7 @@ function buildEditPlayerModal(slot, existing) {
     .setCustomId('fr_modal_edit_player_' + slot)
     .setTitle('Edit Player #' + slot);
   const row = f => new ActionRowBuilder().addComponents(f);
-  const ti  = (id, label, ph, val, required = false) =>
+  const ti  = (id, label, ph, val, required = true) =>
     new TextInputBuilder().setCustomId(id).setLabel(label)
       .setStyle(TextInputStyle.Short).setPlaceholder(ph)
       .setRequired(required).setValue(val || '');
@@ -224,18 +205,6 @@ async function handleFedRosterInteraction(interaction, client) {
   // LEADER INTERACTIONS  (prefix: fr_)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // Permanent clan dashboard button: open the caller's own dashboard privately.
-  if (id === 'fr_open_dashboard') {
-    const buttonRoster = getRosterForMember(mid);
-    if (!buttonRoster) {
-      return interaction.reply({ content: '❌ You are not assigned as a clan leader or co-leader.', flags: 64 });
-    }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(buttonRoster.leader_discord_id));
-    rememberClanPanel(mid, interaction);
-    return;
-  }
-
   // ── Open ephemeral dashboard ─────────────────────────────────────────────
   if (id === 'fr_open') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
@@ -244,7 +213,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const _openRoster = getRoster(eid);
     if (!_openRoster) {
       // First time: open modal directly (no logo field)
-      return interaction.showModal(buildClanInfoModal(null, true, true));
+      return interaction.showModal(buildClanInfoModal(null, true));
     }
     // Refresh leader_name only when the MAIN leader opens (not co-leaders)
     if (mid === eid) {
@@ -253,26 +222,7 @@ async function handleFedRosterInteraction(interaction, client) {
         db.update('Clan_Registry', _openRoster.id, { leader_name: _lName });
       }
     }
-    // ── Self-repair: create Discord role if missing (e.g. creation failed at registration)
-    if (_openRoster.clan_name && !_openRoster.clan_role_id) {
-      try {
-        const _cg2    = interaction.guild;
-        const _mefId2 = db.getConfig('fed_roster_mef_role_id') || null;
-        const _ctag2  = _openRoster.clan_tag || _openRoster.clan_name.slice(0, 5).toUpperCase();
-        const _nr2    = await _cg2.roles.create({ name: _ctag2, color: 0x00FFAC,
-          reason: 'MEF Federation: ' + _openRoster.clan_name + ' [' + _ctag2 + '] (auto-repair)' });
-        const _pr2 = await _cg2.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
-        if (_pr2 && _pr2.position > 1) await _nr2.setPosition(_pr2.position - 1).catch(() => {});
-        db.update('Clan_Registry', _openRoster.id, { clan_role_id: _nr2.id });
-        // Leader is already interaction.member — no API fetch needed
-        await interaction.member.roles.add(_nr2.id).catch(() => {});
-        if (_mefId2) await interaction.member.roles.add(_mefId2).catch(() => {});
-      } catch (_re) { console.error('[FedRoster] Role auto-repair failed:', _re.message); }
-    }
-    await closePreviousClanPanel(mid);
-    await interaction.reply(buildLeaderDashboard(eid));
-    rememberClanPanel(mid, interaction);
-    return;
+    return interaction.reply(buildLeaderDashboard(eid));
   }
 
   // ── Refresh dashboard ────────────────────────────────────────────────────
@@ -295,25 +245,17 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!isLeader(interaction.member)) return noPerm(interaction);
     const _isFirstTime = !getRoster(eid);
     const cfg = getRosterConfig();
-
-    // Defer FIRST before any checks or async work.
-    // First-time: launcher message was deleted — must open a fresh ephemeral reply.
-    // Returning: update the existing dashboard message.
-    if (_isFirstTime) {
-      await interaction.deferReply({ ephemeral: true });
-    } else {
-      await interaction.deferUpdate();
-    }
-
     if (cfg.locked) {
+      await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Registration is locked.' }));
     }
     const clan_name    = interaction.fields.getTextInputValue('clan_name').trim();
     const clan_tag     = interaction.fields.getTextInputValue('clan_tag').trim().toUpperCase();
-    let social_media = ''; try { social_media = interaction.fields.getTextInputValue('social_media').trim(); } catch (_) {}
+    const social_media = interaction.fields.getTextInputValue('social_media').trim();
     let logo_url = ''; try { logo_url = interaction.fields.getTextInputValue('logo_url').trim(); } catch (_) {}
 
     if (!clan_name) {
+      await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Clan name is required.' }));
     }
 
@@ -358,30 +300,38 @@ async function handleFedRosterInteraction(interaction, client) {
           const _ctag  = clan_tag || clan_name.slice(0, 5).toUpperCase();
           let _crId = null;
           try {
-            const _nr = await _cg.roles.create({ name: _ctag, color: 0x00FFAC,
+            const _nr = await _cg.roles.create({ name: _ctag, colors: 0x00FFAC,
               reason: 'MEF Federation: ' + clan_name + ' [' + _ctag + ']' });
             const _pr = await _cg.roles.fetch(db.getConfig('fed_roster_leader_role_id') || '1529939782233227365').catch(() => null);
             if (_pr && _pr.position > 1) await _nr.setPosition(_pr.position - 1).catch(() => {});
             _crId = _nr.id;
           } catch (_e) { console.error('[FedRoster] Role create error:', _e.message); }
-          // Leader is already interaction.member — no API fetch needed
-          const _lun = interaction.member.user?.username || '';
+          let _lun = '';
+          try {
+            const _lm = await _cg.members.fetch(eid).catch(() => null);
+            if (_lm) _lun = _lm.user.username;
+          } catch (_) {}
           db.update('Clan_Registry', newRoster.id, {
             clan_role_id: _crId,
             players: [{ slot: 1, name: _ldName, discord_user: eid,
               discord_username: _lun, device: '', user_id: '', serial_number: '' }],
           });
           try {
-            if (_crId)   await interaction.member.roles.add(_crId).catch(() => {});
-            if (_mefId)  await interaction.member.roles.add(_mefId).catch(() => {});
+            const _lm2 = await _cg.members.fetch(eid).catch(() => null);
+            if (_lm2) {
+              if (_crId)   await _lm2.roles.add(_crId).catch(() => {});
+              if (_mefId)  await _lm2.roles.add(_mefId).catch(() => {});
+            }
           } catch (_) {}
         }
       }
     }
-    const _dashMsg = _isFirstTime
-      ? buildLeaderDashboard(eid, { info: '\uD83C\uDF89 Clan created! Welcome to the federation.' })
-      : buildLeaderDashboard(eid, { info: 'Clan info saved.' });
-    return interaction.editReply(_dashMsg);
+    if (_isFirstTime) {
+      await interaction.deferReply({ ephemeral: true });
+    } else {
+      await interaction.deferUpdate();
+    }
+    return interaction.editReply(buildLeaderDashboard(eid, { info: 'Clan info saved.' }));
   }
 
   // ── Add Player: step 1 — show multi-select Discord user select ──────────────
@@ -413,7 +363,6 @@ async function handleFedRosterInteraction(interaction, client) {
     if (!roster) return interaction.editReply(buildLeaderDashboard(eid, { error: 'Set Clan Info first.' }));
     const players   = roster.players || [];
     const added     = [];
-    const addedIds  = [];
     const skipped   = [];
     // Always base next slot on the highest existing slot, not player count
     // (count can differ from max slot if gaps ever exist)
@@ -446,7 +395,6 @@ async function handleFedRosterInteraction(interaction, client) {
 
       players.push({ slot: nextSlot, name: defaultName, discord_user: discordUserId, discord_username, device: '', user_id: '', serial_number: '' });
       added.push('<@' + discordUserId + '>');
-      addedIds.push(discordUserId);
       nextSlot++;
     }
 
@@ -460,7 +408,7 @@ async function handleFedRosterInteraction(interaction, client) {
     const _addC = _addR?.clan_role_id || null;
     const _addM = db.getConfig('fed_roster_mef_role_id') || null;
     if (_addC || _addM) {
-      for (const _addUid of addedIds) {
+      for (const _addUid of interaction.values) {
         try {
           const _am = interaction.guild.members.cache.get(_addUid)
             || await interaction.guild.members.fetch(_addUid).catch(() => null);
@@ -590,27 +538,8 @@ async function handleFedRosterInteraction(interaction, client) {
 
     if (id === 'fr_edit_player_start') {
     if (!isLeader(interaction.member)) return noPerm(interaction);
-    _lastEditSlots.delete(eid);
     await interaction.deferUpdate();
     return interaction.editReply(buildEditPlayerSelect(eid));
-  }
-
-  // Reopen the player that is still selected in Discord's dropdown.
-  // This is useful after the leader dismisses the modal with the X button.
-  if (id === 'fr_edit_selected_player') {
-    if (!isLeader(interaction.member)) return noPerm(interaction);
-    const slot = _lastEditSlots.get(eid);
-    const roster = getRoster(eid);
-    const player = slot == null
-      ? null
-      : (roster?.players || []).find(p => p.slot === slot);
-    if (!player) {
-      return interaction.reply({
-        content: 'Please select a player first.',
-        ephemeral: true,
-      });
-    }
-    return interaction.showModal(buildEditPlayerModal(slot, player));
   }
 
   if (id === 'fr_sel_edit_player') {
@@ -618,7 +547,6 @@ async function handleFedRosterInteraction(interaction, client) {
     const slot   = parseInt(interaction.values[0]);
     const roster = getRoster(eid);
     const player = (roster?.players || []).find(p => p.slot === slot);
-    if (player) _lastEditSlots.set(eid, slot);
     if (!player) {
       await interaction.deferUpdate();
       return interaction.editReply(buildLeaderDashboard(eid, { error: 'Player not found.' }));
@@ -825,7 +753,7 @@ async function handleFedRosterInteraction(interaction, client) {
       if (!clanRoleId) {
         const newRole = await guild.roles.create({
           name:   tag,
-          color: 0x00FFAC,
+          colors: 0x00FFAC,
           reason: 'MEF Federation: ' + roster.clan_name + ' [' + tag + ']',
         });
         // Position just below the federation parent role — same as /clans
@@ -896,250 +824,9 @@ async function handleFedRosterInteraction(interaction, client) {
       return interaction.update(buildAdminPanel({ page }));
     }
 
-    // Staff-only clan creation flow.
-    if (id === 'fra_create_clan') {
-      return interaction.showModal(buildClanInfoModal(null, false, false, 'fra_modal_create_clan_info', 'Create Clan'));
-    }
-
-    if (id === 'fra_modal_create_clan_info') {
-      await interaction.deferReply({ flags: 64 });
-      const clan_name = interaction.fields.getTextInputValue('clan_name').trim();
-      const clan_tag = interaction.fields.getTextInputValue('clan_tag').trim().toUpperCase();
-      let social_media = ''; try { social_media = interaction.fields.getTextInputValue('social_media').trim(); } catch (_) {}
-      let logo_url = ''; try { logo_url = interaction.fields.getTextInputValue('logo_url').trim(); } catch (_) {}
-      if (!clan_name) return interaction.editReply(buildAdminPanel({ error: 'Clan name is required.' }));
-
-      const draft = { clan_name, clan_tag, social_media, logo_url, leader_id: null, created_at: Date.now() };
-      _adminCreateDrafts.set(interaction.user.id, draft);
-      return interaction.editReply(buildAdminCreateLeaderSelect(draft));
-    }
-
-    if (id === 'fra_create_edit_info') {
-      const draft = _adminCreateDrafts.get(interaction.user.id) || null;
-      return interaction.showModal(buildClanInfoModal(draft, false, false, 'fra_modal_create_clan_info', 'Create Clan'));
-    }
-
-    if (id === 'fra_create_leader_select') {
-      await interaction.deferUpdate();
-      const draft = _adminCreateDrafts.get(interaction.user.id);
-      const leaderId = String((interaction.values || [])[0] || '').trim();
-      if (!draft) return interaction.editReply(buildAdminPanel({ error: 'The create-clan session expired. Please start again.' }));
-      if (!leaderId) return interaction.editReply(buildAdminCreateLeaderSelect(draft, { error: 'Select a clan leader first.' }));
-      const assignment = getUserAssignmentInfo(leaderId);
-      if (assignment) {
-        return interaction.editReply(buildAdminCreateLeaderSelect(draft, {
-          error: '<@' + leaderId + '> is already assigned to **' + assignment.clan + '**.',
-        }));
-      }
-      const member = await interaction.guild.members.fetch(leaderId).catch(() => null);
-      if (!member) return interaction.editReply(buildAdminCreateLeaderSelect(draft, { error: 'The selected user is not currently in this server.' }));
-      draft.leader_id = leaderId;
-      _adminCreateDrafts.set(interaction.user.id, draft);
-      return interaction.editReply(buildAdminCreateConfirm(draft));
-    }
-
-    if (id === 'fra_create_cancel') {
-      _adminCreateDrafts.delete(interaction.user.id);
-      return interaction.update(buildAdminPanel({ info: 'Create-clan flow cancelled.' }));
-    }
-
-    if (id === 'fra_create_confirm') {
-      await interaction.deferUpdate();
-      const draft = _adminCreateDrafts.get(interaction.user.id);
-      if (!draft || !draft.leader_id) {
-        return interaction.editReply(buildAdminPanel({ error: 'The create-clan session expired. Please start again.' }));
-      }
-      const cfg = getRosterConfig();
-      if (!cfg.leaderRoleId) {
-        return interaction.editReply(buildAdminCreateConfirm(draft, { error: 'Configure the Clan Leader role in Settings before creating a clan.' }));
-      }
-      const assignment = getUserAssignmentInfo(draft.leader_id);
-      if (assignment) {
-        return interaction.editReply(buildAdminCreateLeaderSelect({ ...draft, leader_id: null }, {
-          error: '<@' + draft.leader_id + '> is already assigned to **' + assignment.clan + '**. Select another leader.',
-        }));
-      }
-      const leaderMember = await interaction.guild.members.fetch(draft.leader_id).catch(() => null);
-      if (!leaderMember) return interaction.editReply(buildAdminCreateLeaderSelect({ ...draft, leader_id: null }, { error: 'The selected user is not currently in this server.' }));
-
-      const fed = db.getConfig('federation') || {};
-      const leaderName = leaderMember.displayName || leaderMember.user?.globalName || leaderMember.user?.username || '';
-      const leaderUsername = leaderMember.user?.username || '';
-      const clanTag = draft.clan_tag || draft.clan_name.slice(0, 5).toUpperCase();
-      let newRoster = null;
-      let clanRole = null;
-      let leaderRoleAdded = false;
-      let clanRoleAdded = false;
-      let mefRoleAdded = false;
-      try {
-        newRoster = db.insert('Clan_Registry', {
-          guild_id: interaction.guild.id,
-          leader_discord_id: draft.leader_id,
-          leader_name: leaderName,
-          clan_name: draft.clan_name,
-          clan_tag: draft.clan_tag,
-          social_media: draft.social_media,
-          logo_url: draft.logo_url,
-          players: [{ slot: 1, name: leaderName, discord_user: draft.leader_id, discord_username: leaderUsername, device: '', user_id: '', serial_number: '' }],
-          co_leaders: [],
-          status: 'draft',
-          clan_role_id: null,
-          season: fed.season || 1,
-          updated_at: new Date().toISOString(),
-        });
-        if (!newRoster?.id) throw new Error('Could not create the clan record.');
-
-        clanRole = await interaction.guild.roles.create({
-          name: clanTag,
-          color: 0x00FFAC,
-          reason: 'MEF Federation staff-created clan: ' + draft.clan_name + ' [' + clanTag + ']',
-        });
-        const parentRole = await interaction.guild.roles.fetch(db.getConfig('fed_roster_leader_role_id') || cfg.leaderRoleId).catch(() => null);
-        if (parentRole && parentRole.position > 1) await clanRole.setPosition(parentRole.position - 1).catch(() => {});
-
-        await leaderMember.roles.add(clanRole.id);
-        clanRoleAdded = true;
-        await leaderMember.roles.add(cfg.leaderRoleId);
-        leaderRoleAdded = true;
-        if (cfg.mefRoleId) {
-          await leaderMember.roles.add(cfg.mefRoleId);
-          mefRoleAdded = true;
-        }
-
-        db.update('Clan_Registry', newRoster.id, { clan_role_id: clanRole.id, updated_at: new Date().toISOString() });
-        if (draft.logo_url) downloadAndCacheLogo(newRoster.id, draft.logo_url);
-        _adminCreateDrafts.delete(interaction.user.id);
-        return interaction.editReply(buildAdminPanel({ info: '**' + draft.clan_name + '** created with <@' + draft.leader_id + '> as the clan leader.' }));
-      } catch (err) {
-        console.error('[FedRoster] Staff clan creation failed:', err.message);
-        if (mefRoleAdded) await leaderMember.roles.remove(cfg.mefRoleId).catch(() => {});
-        if (leaderRoleAdded) await leaderMember.roles.remove(cfg.leaderRoleId).catch(() => {});
-        if (clanRoleAdded && clanRole) await leaderMember.roles.remove(clanRole.id).catch(() => {});
-        if (clanRole) await clanRole.delete('Rollback failed staff clan creation').catch(() => {});
-        if (newRoster?.id) db.delete('Clan_Registry', newRoster.id);
-        return interaction.editReply(buildAdminCreateConfirm(draft, { error: 'Clan creation failed: ' + err.message }));
-      }
-    }
-
     if (id === 'fra_action_select') {
       const rosterId = parseInt(interaction.values[0]);
       return interaction.update(buildAdminClanView(rosterId));
-    }
-
-    // Open the real /clan_database leader editor.
-    if (id.startsWith('fra_change_leader_')) {
-      const rosterId = parseInt(id.replace('fra_change_leader_', ''));
-      return interaction.update(buildAdminLeaderSelect(rosterId));
-    }
-
-    // Send the saved clan logo using the same cached logo used by roster previews.
-    if (id.startsWith('fra_logo_')) {
-      const rosterId = parseInt(id.replace('fra_logo_', ''));
-      const roster = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
-      await interaction.deferUpdate();
-      if (!roster) return interaction.followUp({ content: '❌ Clan not found.', flags: 64 });
-
-      const cachedLogo = path.join(LOGO_CACHE_DIR, String(roster.id) + '.img');
-      const fileName = (roster.clan_tag || roster.clan_name || 'clan').replace(/[^a-z0-9_-]+/gi, '_') + '_logo.png';
-      if (fs.existsSync(cachedLogo)) {
-        return interaction.followUp({
-          content: '🖼️  **' + (roster.clan_name || 'Clan') + '** logo',
-          files: [{ attachment: cachedLogo, name: fileName }],
-          flags: 64,
-        });
-      }
-      if (roster.logo_url) {
-        return interaction.followUp({
-          content: '🖼️  **' + (roster.clan_name || 'Clan') + '** logo',
-          files: [{ attachment: roster.logo_url, name: fileName }],
-          flags: 64,
-        });
-      }
-      return interaction.followUp({ content: '❌ No saved logo was found for **' + (roster.clan_name || 'this clan') + '**.', flags: 64 });
-    }
-
-    // Select a new leader from this clan's existing roster members.
-    if (id.startsWith('fra_leader_select_')) {
-      const rosterId = parseInt(id.replace('fra_leader_select_', ''));
-      const roster = (db.get('Clan_Registry') || []).find(r => r.id === rosterId);
-      const newLeader = String((interaction.values || [])[0] || '').trim();
-      // Acknowledge immediately; role fetches/removals can take longer than Discord's 3-second window.
-      await interaction.deferUpdate();
-      if (!roster) return interaction.editReply(buildAdminPanel({ error: 'Clan not found.' }));
-      if (!newLeader) return interaction.editReply(buildAdminLeaderSelect(rosterId, { error: 'Select a new leader first.' }));
-
-      const conflict = (db.get('Clan_Registry') || []).find(r => r.id !== rosterId && (
-        String(r.leader_discord_id || '') === newLeader ||
-        (r.co_leaders || []).some(uid => String(uid) === newLeader) ||
-        (r.players || []).some(p => String(p.discord_user || '') === newLeader)
-      ));
-      if (conflict) {
-        return interaction.editReply(buildAdminLeaderSelect(rosterId, {
-          error: '<@' + newLeader + '> is already assigned to **' + (conflict.clan_name || 'another clan') + '**.',
-        }));
-      }
-
-      const previousLeader = String(roster.leader_discord_id || '');
-      if (previousLeader !== newLeader) {
-        const cfg = getRosterConfig();
-        const oldMember = previousLeader ? await interaction.guild.members.fetch(previousLeader).catch(() => null) : null;
-        const newMember = await interaction.guild.members.fetch(newLeader).catch(() => null);
-        if (!newMember) {
-          return interaction.editReply(buildAdminLeaderSelect(rosterId, { error: 'The selected user is not currently in this server.' }));
-        }
-
-        // The leader is also a roster player. Replace that player entry in-place
-        // so the old leader is removed and the new leader occupies the same slot.
-        const players = Array.isArray(roster.players) ? roster.players.slice() : [];
-        const oldPlayerIndex = players.findIndex(p => String(p.discord_user || '') === previousLeader);
-        if (oldPlayerIndex < 0) {
-          return interaction.editReply(buildAdminLeaderSelect(rosterId, {
-            error: 'The current leader is not registered in this clan roster, so the transfer was stopped.',
-          }));
-        }
-        const oldPlayer = players[oldPlayerIndex] || {};
-        const existingNewLeaderIndex = players.findIndex(
-          (p, index) => index !== oldPlayerIndex && String(p.discord_user || '') === newLeader
-        );
-        const existingNewLeader = existingNewLeaderIndex >= 0 ? players[existingNewLeaderIndex] : null;
-        const replacementPlayer = existingNewLeader
-          ? { ...existingNewLeader, slot: oldPlayer.slot }
-          : {
-              slot: oldPlayer.slot,
-              name: newMember.displayName || newMember.user?.globalName || newMember.user?.username || 'New Leader',
-              discord_user: newLeader,
-              discord_username: newMember.user?.username || '',
-              device: '',
-              user_id: '',
-              serial_number: '',
-            };
-        const nextPlayers = players.filter((_, index) => index !== existingNewLeaderIndex);
-        const oldPlayerIndexAfterRemoval = nextPlayers.findIndex(
-          p => String(p.discord_user || '') === previousLeader
-        );
-        nextPlayers[oldPlayerIndexAfterRemoval] = replacementPlayer;
-
-        // Transfer exactly the clan + leader roles. Never touch co-leader data/role.
-        if (oldMember) {
-          if (roster.clan_role_id) await oldMember.roles.remove(roster.clan_role_id).catch(() => {});
-          if (cfg.leaderRoleId) await oldMember.roles.remove(cfg.leaderRoleId).catch(() => {});
-        }
-        if (roster.clan_role_id) await newMember.roles.add(roster.clan_role_id).catch(() => {});
-        if (cfg.leaderRoleId) await newMember.roles.add(cfg.leaderRoleId).catch(() => {});
-
-        db.update('Clan_Registry', rosterId, {
-          leader_discord_id: newLeader,
-          leader_name: newMember.displayName || newMember.user?.globalName || newMember.user?.username || '',
-          players: nextPlayers,
-          updated_at: new Date().toISOString(),
-        });
-      }
-
-      return interaction.editReply(buildAdminClanView(rosterId, {
-        info: previousLeader === newLeader
-          ? 'Leader unchanged.'
-          : 'Leader changed to <@' + newLeader + '>. The old leader was replaced in the roster; other players and the co-leader were unchanged.',
-      }));
     }
 
     if (id.startsWith('fra_view_')) {
@@ -1197,11 +884,6 @@ async function handleFedRosterInteraction(interaction, client) {
 
       const clanName = roster.clan_name;
       db.delete('Clan_Registry', rosterId);
-      // Delete cached logo image
-      try {
-        const _lp = path.join(LOGO_CACHE_DIR, rosterId + '.img');
-        if (fs.existsSync(_lp)) fs.unlinkSync(_lp);
-      } catch (_) {}
       return interaction.editReply(buildAdminPanel({ info: '**' + clanName + '** removed from the federation.' }));
     }
 
@@ -1411,8 +1093,4 @@ async function handleFedRosterInteraction(interaction, client) {
   }
 }
 
-module.exports = {
-  handleFedRosterInteraction,
-  closePreviousClanPanel,
-  rememberClanPanel,
-};
+module.exports = { handleFedRosterInteraction };
