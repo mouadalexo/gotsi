@@ -23,8 +23,10 @@ function buildPanel3(tournament) {
 
   // Round selector state
   const _allGrpRds  = [...new Set(groupMatches.map(m => m.round))].sort((a, b) => a - b);
+  const _workflowRd = db.getConfig('group_round_' + tid);
+  const _currentRd  = (_workflowRd && _allGrpRds.includes(_workflowRd)) ? _workflowRd : (_allGrpRds[0] || 1);
   const _savedRd    = db.getConfig('p3_round_' + tid);
-  const _activeRd   = (_savedRd && _allGrpRds.includes(_savedRd)) ? _savedRd : (_allGrpRds[0] || 1);
+  const _activeRd   = (_savedRd && _allGrpRds.includes(_savedRd)) ? _savedRd : _currentRd;
 
   // Winner Ann: only when both Final legs (Home + Away) are played
   const koMatches   = matches.filter(m => m.stage === 'knockout');
@@ -72,14 +74,14 @@ function buildPanel3(tournament) {
   ));
   inner.push(SEP);
 
-  // Round selector (only shown when group matches exist)
-  if (_allGrpRds.length > 0) {
+  // Matchday selector is only relevant during the group stage.
+  if (stage === 'group' && _allGrpRds.length > 0) {
     inner.push({ type: 1, components: [{
       type: 3,
       custom_id: `p3_${tid}_roundsel`,
-      placeholder: 'Pick Round…',
+      placeholder: 'Pick Matchday…',
       options: _allGrpRds.map(r => ({
-        label: 'Round ' + r,
+        label: 'Matchday ' + r,
         value: String(r),
         default: r === _activeRd,
       })),
@@ -87,25 +89,23 @@ function buildPanel3(tournament) {
     inner.push(SEP);
   }
 
-  // Action buttons — gated by tournament state
-  // Row 1 (blue): Group Draw, Schedule
-  inner.push({ type: 1, components: [
-    btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
-    btn('Schedule',   `p3_${tid}_schedule`,  1, !hasMatches),
-  ]});
-  // Row 2 (green): Results, Standings
-  inner.push({ type: 1, components: [
-    btn('Results',    `p3_${tid}_results`,   3, !hasMatches),
-    btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
-  ]});
-  // Row 3 (red): KO Bracket + Winner Ann
+  // Group-stage publishing actions are hidden once knockout begins.
+  if (stage !== 'knockout') {
+    inner.push({ type: 1, components: [
+      btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
+      btn('Schedule',   `p3_${tid}_schedule`,  1, !hasMatches),
+    ]});
+    inner.push({ type: 1, components: [
+      btn('Results',    `p3_${tid}_results`,   3, !hasMatches),
+      btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
+    ]});
+  }
+  // KO-stage publishing actions remain available in every stage.
   inner.push({ type: 1, components: [
     btn('KO Bracket',  `p3_${tid}_bracket`,    4, !hasKO),
     btn('Winner Ann',  `p3_${tid}_winner_ann`, 4, !(finalDone || stage === 'finished')),
   ]});
 
-  inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

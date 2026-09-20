@@ -143,7 +143,7 @@ function buildPanel1(tournament) {
     const nextKOLabel  = nextRound >= 1 ? (KO_LABELS[nextRound] || 'Next Round') : null;
     const advBtnLabel  = nextKOLabel ? `Advance to ${nextKOLabel}` : 'Next';
 
-    const allRoundDone = curPending === 0 && curPlayed > 0;
+    const allRoundDone = curPending === 0 && curPlayed > 0 && !(curRound === 2 && r2Leg1AllPlayed && !r2Leg2Exists);
 
     inner.push(txt(
       `> **Status:** Knockout  |  **Stage:** ${roundLabel}\n` +
@@ -196,8 +196,6 @@ function buildPanel1(tournament) {
     ]});
   }
 
-  inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

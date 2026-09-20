@@ -51,8 +51,6 @@ function buildPanel2(tournament) {
     btn('🎲 Random',      `p2_${tid}_random`,  2, regLocked),
   ]});
 
-  inner.push(SEP);
-  inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

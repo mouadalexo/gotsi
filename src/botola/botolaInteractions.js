@@ -248,6 +248,28 @@ function updateStandings(tid, matchId, homeScore, awayScore) {
   db.update('matches', matchId, { status: 'played', home_score: homeScore, away_score: awayScore });
 }
 
+function ensureSemiFinalLegs(tid) {
+  const sfLeg1s = db.get('matches').filter(m =>
+    m.tournament_id === tid && m.stage === 'knockout' && m.round === 2 && (!m.leg || m.leg === 1)
+  );
+  const sfLeg2s = db.get('matches').filter(m =>
+    m.tournament_id === tid && m.stage === 'knockout' && m.round === 2 && m.leg === 2
+  );
+  for (const leg1 of sfLeg1s) {
+    const exists = sfLeg2s.some(m =>
+      m.home_team_id === leg1.away_team_id && m.away_team_id === leg1.home_team_id
+    );
+    if (exists) continue;
+    db.insert('matches', {
+      tournament_id: tid,
+      home_team_id: leg1.away_team_id,
+      away_team_id: leg1.home_team_id,
+      stage: 'knockout', round: 2, leg: 2,
+      status: 'pending', home_score: null, away_score: null,
+    });
+  }
+}
+
 function generateKnockoutBracket(tid) {
   const t       = getT(tid);
   const advance = t.advance_per_group || 2;
@@ -277,9 +299,11 @@ function generateKnockoutBracket(tid) {
       status: 'pending', home_score: null, away_score: null,
     });
   }
+  if (numMatches === 2) ensureSemiFinalLegs(tid);
 }
 
 function advanceKnockout(tid) {
+  ensureSemiFinalLegs(tid);
   const matches = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
 
   // Round numbering: QF=4, SF=2, Final=1 (higher = earlier stage).
@@ -361,6 +385,7 @@ function advanceKnockout(tid) {
       status: 'pending', home_score: null, away_score: null,
     });
   }
+  if (nextRound === 2) ensureSemiFinalLegs(tid);
   return nextRound;
 }
 
@@ -451,6 +476,7 @@ function buildMatchPickerInline(tid, stage) {
 
 
 function buildKORoundMatchesPanel(tid) {
+  ensureSemiFinalLegs(tid);
   const teams      = db.get('teams');
   const getTeam    = id => teams.find(t => t.id === id) || { name: 'Unknown' };
   const allKO      = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
@@ -517,9 +543,9 @@ function buildGroupSelectorPanel(tid) {
   const groups = [...new Set(ttRows.map(tt => tt.group_name).filter(Boolean))].sort();
   const allRoundDone = curPending === 0;
   const inner = [
-    txt(`**\ud83d\udcca Add Result \u2014 Round ${curRound}/${totalRounds}**`),
+    txt(`**\ud83d\udcca Add Result \u2014 Matchday ${curRound}/${totalRounds}**`),
     SEP,
-    txt(`**${curPlayed}/${totalInRound}** matches played this round` + (allRoundDone ? ' \u2014 go back to advance.' : '')),
+    txt(`**${curPlayed}/${totalInRound}** matches played this matchday` + (allRoundDone ? ' \u2014 go back to advance.' : '')),
     SEP,
   ];
   for (let i = 0; i < groups.length; i += 5) {
@@ -557,9 +583,19 @@ function buildRoundMatchesPanel(tid, round) {
   const inner = [
     txt(`**\u1F4CA Add Result \u2014 Round ${round}/${totalRounds}**`),
     SEP,
-    txt(`**${played}/${total}** matches played this round` + (allDone ? ' \u2014 all done, go back to advance.' : '')),
+    txt(`**${played}/${total}** matches played this matchday` + (allDone ? ' \u2014 all done, go back to advance.' : '')),
     SEP,
   ];
+
+  inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
+    placeholder: 'Select matchday...',
+    options: allRounds.slice(0, 25).map(r => ({
+      label: `Matchday ${r}`,
+      value: String(r),
+      default: r === round,
+    })),
+  }]});
+  inner.push(SEP);
 
   for (const g of groups) {
     const gMatches = roundMatches.filter(m => getGrp(m.home_team_id) === g);
@@ -1296,6 +1332,7 @@ async function handleBotolaInteraction(interaction) {
       if (!hasMatches) generateGroupSchedule(tid);
       // Initialise active round tracker (all group rounds are pre-generated)
       db.setConfig('group_round_' + tid, 1);
+      db.setConfig('p3_round_' + tid, 1);
       // Activate
       db.update('tournaments', tid, { status: 'active' });
       refreshPanels23(cli, tid).catch(() => {});
@@ -1358,6 +1395,7 @@ async function handleBotolaInteraction(interaction) {
       if (tmpTeamIdsR.length) db.deleteWhere('teams', t2 => tmpTeamIdsR.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.setConfig('group_round_' + tid, null);
+      db.setConfig('p3_round_' + tid, null);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
       refreshPanels23(cli, tid).catch(() => {});
       return interaction.editReply(buildPanel1(getT(tid)));
@@ -1466,37 +1504,25 @@ async function handleBotolaInteraction(interaction) {
     if (action === 'addresult') {
       const stg_ = getStage(t);
       if (stg_ === 'knockout') {
+        ensureSemiFinalLegs(tid);
         const panel = buildKORoundMatchesPanel(tid);
         if (!panel) return interaction.reply({ content: '\u274c No pending matches found.', ephemeral: true });
         return interaction.update(panel);
       }
-      // Group stage: show round selector or jump straight to match list
+      // Group stage: open the workflow's current matchday directly.
+      // The match list itself keeps a selector for editing older matchdays.
       const allGM_ar = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-      if (!allGM_ar.length) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
+      if (!allGM_ar.length) return interaction.reply({ content: '❌ No matches found.', ephemeral: true });
       const allRds_ar = [...new Set(allGM_ar.map(m => m.round))].sort((a, b) => a - b);
-      if (allRds_ar.length === 1) {
-        const panel = buildRoundMatchesPanel(tid, allRds_ar[0]);
-        if (!panel) return interaction.reply({ content: '\u274c No matches found.', ephemeral: true });
-        return interaction.update(panel);
-      }
-      const pendingByRound = allRds_ar.map(r => ({
-        r,
-        pending: allGM_ar.filter(m => m.round === r && m.status !== 'played').length,
-      }));
-      return interaction.update({ flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: [
-        { type: 10, content: '**Add Result \u2014 Select a round**' },
-        { type: 14, divider: true, spacing: 1 },
-        { type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
-          placeholder: 'Select round...',
-          options: pendingByRound.map(({ r, pending }) => ({
-            label: `Round ${r}`,
-            description: pending > 0 ? `${pending} match${pending !== 1 ? 'es' : ''} pending` : 'All played',
-            value: String(r),
-          })),
-        }]},
-        { type: 14, divider: true, spacing: 1 },
-        { type: 1, components: [{ type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` }]},
-      ]}] });
+      const trackedRound = db.getConfig('group_round_' + tid);
+      const currentRound = trackedRound && allRds_ar.includes(trackedRound)
+        ? trackedRound
+        : (allGM_ar.some(m => m.status !== 'played')
+          ? Math.min(...allGM_ar.filter(m => m.status !== 'played').map(m => m.round))
+          : allRds_ar[allRds_ar.length - 1]);
+      const panel = buildRoundMatchesPanel(tid, currentRound);
+      if (!panel) return interaction.reply({ content: '❌ No matches found.', ephemeral: true });
+      return interaction.update(panel);
     }
 
     if (action === 'addresult_sel') {
@@ -1619,7 +1645,7 @@ async function handleBotolaInteraction(interaction) {
         const stillPendingInRound = allGM_adv.filter(m => m.round === curRound_adv && m.status !== 'played');
         if (stillPendingInRound.length > 0) {
           return interaction.reply({
-            content: `❌ **Cannot advance yet — ${stillPendingInRound.length} match${stillPendingInRound.length !== 1 ? 'es' : ''} still pending in Round ${curRound_adv}.**`,
+            content: `❌ **Cannot advance yet — ${stillPendingInRound.length} match${stillPendingInRound.length !== 1 ? 'es' : ''} still pending in Matchday ${curRound_adv}.**`,
             ephemeral: true,
           });
         }
@@ -1630,8 +1656,9 @@ async function handleBotolaInteraction(interaction) {
         // Last group round → generate KO bracket (post manually via panel 3)
         if (isLastRound) generateKnockoutBracket(tid);
 
-        // Advance the stored active round so panel knows we moved forward
+        // Advance the workflow and keep Publish on the new matchday.
         db.setConfig('group_round_' + tid, curRound_adv + 1);
+        db.setConfig('p3_round_' + tid, isLastRound ? null : curRound_adv + 1);
         refreshPanels23(cli, tid).catch(() => {});
         refreshStandingsMessage(cli, tid).catch(() => {});
         return interaction.editReply(buildPanel1(getT(tid)));

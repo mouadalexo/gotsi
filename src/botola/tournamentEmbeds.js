@@ -90,7 +90,7 @@ function makeSchedulePost(tid, round) {
   const entries  = Object.entries(grouped).sort();
 
   const inner = [
-    txt(`${E_CUP}  **SCHEDULE — ROUND ${round}/${total}  —  ${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **SCHEDULE — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
     SEP,
   ];
 
@@ -120,7 +120,7 @@ function makeResultsPost(tid, round) {
   const entries = Object.entries(grouped).sort();
 
   const inner = [
-    txt(`${E_CUP}  **RESULTS — ROUND ${round}/${total}  —  ${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **RESULTS — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
     SEP,
   ];
 
