@@ -74,8 +74,9 @@ function buildPanel3(tournament) {
   ));
   inner.push(SEP);
 
-  // Matchday selector is only relevant during the group stage.
-  if (stage === 'group' && _allGrpRds.length > 0) {
+  // Keep Matchday selection available until the group stage is actually complete.
+  const groupStageFinished = groupMatches.length > 0 && groupMatches.every(m => m.status === 'played');
+  if (!groupStageFinished && _allGrpRds.length > 0) {
     inner.push({ type: 1, components: [{
       type: 3,
       custom_id: `p3_${tid}_roundsel`,

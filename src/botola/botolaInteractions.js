@@ -581,21 +581,11 @@ function buildRoundMatchesPanel(tid, round) {
   const allDone = played === total && total > 0;
 
   const inner = [
-    txt(`**\u1F4CA Add Result \u2014 Round ${round}/${totalRounds}**`),
+    txt(`**\u1F4CA Add Result \u2014 Matchday ${round}/${totalRounds}**`),
     SEP,
     txt(`**${played}/${total}** matches played this matchday` + (allDone ? ' \u2014 all done, go back to advance.' : '')),
     SEP,
   ];
-
-  inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
-    placeholder: 'Select matchday...',
-    options: allRounds.slice(0, 25).map(r => ({
-      label: `Matchday ${r}`,
-      value: String(r),
-      default: r === round,
-    })),
-  }]});
-  inner.push(SEP);
 
   for (const g of groups) {
     const gMatches = roundMatches.filter(m => getGrp(m.home_team_id) === g);
@@ -616,8 +606,18 @@ function buildRoundMatchesPanel(tid, round) {
     inner.push(SEP);
   }
 
+  inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
+    placeholder: 'Select matchday...',
+    options: allRounds.slice(0, 25).map(r => ({
+      label: `Matchday ${r}`,
+      value: String(r),
+      default: r === round,
+    })),
+  }]});
+  inner.push(SEP);
+
   inner.push({ type: 1, components: [
-    { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_addresult` },
+    { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` },
   ]});
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
