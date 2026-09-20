@@ -63,7 +63,6 @@ function buildPanel3(tournament) {
   inner.push({ type: 1, components: [
     { type: 2, style: modeStyle, label: modeLabel, custom_id: `p3_${tid}_togglemode` },
     { type: 2, style: tagStyle,  label: tagLabel,  custom_id: `p3_${tid}_toggletag`,  disabled: previewMode },
-    btn('Refresh', `p3_${tid}_refresh`, 2),
   ]});
   inner.push(txt(
     previewMode
@@ -74,37 +73,49 @@ function buildPanel3(tournament) {
   ));
   inner.push(SEP);
 
-  // Keep Matchday selection available until the group stage is actually complete.
   const groupStageFinished = groupMatches.length > 0 && groupMatches.every(m => m.status === 'played');
-  if (!groupStageFinished && _allGrpRds.length > 0) {
-    inner.push({ type: 1, components: [{
-      type: 3,
-      custom_id: `p3_${tid}_roundsel`,
-      placeholder: 'Pick Matchday…',
-      options: _allGrpRds.map(r => ({
-        label: 'Matchday ' + r,
-        value: String(r),
-        default: r === _activeRd,
-      })),
-    }]});
+  const isGroupStage = stage === 'setup' || stage === 'group';
+  const isKOStage = stage === 'knockout' || stage === 'finished';
+
+  if (isGroupStage) {
+    // Group Draw is independent from a Matchday, so it stands alone.
+    inner.push({ type: 1, components: [
+      btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
+    ]});
+    inner.push(SEP);
+
+    // These three actions use the selected Matchday.
+    inner.push({ type: 1, components: [
+      btn('Schedule',  `p3_${tid}_schedule`,  1, !hasMatches),
+      btn('Results',   `p3_${tid}_results`,   3, !hasMatches),
+      btn('Standings', `p3_${tid}_standings`, 3, !hasGroups),
+    ]});
+
+    // No separator here: this selector belongs directly to the three actions above.
+    if (!groupStageFinished && _allGrpRds.length > 0) {
+      inner.push({ type: 1, components: [{
+        type: 3,
+        custom_id: `p3_${tid}_roundsel`,
+        placeholder: 'Pick Matchday…',
+        options: _allGrpRds.map(r => ({
+          label: 'Matchday ' + r,
+          value: String(r),
+          default: r === _activeRd,
+        })),
+      }]});
+    }
+    inner.push(SEP);
+  } else if (isKOStage) {
+    inner.push({ type: 1, components: [
+      btn('KO Bracket', `p3_${tid}_bracket`,    4, !hasKO),
+      btn('Winner Ann', `p3_${tid}_winner_ann`, 4, !(finalDone || stage === 'finished')),
+    ]});
     inner.push(SEP);
   }
 
-  // Group-stage publishing actions are hidden once knockout begins.
-  if (stage !== 'knockout') {
-    inner.push({ type: 1, components: [
-      btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
-      btn('Schedule',   `p3_${tid}_schedule`,  1, !hasMatches),
-    ]});
-    inner.push({ type: 1, components: [
-      btn('Results',    `p3_${tid}_results`,   3, !hasMatches),
-      btn('Standings',  `p3_${tid}_standings`, 3, !hasGroups),
-    ]});
-  }
-  // KO-stage publishing actions remain available in every stage.
+  // Refresh is always the final, separated control in the panel.
   inner.push({ type: 1, components: [
-    btn('KO Bracket',  `p3_${tid}_bracket`,    4, !hasKO),
-    btn('Winner Ann',  `p3_${tid}_winner_ann`, 4, !(finalDone || stage === 'finished')),
+    btn('Refresh', `p3_${tid}_refresh`, 2),
   ]});
 
 

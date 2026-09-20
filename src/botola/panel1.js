@@ -60,7 +60,6 @@ function buildPanel1(tournament) {
     inner.push({ type: 1, components: [
       btn('Begin Season', `p1_${tid}_begin`,    1, !isFull),
       btn('Settings',     `p1_${tid}_settings`, 3, false),
-      btn('Refresh',      `p1_${tid}_refresh`,  2, false),
     ]});
 
   } else if (stage === 'group') {
@@ -101,7 +100,6 @@ function buildPanel1(tournament) {
     inner.push({ type: 1, components: [
       btn('Add Result',     `p1_${tid}_addresult`, 1, false),
       btn(advLabel,         `p1_${tid}_advance`,   3, false),
-      btn('Refresh',        `p1_${tid}_refresh`,   2, false),
       btn('End Tournament', `p1_${tid}_end`,       4, false),
     ]});
 
@@ -159,7 +157,6 @@ function buildPanel1(tournament) {
     inner.push({ type: 1, components: [
       btn('Add Result',  `p1_${tid}_addresult`, 1, false),
       btn(advBtnLabel,   `p1_${tid}_advance`,   3, false),
-      btn('Refresh',     `p1_${tid}_refresh`,   2, false),
       btn('End Tournament', `p1_${tid}_end`,    4, false),
     ]});
 
@@ -192,10 +189,13 @@ function buildPanel1(tournament) {
     inner.push(SEP);
     inner.push({ type: 1, components: [
       btn('End Season', `p1_${tid}_newedition`, 1, false),
-      btn('Refresh',    `p1_${tid}_refresh`,    2, false),
     ]});
   }
 
+  inner.push(SEP);
+  inner.push({ type: 1, components: [
+    btn('Refresh', `p1_${tid}_refresh`, 2, false),
+  ]});
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

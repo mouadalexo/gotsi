@@ -47,10 +47,12 @@ function buildPanel2(tournament) {
     btn('Clear All', `p2_${tid}_clearteams`, 4, !hasTeams || regLocked),
   ]});
   inner.push({ type: 1, components: [
-    btn('Refresh',         `p2_${tid}_refresh`, 2),
-    btn('🎲 Random',      `p2_${tid}_random`,  2, regLocked),
+    btn('🎲 Random', `p2_${tid}_random`, 2, regLocked),
   ]});
-
+  inner.push(SEP);
+  inner.push({ type: 1, components: [
+    btn('Refresh', `p2_${tid}_refresh`, 2),
+  ]});
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }
