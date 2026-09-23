@@ -35,8 +35,8 @@ function buildPanel1(tournament, options = {}) {
 
   inner.push(txt(`## Main  —  ${t.template || t.name}`));
   inner.push(SEP);
-  if (options.loading) {
-    inner.push(txt('⏳ **Starting Season...**\nUpdating management panels...'));
+  if (options.loading || options.loadingText) {
+    inner.push(txt(options.loadingText || '⏳ **Starting Season...**\nUpdating management panels...'));
     inner.push(SEP);
   }
 

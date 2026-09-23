@@ -291,6 +291,7 @@ function _buildSetupPanel(tid) {
       chSel('Management', 'management'),
       chSel('Channel 1', 'results'),
       chSel('Channel 2', 'schedule'),
+      chSel('Channel 3', 'channel3'),
       chSel('Teams List', 'teamsList'),
       { type: 1, components: [{
         type: 8, custom_id: `mgr2_ch_${tid}_info`,

@@ -307,24 +307,41 @@ function generateKnockoutBracket(tid) {
     if (!groups[g]) groups[g] = [];
     groups[g].push(tt);
   }
-  const qualifiers = [];
-  for (const gTeams of Object.values(groups)) {
-    gTeams.sort((a, b) => {
+
+  // Rank each group independently, then cross-pair adjacent groups.
+  // For two groups this produces A1 vs B2 and B1 vs A2 instead of
+  // allowing the random draw to create A1 vs A2 or B1 vs B2.
+  const groupNames = Object.keys(groups).sort();
+  const byGroup = {};
+  for (const g of groupNames) {
+    byGroup[g] = groups[g].sort((a, b) => {
       const ptsDiff = (b.points || 0) - (a.points || 0);
       if (ptsDiff !== 0) return ptsDiff;
       return ((b.goals_for || 0) - (b.goals_against || 0)) - ((a.goals_for || 0) - (a.goals_against || 0));
-    });
-    qualifiers.push(...gTeams.slice(0, advance));
+    }).slice(0, advance);
   }
-  const shuffled = [...qualifiers].sort(() => Math.random() - 0.5);
-  const numMatches = Math.floor(shuffled.length / 2);
-  for (let i = 0; i + 1 < shuffled.length; i += 2) {
-    db.insert('matches', {
-      tournament_id: tid,
-      home_team_id: shuffled[i].team_id, away_team_id: shuffled[i + 1].team_id,
-      stage: 'knockout', round: numMatches, leg: 1,
-      status: 'pending', home_score: null, away_score: null,
-    });
+
+  const qualifiers = groupNames.flatMap(g => byGroup[g]);
+  const numMatches = Math.floor(qualifiers.length / 2);
+
+  // Pair A/B, C/D, etc. Reversing the rank order keeps every pairing
+  // cross-group while preserving the usual winner-vs-runner-up structure.
+  for (let gi = 0; gi + 1 < groupNames.length; gi += 2) {
+    const groupA = byGroup[groupNames[gi]];
+    const groupB = byGroup[groupNames[gi + 1]];
+    for (let rank = 0; rank < advance; rank++) {
+      const teamA = groupA[rank];
+      const teamB = groupB[advance - 1 - rank];
+      if (!teamA || !teamB) continue;
+      const home = rank % 2 === 0 ? teamA : teamB;
+      const away = rank % 2 === 0 ? teamB : teamA;
+      db.insert('matches', {
+        tournament_id: tid,
+        home_team_id: home.team_id, away_team_id: away.team_id,
+        stage: 'knockout', round: numMatches, leg: 1,
+        status: 'pending', home_score: null, away_score: null,
+      });
+    }
   }
   if (numMatches === 2) ensureSemiFinalLegs(tid);
 }
@@ -943,7 +960,17 @@ async function postWithPing(client, channelId, roleId, payload) {
   return ch.send(merged).catch(() => null);
 }
 
-// Send the season header as a normal Discord message to both public channels.
+async function postChannel3Header(client, tid, line) {
+  const t = getT(tid);
+  const channelId = t?.channels?.channel3;
+  if (!channelId) return;
+  const channel = client.channels.cache.get(channelId)
+    ?? await client.channels.fetch(channelId).catch(() => null);
+  if (channel) await channel.send({ content: `# ${line}` }).catch(() => {});
+}
+
+// Send the season header to the two existing public channels and, when
+// configured, send Channel 3 its separate Saison and Matchday 1 headers.
 async function postSeasonStartMessages(client, tid) {
   const t = getT(tid);
   if (!t) return;
@@ -954,6 +981,28 @@ async function postSeasonStartMessages(client, tid) {
       ?? await client.channels.fetch(channelId).catch(() => null);
     if (channel) await channel.send(message).catch(() => {});
   }));
+  await postChannel3Header(client, tid, `Saison ${t.season}`);
+  await postChannel3Header(client, tid, 'Matchday 1');
+}
+
+const CHANNEL3_KO_LABELS = {
+  1: 'Final',
+  2: 'Semi-Final',
+  4: 'Quarter-Final',
+  8: 'Round of 16',
+  16: 'Round of 32',
+};
+
+function channel3KoLabel(round) {
+  return CHANNEL3_KO_LABELS[round] || `Round ${round}`;
+}
+
+function firstKnockoutRoundLabel(tid) {
+  const rounds = db.get('matches')
+    .filter(m => m.tournament_id === tid && m.stage === 'knockout')
+    .map(m => Number(m.round))
+    .filter(Number.isFinite);
+  return rounds.length ? channel3KoLabel(Math.min(...rounds)) : 'Knockout Stage';
 }
 
 const GROUP_MATCHES_REF_PREFIX = 'group_matches_ref_';
@@ -1029,8 +1078,11 @@ async function upsertGroupMatchesMessage(client, tid, round) {
 }
 
 // Small component v2 ephemeral reply that auto-deletes after 5 s (publish panel feedback)
-async function p3SmallReply(interaction, message) {
-  try { await interaction.deferUpdate(); } catch {}
+async function p3SmallReply(interaction, message, panel = null) {
+  try {
+    if (panel) await interaction.update(panel);
+    else await interaction.deferUpdate();
+  } catch {}
   const payload = {
     flags: 64 | 32768,
     components: [{ type: 17, accent_color: 0xFF0049, components: [
@@ -1080,13 +1132,19 @@ async function refreshStandingsMessage(client, tid) {
     } catch {}
   }
 
-  // No usable tracked message exists: create the automatic post in Channel 1
-  // and remember it so future match updates edit this same message.
-  const channel1 = t.channels?.results;
-  if (!channel1) return;
-  const role = t.tag_on ? t.registration_role_id : null;
-  const posted = await postWithPing(client, channel1, role, payload).catch(() => null);
-  if (posted) db.setConfig('standings_ref_' + tid, { channelId: channel1, messageId: posted.id, season: t.season });
+  // Do not create a standings post from a result update. The Publish button
+  // creates the live post; result updates only edit its stored reference.
+}
+
+async function refreshTeamsListMessage(client, tid) {
+  const t = getT(tid);
+  if (!t?.template) return;
+  const ref = db.getConfig('teams_list_ref_' + t.template);
+  if (!ref?.channelId || !ref?.messageId) return;
+  const ch = await client.channels.fetch(ref.channelId).catch(() => null);
+  const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
+  if (!msg) return;
+  await msg.edit(buildTeamsListEmbed(tid)).catch(() => {});
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -1586,9 +1644,14 @@ async function handleBotolaInteraction(interaction) {
       // A new season must never reuse live posts from an older season.
       db.setConfig('standings_ref_' + tid, null);
       db.setConfig('bracket_ref_' + tid, null);
+      db.setConfig('groupdraw_ref_' + tid, null);
+      db.setConfig('winner_ann_ref_' + tid, null);
       clearGroupMatchesRefs(tid);
       // Activate in normal Post mode. Preview is entered only by an explicit click.
       db.update('tournaments', tid, { status: 'active', preview_mode: false });
+      // Keep the existing team-list post, but update its season number only
+      // when this new tournament season actually starts.
+      await refreshTeamsListMessage(cli, tid);
 
       // Show a temporary status while the separate management messages refresh.
       const startedT = getT(tid);
@@ -1625,6 +1688,9 @@ async function handleBotolaInteraction(interaction) {
 
     if (action === 'end_confirm') {
       await interaction.deferUpdate();
+      await interaction.editReply(buildPanel1(getT(tid), {
+        loadingText: '⏳ **Resetting the tournament...**\nPreparing a fresh setup...',
+      }));
 
       // Warmup channel: delete old one and recreate with same name/perms
       const _warmupId = t.channels?.warmup;
@@ -1665,6 +1731,8 @@ async function handleBotolaInteraction(interaction) {
       db.setConfig('p3_round_' + tid, null);
       db.setConfig('standings_ref_' + tid, null);
       db.setConfig('bracket_ref_' + tid, null);
+      db.setConfig('groupdraw_ref_' + tid, null);
+      db.setConfig('winner_ann_ref_' + tid, null);
       clearGroupMatchesRefs(tid);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
       await refreshPanels23(cli, tid);
@@ -1925,8 +1993,18 @@ async function handleBotolaInteraction(interaction) {
         await interaction.deferUpdate();
 
         const isLastRound = curRound_adv === allRds_adv[allRds_adv.length - 1];
+        await interaction.editReply(buildPanel1(getT(tid), {
+          loadingText: isLastRound
+            ? '⏳ **Preparing the next knockout stage...**\nUpdating management panels...'
+            : '⏳ **Advancing to the next matchday...**\nUpdating management panels...',
+        }));
         // Last group round → generate KO bracket (post manually via panel 3)
         if (isLastRound) generateKnockoutBracket(tid);
+        await postChannel3Header(
+          cli,
+          tid,
+          isLastRound ? firstKnockoutRoundLabel(tid) : `Matchday ${curRound_adv + 1}`,
+        );
 
         // Advance the workflow and keep Publish on the new matchday.
         db.setConfig('group_round_' + tid, curRound_adv + 1);
@@ -1936,8 +2014,14 @@ async function handleBotolaInteraction(interaction) {
         return interaction.editReply(buildPanel1(getT(tid)));
       } else if (stage === 'knockout') {
         await interaction.deferUpdate();
+        await interaction.editReply(buildPanel1(getT(tid), {
+          loadingText: '⏳ **Advancing the knockout stage...**\nUpdating management panels...',
+        }));
         try {
-          advanceKnockout(tid);
+          const advancedTo = advanceKnockout(tid);
+          if (Number.isInteger(advancedTo) && advancedTo >= 1) {
+            await postChannel3Header(cli, tid, channel3KoLabel(advancedTo));
+          }
           await refreshAll(cli, tid);
           await refreshBracketMessage(cli, tid);
           return interaction.editReply(buildPanel1(getT(tid)));
@@ -2140,6 +2224,8 @@ async function handleBotolaInteraction(interaction) {
       const newSeason = (t.season || 1) + 1;
       db.setConfig('standings_ref_' + tid, null);
       db.setConfig('bracket_ref_' + tid, null);
+      db.setConfig('groupdraw_ref_' + tid, null);
+      db.setConfig('winner_ann_ref_' + tid, null);
       clearGroupMatchesRefs(tid);
       db.update('tournaments', tid, { status: 'setup', season: newSeason, preview_mode: false, tag_on: false });
       await refreshPanels23(cli, tid);
@@ -3180,6 +3266,7 @@ async function handleBotolaInteraction(interaction) {
         result.updated
           ? `✅ Matchday ${round_s} Group matches post updated in <#${ch.schedule}>.`
           : `✅ Matchday ${round_s} Group matches posted to <#${ch.schedule}>.`,
+        buildPanel3(getT(tid)),
       );
     }
 
@@ -3196,6 +3283,7 @@ async function handleBotolaInteraction(interaction) {
         result.updated
           ? `✅ Matchday ${round} Group matches post updated in <#${ch.schedule}>.`
           : `✅ Matchday ${round} Group matches posted to <#${ch.schedule}>.`,
+        buildPanel3(getT(tid)),
       );
     }
 
@@ -3219,7 +3307,11 @@ async function handleBotolaInteraction(interaction) {
       const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
       if (posted) {
         db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id, season: t.season });
-        return p3SmallReply(interaction, `\u2705 New standings post sent to <#${postCh}>.`);
+        return p3SmallReply(
+          interaction,
+          `\u2705 New standings post sent to <#${postCh}>.`,
+          buildPanel3(getT(tid)),
+        );
       }
       return p3SmallReply(interaction, '\u274c Could not post live standings.');
     }
@@ -3236,8 +3328,18 @@ async function handleBotolaInteraction(interaction) {
       const _gdCh = ch.results;
       if (!_gdCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _drawRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, _gdCh, _drawRole, drawPayload);
-      return p3SmallReply(interaction, `✅ Group draw posted to <#${_gdCh}>.`);
+      const _drawPosted = await postWithPing(cli, _gdCh, _drawRole, drawPayload);
+      if (!_drawPosted) return p3SmallReply(interaction, '❌ Could not post the group draw.');
+      db.setConfig('groupdraw_ref_' + tid, {
+        channelId: _gdCh,
+        messageId: _drawPosted.id,
+        season: t.season,
+      });
+      return p3SmallReply(
+        interaction,
+        `✅ Group draw posted to <#${_gdCh}>.`,
+        buildPanel3(getT(tid)),
+      );
     }
 
     // ── Post Bracket ────────────────────────────────────────────────────────
@@ -3249,8 +3351,13 @@ async function handleBotolaInteraction(interaction) {
       if (!_brCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _brackRole = t.tag_on ? t.registration_role_id : null;
       const _brPosted = await postWithPing(cli, _brCh, _brackRole, bracketPayload);
-      if (_brPosted) db.setConfig('bracket_ref_' + tid, { channelId: _brCh, messageId: _brPosted.id, season: t.season });
-      return p3SmallReply(interaction, `✅ Bracket posted to <#${_brCh}> — updates live as results are added.`);
+      if (!_brPosted) return p3SmallReply(interaction, '❌ Could not post the knockout bracket.');
+      db.setConfig('bracket_ref_' + tid, { channelId: _brCh, messageId: _brPosted.id, season: t.season });
+      return p3SmallReply(
+        interaction,
+        `✅ Bracket posted to <#${_brCh}> — updates live as results are added.`,
+        buildPanel3(getT(tid)),
+      );
     }
 
     // ── Winner Announcement ─────────────────────────────────────────────────
@@ -3301,8 +3408,18 @@ async function handleBotolaInteraction(interaction) {
       const _annCh = ch.results;
       if (!_annCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _annRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, _annCh, _annRole, champPayload);
-      return p3SmallReply(interaction, `✅ Winner announcement posted to <#${_annCh}>.`);
+      const _winnerPosted = await postWithPing(cli, _annCh, _annRole, champPayload);
+      if (!_winnerPosted) return p3SmallReply(interaction, '❌ Could not post the winner announcement.');
+      db.setConfig('winner_ann_ref_' + tid, {
+        channelId: _annCh,
+        messageId: _winnerPosted.id,
+        season: t.season,
+      });
+      return p3SmallReply(
+        interaction,
+        `✅ Winner announcement posted to <#${_annCh}>.`,
+        buildPanel3(getT(tid)),
+      );
     }
   }
 }

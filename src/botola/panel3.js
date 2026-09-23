@@ -6,6 +6,23 @@ const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 const btn = (label, id, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
 
+function isCurrentSeasonRef(ref, tournament) {
+  return Boolean(ref?.messageId)
+    && ref.season !== undefined
+    && Number(ref.season) === Number(tournament.season);
+}
+
+function groupMatchesRefKey(tid, season, round) {
+  return `group_matches_ref_${tid}_${season}_${round}`;
+}
+
+function currentKnockoutRound(matches) {
+  const pending = matches.filter(m => m.status === 'pending').map(m => Number(m.round)).filter(Number.isFinite);
+  if (pending.length) return Math.max(...pending);
+  const rounds = matches.map(m => Number(m.round)).filter(Number.isFinite);
+  return rounds.length ? Math.min(...rounds) : null;
+}
+
 function buildPanel3(tournament) {
   const t   = tournament;
   const tid = t.id;
@@ -32,6 +49,7 @@ function buildPanel3(tournament) {
   const koMatches   = matches.filter(m => m.stage === 'knockout');
   const finalMatch  = koMatches.find(m => m.round === 1 && (!m.leg || m.leg === 1));
   const finalDone   = finalMatch?.status === 'played';
+  const activeKORound = currentKnockoutRound(koMatches);
 
   const ch = t.channels || {};
   const chParts = [
@@ -80,16 +98,21 @@ function buildPanel3(tournament) {
   const isKOStage = stage === 'knockout' || stage === 'finished';
 
   if (stage === 'group') {
-    // Group Draw and the live Standings post belong together.
+    const groupDrawSent = isCurrentSeasonRef(db.getConfig(`groupdraw_ref_${tid}`), t);
+    const standingsSent = isCurrentSeasonRef(db.getConfig(`standings_ref_${tid}`), t);
+    const groupMatchesSent = isCurrentSeasonRef(
+      db.getConfig(groupMatchesRefKey(tid, t.season, _activeRd)),
+      t,
+    );
     inner.push({ type: 1, components: [
-      btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
-      btn('Standings', `p3_${tid}_standings`, 1, !hasGroups),
+      btn('Group Draw', `p3_${tid}_groupdraw`, groupDrawSent ? 2 : 1, !hasGroups),
+      btn('Standings', `p3_${tid}_standings`, standingsSent ? 2 : 1, !hasGroups),
     ]});
     inner.push(SEP);
 
     // Group matches uses the selected Matchday and stays live as results arrive.
     inner.push({ type: 1, components: [
-      btn('Group matches', `p3_${tid}_groupmatches`,  3, !hasMatches),
+      btn('Group matches', `p3_${tid}_groupmatches`, groupMatchesSent ? 2 : 3, !hasMatches),
     ]});
 
     // No separator here: this selector belongs directly to the three actions above.
@@ -114,9 +137,11 @@ function buildPanel3(tournament) {
     }
     inner.push(SEP);
   } else if (isKOStage) {
+    const bracketSent = isCurrentSeasonRef(db.getConfig(`bracket_ref_${tid}`), t);
+    const winnerSent  = isCurrentSeasonRef(db.getConfig(`winner_ann_ref_${tid}`), t);
     inner.push({ type: 1, components: [
-      btn('KO Bracket', `p3_${tid}_bracket`,    4, !hasKO),
-      btn('Winner Ann', `p3_${tid}_winner_ann`, 4, !(finalDone || stage === 'finished')),
+      btn('KO Bracket', `p3_${tid}_bracket`, bracketSent ? 2 : 4, !hasKO),
+      btn('Winner Ann', `p3_${tid}_winner_ann`, winnerSent ? 2 : 4, !(finalDone || stage === 'finished')),
     ]});
     inner.push(SEP);
   }
