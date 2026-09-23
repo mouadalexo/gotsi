@@ -1,6 +1,7 @@
 'use strict';
 const { db }        = require('../utils/database');
 const { getTplCfg } = require('../utils/templateConfig');
+const { getKnockoutLegs } = require('../utils/knockoutConfig');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -18,7 +19,7 @@ function getStage(t) {
   return hasKnockout ? 'knockout' : 'group';
 }
 
-function buildPanel1(tournament) {
+function buildPanel1(tournament, options = {}) {
   const t   = tournament;
   const tid = t.id;
   const stage = getStage(t);
@@ -32,8 +33,12 @@ function buildPanel1(tournament) {
 
   const inner = [];
 
-  inner.push(txt(`## 1 : Main  —  ${t.template || t.name}`));
+  inner.push(txt(`## Main  —  ${t.template || t.name}`));
   inner.push(SEP);
+  if (options.loading) {
+    inner.push(txt('⏳ **Starting Season...**\nUpdating management panels...'));
+    inner.push(SEP);
+  }
 
   if (stage === 'setup') {
     const required = t.team_count || 2;
@@ -51,7 +56,7 @@ function buildPanel1(tournament) {
     if (current > required) {
       inner.push(txt(`**${current}/${required}** ⚠️  **Too many teams — remove ${current - required} before starting.**`));
     } else if (isFull) {
-      inner.push(txt(`**${current}/${required}** ✅  **You can start a tournament now!**`));
+      inner.push(txt(`**${current}/${required}** ✅  **You can start a new season now!**`));
     } else {
       inner.push(txt(`**${current}/${required}** teams`));
     }
@@ -124,14 +129,14 @@ function buildPanel1(tournament) {
     const curPending = knockoutMatches.filter(m => m.round === curRound && m.status === 'pending').length;
     const curPlayed  = knockoutMatches.filter(m => m.round === curRound && m.status === 'played').length;
 
-    // Determine display state — handle 2-leg Semi-Finals specially
+    // Display one-leg semi-finals as one stage. For two-leg semi-finals,
+    // identify the fixture by leg number rather than Home/Away wording.
+    const semiFinalLegs = getKnockoutLegs(t, 2);
     let roundLabel;
-    if (curRound === 2 && r2Leg1AllPlayed && !r2Leg2Exists) {
-      roundLabel = 'Semi-Final (Home)';
-    } else if (curRound === 2 && r2Leg2Exists && !r2Leg2AllPlayed) {
-      roundLabel = 'Semi-Final (Away)';
-    } else if (curRound === 2 && r2Leg2AllPlayed) {
-      roundLabel = 'Semi-Final (Away)';
+    if (curRound === 2 && semiFinalLegs === 1) {
+      roundLabel = 'Semi-Finals';
+    } else if (curRound === 2 && semiFinalLegs === 2) {
+      roundLabel = r2Leg1AllPlayed && r2Leg2Exists ? 'Semi-Final — Leg 2' : 'Semi-Final — Leg 1';
     } else {
       roundLabel = KO_LABELS[curRound] || `Round ${curRound}`;
     }
@@ -141,7 +146,7 @@ function buildPanel1(tournament) {
     const nextKOLabel  = nextRound >= 1 ? (KO_LABELS[nextRound] || 'Next Round') : null;
     const advBtnLabel  = nextKOLabel ? `Advance to ${nextKOLabel}` : 'Next';
 
-    const allRoundDone = curPending === 0 && curPlayed > 0 && !(curRound === 2 && r2Leg1AllPlayed && !r2Leg2Exists);
+    const allRoundDone = curPending === 0 && curPlayed > 0 && !(semiFinalLegs === 2 && curRound === 2 && r2Leg1AllPlayed && !r2Leg2Exists);
 
     inner.push(txt(
       `> **Status:** Knockout  |  **Stage:** ${roundLabel}\n` +
@@ -196,6 +201,8 @@ function buildPanel1(tournament) {
   inner.push({ type: 1, components: [
     btn('Refresh', `p1_${tid}_refresh`, 2, false),
   ]});
+
+  while (inner.length && inner[inner.length - 1]?.type === 14) inner.pop();
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

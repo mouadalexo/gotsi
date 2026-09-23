@@ -1,5 +1,7 @@
 'use strict';
 const { db } = require('../utils/database');
+const { getKnockoutLegs } = require('../utils/knockoutConfig');
+const { postFooterComponent } = require('../utils/postFooter');
 
 const RED    = 0xCC0000;
 const GOLD   = 0xFFD700;
@@ -23,6 +25,27 @@ const VS_SEP  = ' vs '; // 4 chars — nameMax = (36-4)/2 = 16 per side
 const scoreSep  = (h, a) => ' ' + String(h).padStart(2) + '-' + String(a).padEnd(2) + ' ';
 const fmtSc     = (v, forf) => forf ? '\u00D8' : String(v ?? '?');
 const scoreSepF = (h, a, hf, af) => ' ' + fmtSc(h, hf).padStart(2) + '-' + fmtSc(a, af).padEnd(2) + ' ';
+
+const toMathSansItalic = value => String(value).split('').map(ch => {
+  const code = ch.charCodeAt(0);
+  if (code >= 65 && code <= 90) return String.fromCodePoint(0x1D608 + code - 65);
+  if (code >= 97 && code <= 122) return String.fromCodePoint(0x1D622 + code - 97);
+  if (code >= 48 && code <= 57) return String.fromCodePoint(0x1D7E2 + code - 48);
+  return ch;
+}).join('');
+
+// Decision details are kept below the regular score so a tied score is not
+// mistaken for the final result in knockout posts.
+function knockoutDecisionLines(match) {
+  if (!match || match.status !== 'played') return [];
+  const lines = [];
+
+  if (match.home_pens != null && match.away_pens != null) {
+    const text = `${toMathSansItalic('Penalties')} ${toMathSansItalic(match.home_pens)}–${toMathSansItalic(match.away_pens)}`;
+    lines.push(text);
+  }
+  return lines;
+}
 
 // Format one match line — never wraps on mobile, equal space both sides.
 // Left name right-aligned toward center, right name left-aligned from center.
@@ -77,65 +100,40 @@ function groupMatchesByGroup(matches, getGrp, getTeam) {
   return grouped;
 }
 
-// ── 1. Schedule Post ──────────────────────────────────────────────────────────
-function makeSchedulePost(tid, round) {
+// ── 1. Live Group Matches Post ────────────────────────────────────────────────
+// This keeps the existing Schedule layout and changes only the match separators
+// and color as results are entered. Existing public posts are never touched.
+function makeGroupMatchesPost(tid, round) {
   const { t, getTeam, getGrp } = getContext(tid);
   if (!t) return null;
   const allGM   = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
   const total   = [...new Set(allGM.map(m => m.round))].length;
   const matches = allGM.filter(m => m.round === round);
   const label   = `${t.template || t.name} S${t.season}`;
+  const complete = matches.length > 0 && matches.every(m => m.status === 'played');
 
   const grouped  = groupMatchesByGroup(matches, getGrp, getTeam);
   const entries  = Object.entries(grouped).sort();
 
   const inner = [
-    txt(`${E_CUP}  **SCHEDULE — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **GROUP MATCHES — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
     SEP,
   ];
 
   entries.forEach(([g, gm], i) => {
-    const lines = gm.map(m => fmtMatchLine(
-      m.homeName.toUpperCase(), m.awayName.toUpperCase(), VS_SEP
-    ));
+    const lines = gm.map(m => {
+      const separator = m.status === 'played'
+        ? scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit)
+        : VS_SEP;
+      return fmtMatchLine(m.homeName.toUpperCase(), m.awayName.toUpperCase(), separator);
+    });
     inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${lines.join('\n')}`));
     if (i < entries.length - 1) inner.push(SEP);
   });
 
   inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(PURPLE, inner);
-}
-
-// ── 2. Results Post ───────────────────────────────────────────────────────────
-function makeResultsPost(tid, round) {
-  const { t, getTeam, getGrp } = getContext(tid);
-  if (!t) return null;
-  const allGM   = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-  const total   = [...new Set(allGM.map(m => m.round))].length;
-  const matches = allGM.filter(m => m.round === round && m.status === 'played');
-  const label   = `${t.template || t.name} S${t.season}`;
-
-  const grouped = groupMatchesByGroup(matches, getGrp, getTeam);
-  const entries = Object.entries(grouped).sort();
-
-  const inner = [
-    txt(`${E_CUP}  **RESULTS — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
-    SEP,
-  ];
-
-  entries.forEach(([g, gm], i) => {
-    const lines = gm.map(m => fmtMatchLine(
-      m.homeName.toUpperCase(), m.awayName.toUpperCase(),
-      scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit)
-    ));
-    inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${lines.join('\n')}`));
-    if (i < entries.length - 1) inner.push(SEP);
-  });
-
-  inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
-  return box(ORANGE, inner);
+  inner.push(postFooterComponent());
+  return box(complete ? ORANGE : PURPLE, inner);
 }
 
 // ── 3. Standings Post ──────────────────────────────────────────────────────────────────────────────
@@ -201,9 +199,8 @@ function makeStandingsPost(tid, upToRound = null) {
     });
   }
 
-  const roundLabel = upToRound !== null ? `ROUND ${upToRound}  —  ` : '';
   const inner = [
-    txt(`${E_CUP}  **STANDINGS  —  ${roundLabel}${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **STANDINGS  —  ${label.toUpperCase()}**`),
     SEP,
   ];
 
@@ -222,7 +219,8 @@ function makeStandingsPost(tid, upToRound = null) {
   });
 
   inner.pop();
-  inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
+  inner.push(SEP);
+  inner.push(postFooterComponent());
   return box(GREEN, inner);
 }
 
@@ -259,7 +257,7 @@ function makeGroupDrawPost(tid) {
   });
 
   inner.push(SEP);
-  inner.push(txt(`-# \u00a9 24 2026  |  Goatsi Bot`));
+  inner.push(postFooterComponent());
   return box(BLUE, inner);
 }
 
@@ -273,7 +271,7 @@ function makeBracketPost(tid) {
   const groupNames = [...new Set(ttRows.filter(tt => tt.group_name).map(tt => tt.group_name))];
   const advance    = t.advance_per_group || 2;
   let firstKoRound = groupNames.length > 0 ? Math.floor((groupNames.length * advance) / 2) : 0;
-  if (!firstKoRound && allKo.length) {
+  if (allKo.length) {
     firstKoRound = Math.max(...allKo.map(m => m.round));
   }
 
@@ -285,7 +283,7 @@ function makeBracketPost(tid) {
     inner.push(SEP);
     inner.push(txt(`⏳  No knockout bracket yet.`));
     inner.push(SEP);
-    inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
+    inner.push(postFooterComponent());
     return box(RED, inner);
   }
 
@@ -302,99 +300,130 @@ function makeBracketPost(tid) {
   }
 
   for (const round of roundList) {
-    const rName    = koRoundName(round);
-    const rMatches = (matchesByRound[round] || []).sort((a, b) => (a.leg || 1) - (b.leg || 1) || a.id - b.id);
+    const rName = koRoundName(round);
+    const configuredLegs = getKnockoutLegs(t, round);
+    const rMatches = (matchesByRound[round] || [])
+      .sort((a, b) => (a.leg || 1) - (b.leg || 1) || a.id - b.id);
 
-    // ── type 14 separator + round label ────────────────────────────────────
+    // Keep the established bracket-post layout. Leg configuration changes the
+    // fixtures shown inside a stage, not the stage heading or overall design.
     inner.push(SEP);
     inner.push(txt(`${E_ARR}  **${rName}**`));
 
-    let matchText = '';
+    const tieMap = new Map();
+    for (const match of rMatches) {
+      const home = Number(match.home_team_id);
+      const away = Number(match.away_team_id);
+      const key = match.tie_key || (
+        Number.isFinite(home) && Number.isFinite(away)
+          ? `${Math.min(home, away)}-${Math.max(home, away)}`
+          : `match-${match.id}`
+      );
+      if (!tieMap.has(key)) tieMap.set(key, []);
+      tieMap.get(key).push(match);
+    }
 
-    if (round === 2) {
-      // ── SEMI-FINALS — 2 legs ─────────────────────────────────────────────
-      const sfLeg1s = rMatches.filter(m => !m.leg || m.leg === 1);
-      const sfLeg2s = rMatches.filter(m => m.leg === 2);
-      const sfParts = [];
-      const numSF   = sfLeg1s.length || 2;
-      for (let idx = 0; idx < numSF; idx++) {
-        const leg1  = sfLeg1s[idx];
+    const ties = [...tieMap.values()];
+    const tieCount = ties.length || round;
+    const renderTie = (tie, index) => {
+      tie.sort((a, b) => (a.leg || 1) - (b.leg || 1) || a.id - b.id);
+      const leg1 = tie.find(m => (m.leg || 1) === 1) || tie[0] || null;
+      const leg2 = tie.find(m => Number(m.leg) === 2) || null;
+      const homeName = leg1?.home_team_id
+        ? getTeam(leg1.home_team_id).name.toUpperCase()
+        : 'TBD';
+      const awayName = leg1?.away_team_id
+        ? getTeam(leg1.away_team_id).name.toUpperCase()
+        : 'TBD';
+      const oneLine = match => {
+        if (!match) return fmtMatchLine('TBD', 'TBD', VS_SEP);
+        const home = match.home_team_id ? getTeam(match.home_team_id).name.toUpperCase() : 'TBD';
+        const away = match.away_team_id ? getTeam(match.away_team_id).name.toUpperCase() : 'TBD';
+        const sep = match.status === 'played'
+          ? scoreSepF(match.home_score, match.away_score, match.home_forfeit, match.away_forfeit)
+          : VS_SEP;
+        const details = knockoutDecisionLines(match, getTeam);
+        return [fmtMatchLine(home, away, sep), ...details].join('\n');
+      };
+
+      if (configuredLegs === 2) {
         const lines = [];
-        if (numSF > 1) lines.push('***SF' + (idx + 1) + '***');
+        // This was part of the original semi-final layout; do not introduce
+        // the newer generic TIE labels into the bracket post.
+        if (round === 2 && tieCount > 1) lines.push(`***SF${index + 1}***`);
+
         if (!leg1) {
           lines.push('-# 1ST LEG:\n' + fmtMatchLine('TBD', 'TBD', VS_SEP));
           lines.push('-# 2ND LEG:\n' + fmtMatchLine('TBD', 'TBD', VS_SEP));
         } else {
-          const hName  = getTeam(leg1.home_team_id).name.toUpperCase();
-          const aName  = getTeam(leg1.away_team_id).name.toUpperCase();
-          const l1Done = leg1.status === 'played';
-          const leg2   = sfLeg2s.find(m => m.home_team_id === leg1.away_team_id && m.away_team_id === leg1.home_team_id);
-          const l2Done = leg2?.status === 'played';
-          if (!l1Done) {
-            lines.push('-# 1ST LEG:\n' + fmtMatchLine(hName, aName, VS_SEP));
-            lines.push('-# 2ND LEG:\n' + fmtMatchLine(aName, hName, VS_SEP));
-          } else if (!l2Done) {
-            lines.push('-# HOME:\n' + fmtMatchLine(hName, aName, scoreSepF(leg1.home_score, leg1.away_score, leg1.home_forfeit, leg1.away_forfeit)));
-            lines.push('-# AWAY:\n' + fmtMatchLine(aName, hName, VS_SEP));
+          const leg1Done = leg1.status === 'played';
+          const leg2Done = leg2?.status === 'played';
+          const plannedLeg2 = leg2
+            ? oneLine(leg2)
+            : fmtMatchLine(awayName, homeName, VS_SEP);
+
+          if (!leg1Done) {
+            lines.push('-# 1ST LEG:\n' + oneLine(leg1));
+            lines.push('-# 2ND LEG:\n' + plannedLeg2);
+          } else if (!leg2Done) {
+            lines.push('-# HOME:\n' + oneLine(leg1));
+            lines.push('-# AWAY:\n' + plannedLeg2);
           } else {
-            const hAgg = (leg1.home_score || 0) + (leg2.away_score || 0);
-            const aAgg = (leg1.away_score || 0) + (leg2.home_score || 0);
-            lines.push('-# HOME:\n' + fmtMatchLine(hName, aName, scoreSepF(leg1.home_score, leg1.away_score, leg1.home_forfeit, leg1.away_forfeit)));
-            lines.push('-# AWAY:\n' + fmtMatchLine(aName, hName, scoreSepF(leg2.home_score, leg2.away_score, leg2.home_forfeit, leg2.away_forfeit)));
-            lines.push('-# TOTAL:\n' + fmtMatchLine(hName, aName, scoreSep(hAgg, aAgg)));
+            const homeAggregate = (leg1.home_score || 0) + (leg2.away_score || 0);
+            const awayAggregate = (leg1.away_score || 0) + (leg2.home_score || 0);
+            lines.push('-# HOME:\n' + oneLine(leg1));
+            lines.push('-# AWAY:\n' + oneLine(leg2));
+            lines.push('-# TOTAL:\n' + fmtMatchLine(homeName, awayName, scoreSep(homeAggregate, awayAggregate)));
           }
         }
-        sfParts.push(lines.join('\n'));
+        return lines.join('\n');
       }
-      matchText = sfParts.join('\n\n');
-    } else {
-      // ── Final + earlier rounds — single leg ───────────────────────────────
-      if (!rMatches.length) {
-        const lines = [];
-        for (let i = 0; i < round; i++) lines.push(fmtMatchLine('TBD', 'TBD', VS_SEP));
-        matchText = lines.join('\n');
-      } else {
-        const lines = rMatches.filter(m => !m.leg || m.leg === 1).map(m => {
-          const hName = m.home_team_id ? getTeam(m.home_team_id).name.toUpperCase() : 'TBD';
-          const aName = m.away_team_id ? getTeam(m.away_team_id).name.toUpperCase() : 'TBD';
-          return m.status === 'played'
-            ? fmtMatchLine(hName, aName, scoreSepF(m.home_score, m.away_score, m.home_forfeit, m.away_forfeit))
-            : fmtMatchLine(hName, aName, VS_SEP);
-        });
-        matchText = lines.join('\n');
-      }
-    }
 
-    if (matchText !== null) inner.push(txt(matchText));
+      // One-leg stages show exactly one fixture per tie. Any stale second-leg
+      // record is left in storage but is not rendered for a one-leg stage.
+      return oneLine(leg1);
+    };
+
+    // Render TBD fixtures instead of the newer "waiting" message when the
+    // next round has not been generated yet.
+    const body = ties.length
+      ? ties.map(renderTie).join('\n\n')
+      : Array.from({ length: round }, (_, index) => renderTie([], index)).join('\n\n');
+    inner.push(txt(body));
   }
 
   inner.push(SEP);
-  inner.push(txt(`-# © 24 2026  |  Goatsi Bot`));
+  inner.push(postFooterComponent());
   return box(RED, inner);
 }
 
 
 // ── Champion / Winner Announcement post ──────────────────────────────────────
-function makeChampionPost(tournamentName, season, winnerTeamName) {
+function makeChampionPost(tournamentName, season, winnerTeamName, winnerPlayerMentions = []) {
+  const mentions = Array.isArray(winnerPlayerMentions)
+    ? winnerPlayerMentions.filter(Boolean)
+    : [];
+  const titleWord = mentions.length > 1 ? 'Champions' : 'Champion';
+  const playerText = ` ${E_ARR} ${mentions.length ? mentions.join(' ') : '`No players registered`'}`;
+
   return {
     flags: 32768,
     components: [{ type: 17, accent_color: GOLD, components: [
-      txt(`${E_CUP}  **The ${tournamentName} S${season} winner**`),
+      txt(`${E_CUP}  **The ${tournamentName} S${season} ${titleWord}**`),
       SEP,
-      txt(`${E_CROWN}  **${winnerTeamName.toUpperCase()}**`),
+      txt(`${E_CROWN}  **${winnerTeamName.toUpperCase()}**${playerText}`),
       SEP,
-      txt('-# © 24 2026  |  Goatsi Bot'),
+      postFooterComponent(),
     ]}],
   };
 }
 
 module.exports = {
-  makeSchedulePost,
+  makeGroupMatchesPost,
   fmtMatchLine,
   VS_SEP,
   scoreSep,
   scoreSepF,
-  makeResultsPost,
   makeStandingsPost,
   makeGroupDrawPost,
   makeBracketPost,

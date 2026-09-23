@@ -5,6 +5,7 @@ const {
 } = require("discord.js");
 const { db } = require("../utils/database");
 const { COLORS, E } = require("../utils/embeds");
+const { postFooterComponent } = require("../utils/postFooter");
 
 const _sep = (sp = "small") => ({ type: 14, divider: true, spacing: sp });
 const _txt = c => ({ type: 10, content: c });
@@ -76,7 +77,7 @@ function buildTeamsListEmbed(tournamentId) {
     inner.push(SEP);
   }
 
-  inner.push({ type: 10, content: '-# \u00a9 24 2026  |  Goatsi Bot' });
+  inner.push(postFooterComponent());
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x2b2d31, components: inner }] };
 }

@@ -35,69 +35,77 @@ function buildPanel3(tournament) {
 
   const ch = t.channels || {};
   const chParts = [
-    ch.schedule ? `**Schedule** → <#${ch.schedule}>` : '**Schedule** → `not set`',
-    ch.results  ? `**Results** → <#${ch.results}>`   : '**Results** → `not set`',
+    ch.results  ? `**Channel 1** → <#${ch.results}>`   : '**Channel 1** → `not set`',
+    ch.schedule ? `**Channel 2** → <#${ch.schedule}>` : '**Channel 2** → `not set`',
   ];
-
-  // Post / Preview mode toggle
-  const previewMode = t.preview_mode === true;
-  const modeLabel   = previewMode ? '🔴  Preview' : '🟢  Post';
-  const modeStyle   = previewMode ? 4 : 3;
-  const actStyle    = previewMode ? 2 : 1;
-
-  // Tag toggle — only active in Post mode (tagging a preview is pointless)
-  const tagOn     = t.tag_on === true;
-  const tagLabel  = tagOn ? '🔔  Tag: ON' : '🔕  Tag: OFF';
-  const tagStyle  = tagOn ? 3 : 2;
 
   const inner = [];
 
-  inner.push(txt(`## 3 : Publish  —  ${t.template || t.name}`));
-  inner.push(SEP);
-  inner.push(txt('**Channels**'));
+  inner.push(txt(`## Publish  —  ${t.template || t.name}`));
   inner.push(SEP);
   inner.push(txt(chParts.join('\n')));
   inner.push(SEP);
 
-  // Mode + Tag toggle row
-  inner.push({ type: 1, components: [
-    { type: 2, style: modeStyle, label: modeLabel, custom_id: `p3_${tid}_togglemode` },
-    { type: 2, style: tagStyle,  label: tagLabel,  custom_id: `p3_${tid}_toggletag`,  disabled: previewMode },
-  ]});
-  inner.push(txt(
-    previewMode
-      ? '> 🔴 **Preview mode** — buttons show you an ephemeral preview only.'
-      : tagOn
-        ? '> 🟢 **Post mode**  •  🔔 **Tag ON** — posts will ping <@&' + (t.registration_role_id || '?') + '> before each post.'
-        : '> 🟢 **Post mode**  •  🔕 **Tag OFF** — posts will be sent without a role ping.'
-  ));
-  inner.push(SEP);
+  // Keep the pre-season header and channel information above this point unchanged.
+  // Publish controls appear after Begin Season creates the tournament matches.
+  if (stage !== 'setup') {
+    // Post / Preview mode toggle
+    const previewMode = t.preview_mode === true;
+    const modeLabel   = previewMode ? '🔴  Preview' : '🟢  Post';
+    const modeStyle   = previewMode ? 4 : 3;
+
+    // Tag toggle — only active in Post mode (tagging a preview is pointless)
+    const tagOn     = t.tag_on === true;
+    const tagLabel  = tagOn ? '🔔  Tag: ON' : '🔕  Tag: OFF';
+    const tagStyle  = tagOn ? 3 : 2;
+
+    // Mode + Tag toggle row
+    inner.push({ type: 1, components: [
+      { type: 2, style: modeStyle, label: modeLabel,
+        custom_id: `p3_${tid}_${previewMode ? 'togglemode_preview' : 'togglemode_post'}` },
+      { type: 2, style: tagStyle,  label: tagLabel,  custom_id: `p3_${tid}_toggletag`,  disabled: previewMode },
+    ]});
+    inner.push(txt(
+      previewMode
+        ? '> 🔴 **Preview mode** — buttons show you an ephemeral preview only.'
+        : tagOn
+          ? '> 🟢 **Post mode**  •  🔔 **Tag ON** — posts will ping <@&' + (t.registration_role_id || '?') + '> before each post.'
+          : '> 🟢 **Post mode**  •  🔕 **Tag OFF** — posts will be sent without a role ping.'
+    ));
+    inner.push(SEP);
+  }
 
   const groupStageFinished = groupMatches.length > 0 && groupMatches.every(m => m.status === 'played');
   const isGroupStage = stage === 'setup' || stage === 'group';
   const isKOStage = stage === 'knockout' || stage === 'finished';
 
-  if (isGroupStage) {
-    // Group Draw is independent from a Matchday, so it stands alone.
+  if (stage === 'group') {
+    // Group Draw and the live Standings post belong together.
     inner.push({ type: 1, components: [
       btn('Group Draw', `p3_${tid}_groupdraw`, 1, !hasGroups),
+      btn('Standings', `p3_${tid}_standings`, 1, !hasGroups),
     ]});
     inner.push(SEP);
 
-    // These three actions use the selected Matchday.
+    // Group matches uses the selected Matchday and stays live as results arrive.
     inner.push({ type: 1, components: [
-      btn('Schedule',  `p3_${tid}_schedule`,  1, !hasMatches),
-      btn('Results',   `p3_${tid}_results`,   3, !hasMatches),
-      btn('Standings', `p3_${tid}_standings`, 3, !hasGroups),
+      btn('Group matches', `p3_${tid}_groupmatches`,  3, !hasMatches),
     ]});
 
     // No separator here: this selector belongs directly to the three actions above.
-    if (!groupStageFinished && _allGrpRds.length > 0) {
+    // Match the Main panel's progression: only reached matchdays are selectable.
+    // Matchday 1 has no selector; after advancing, options become 1..current.
+    const _unlockedPublishRds = _allGrpRds.filter(r => r <= _currentRd).slice(0, 25);
+    // Keep the selector visible until Advance creates the knockout stage.
+    // All group matches can be played while the workflow is still on the final
+    // group matchday, so hiding it on groupStageFinished loses the controls
+    // before the manager advances.
+    if (_unlockedPublishRds.length > 1) {
       inner.push({ type: 1, components: [{
         type: 3,
         custom_id: `p3_${tid}_roundsel`,
         placeholder: 'Pick Matchday…',
-        options: _allGrpRds.map(r => ({
+        options: _unlockedPublishRds.map(r => ({
           label: 'Matchday ' + r,
           value: String(r),
           default: r === _activeRd,
@@ -118,6 +126,8 @@ function buildPanel3(tournament) {
     btn('Refresh', `p3_${tid}_refresh`, 2),
   ]});
 
+
+  while (inner.length && inner[inner.length - 1]?.type === 14) inner.pop();
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0xFF0049, components: inner }] };
 }

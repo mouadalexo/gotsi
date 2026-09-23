@@ -14,12 +14,14 @@ const {
 } = require('./standingsPanel');
 const { buildAllResultsEmbed } = require('./resultsPanel');
 const {
-  makeSchedulePost, makeResultsPost, makeGroupDrawPost, makeBracketPost,
+  makeGroupMatchesPost, makeGroupDrawPost, makeBracketPost,
   makeScheduleEmbed, makeChampionPost,
 } = require('./tournamentEmbeds');
 const { buildWinnersHistoryPayload } = require('../utils/winnersHistory');
 const { buildTeamsListEmbed } = require('../panels/teamListPanel');
 const { get: tmpGet, set: tmpSet } = require('../utils/tempState');
+const { getKnockoutLegs } = require('../utils/knockoutConfig');
+const { postFooterComponent } = require('../utils/postFooter');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const SEP = { type: 14, divider: true, spacing: 1 };
@@ -42,9 +44,24 @@ function getT(tid) {
   return t;
 }
 
+const refreshQueues = new Map();
+
+function enqueueRefresh(tid, task) {
+  const previous = refreshQueues.get(tid) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(task);
+  refreshQueues.set(tid, next);
+  next.finally(() => {
+    if (refreshQueues.get(tid) === next) refreshQueues.delete(tid);
+  }).catch(() => {});
+  return next;
+}
+
 async function refreshPanel(client, t, panelNum) {
   try {
-    const ref = t[`panel${panelNum}_ref`];
+    const liveT = getT(t.id) || t;
+    const ref = liveT[`panel${panelNum}_ref`];
     if (!ref) return;
     const ch  = client.channels.cache.get(ref.channelId)
               ?? await client.channels.fetch(ref.channelId).catch(() => null);
@@ -52,16 +69,17 @@ async function refreshPanel(client, t, panelNum) {
     const msg = ch.messages.cache.get(ref.messageId)
               ?? await ch.messages.fetch(ref.messageId).catch(() => null);
     if (!msg) return;
-    const payload = panelNum === 1 ? buildPanel1(t)
-                  : panelNum === 2 ? buildPanel2(t)
-                  : buildPanel3(t);
+    const payload = panelNum === 1 ? buildPanel1(liveT)
+                  : panelNum === 2 ? buildPanel2(liveT)
+                  : buildPanel3(liveT);
     await msg.edit(payload).catch(() => {});
   } catch {}
 }
 
 // Re-post all 3 panels in order (1->2->3) to the management channel.
 // Called when any panel message is missing or stale.
-async function repostPanels(client, t) {
+async function repostPanels(client, initialT) {
+  const t = getT(initialT.id) || initialT;
   const mgmtId = t.channels?.management;
   if (!mgmtId) return;
   const mgmtCh = client.channels.cache.get(mgmtId)
@@ -89,37 +107,41 @@ async function repostPanels(client, t) {
 }
 
 async function refreshAll(client, tid) {
-  const t = getT(tid);
-  if (!t) return;
-  const mgmtId = t.channels?.management;
-  if (mgmtId) {
-    // If any panel message is missing or stale, re-post all 3 in order.
-    for (const key of ['panel1_ref', 'panel2_ref', 'panel3_ref']) {
-      const ref = t[key];
-      if (!ref?.messageId) { await repostPanels(client, t); return; }
-      const ch = client.channels.cache.get(ref.channelId)
-               ?? await client.channels.fetch(ref.channelId).catch(() => null);
-      if (!ch) { await repostPanels(client, t); return; }
-      const msg = ch.messages.cache.get(ref.messageId)
-                ?? await ch.messages.fetch(ref.messageId).catch(() => null);
-      if (!msg) { await repostPanels(client, t); return; }
+  return enqueueRefresh(tid, async () => {
+    const t = getT(tid);
+    if (!t) return;
+    const mgmtId = t.channels?.management;
+    if (mgmtId) {
+      // If any panel message is missing or stale, re-post all 3 in order.
+      for (const key of ['panel1_ref', 'panel2_ref', 'panel3_ref']) {
+        const ref = t[key];
+        if (!ref?.messageId) { await repostPanels(client, t); return; }
+        const ch = client.channels.cache.get(ref.channelId)
+                  ?? await client.channels.fetch(ref.channelId).catch(() => null);
+        if (!ch) { await repostPanels(client, t); return; }
+        const msg = ch.messages.cache.get(ref.messageId)
+                  ?? await ch.messages.fetch(ref.messageId).catch(() => null);
+        if (!msg) { await repostPanels(client, t); return; }
+      }
     }
-  }
-  // All messages exist -- edit them in parallel
-  await Promise.all([
-    refreshPanel(client, t, 1),
-    refreshPanel(client, t, 2),
-    refreshPanel(client, t, 3),
-  ]);
+    // All messages exist -- edit them in parallel from fresh state.
+    await Promise.all([
+      refreshPanel(client, t, 1),
+      refreshPanel(client, t, 2),
+      refreshPanel(client, t, 3),
+    ]);
+  });
 }
 
 async function refreshPanels23(client, tid) {
-  const t = getT(tid);
-  if (!t) return;
-  await Promise.all([
-    refreshPanel(client, t, 2),
-    refreshPanel(client, t, 3),
-  ]);
+  return enqueueRefresh(tid, async () => {
+    const t = getT(tid);
+    if (!t) return;
+    await Promise.all([
+      refreshPanel(client, t, 2),
+      refreshPanel(client, t, 3),
+    ]);
+  });
 }
 
 // ── Schedule generation ───────────────────────────────────────────────────────
@@ -249,6 +271,11 @@ function updateStandings(tid, matchId, homeScore, awayScore) {
 }
 
 function ensureSemiFinalLegs(tid) {
+  const t = getT(tid);
+  // A semi-final is still round 2 when it is one leg; only create reverse
+  // fixtures when the tournament's knockout settings explicitly request two.
+  if (!t || getKnockoutLegs(t, 2) !== 2) return;
+
   const sfLeg1s = db.get('matches').filter(m =>
     m.tournament_id === tid && m.stage === 'knockout' && m.round === 2 && (!m.leg || m.leg === 1)
   );
@@ -304,7 +331,13 @@ function generateKnockoutBracket(tid) {
 
 function advanceKnockout(tid) {
   ensureSemiFinalLegs(tid);
-  const matches = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
+  const t = getT(tid);
+  // If a stage was changed from two legs to one after fixtures existed, ignore
+  // the old reverse fixtures without deleting their history.
+  const matches = db.get('matches').filter(m =>
+    m.tournament_id === tid && m.stage === 'knockout' &&
+    (getKnockoutLegs(t, m.round) === 2 || Number(m.leg || 1) !== 2)
+  );
 
   // Round numbering: QF=4, SF=2, Final=1 (higher = earlier stage).
   // We want the MOST ADVANCED completed round = lowest round number where
@@ -318,7 +351,7 @@ function advanceKnockout(tid) {
   const curPlayed = matches.filter(m => m.round === curRound && m.status === 'played');
 
   // ── 2-leg Semi-Finals (round === 2) ───────────────────────────────────────
-  if (curRound === 2) {
+  if (curRound === 2 && getKnockoutLegs(t, 2) === 2) {
     const sfLeg1s = matches.filter(m => m.round === 2 && (!m.leg || m.leg === 1));
     const sfLeg2s = matches.filter(m => m.round === 2 && m.leg === 2);
     if (!sfLeg2s.length) {
@@ -476,10 +509,16 @@ function buildMatchPickerInline(tid, stage) {
 
 
 function buildKORoundMatchesPanel(tid) {
+  const t         = getT(tid);
   ensureSemiFinalLegs(tid);
-  const teams      = db.get('teams');
-  const getTeam    = id => teams.find(t => t.id === id) || { name: 'Unknown' };
-  const allKO      = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'knockout');
+  const teams     = db.get('teams');
+  const getTeam   = id => teams.find(t => t.id === id) || { name: 'Unknown' };
+  // Do not surface an old second-leg fixture if the stage is now configured
+  // as one leg. The record remains available for history and is not deleted.
+  const allKO     = db.get('matches').filter(m =>
+    m.tournament_id === tid && m.stage === 'knockout' &&
+    (getKnockoutLegs(t, m.round) === 2 || Number(m.leg || 1) !== 2)
+  );
   if (!allKO.length) return null;
 
   // Active round: highest round# with pending matches (earliest KO stage)
@@ -506,18 +545,32 @@ function buildKORoundMatchesPanel(tid) {
     SEP,
   ];
 
-  for (const m of roundMatches) {
-    const home = getTeam(m.home_team_id).name;
-    const away = getTeam(m.away_team_id).name;
-    let label;
-    if (m.status === 'played') {
-      const hs  = m.home_forfeit ? 'Ø' : String(m.home_goals ?? m.home_score ?? '?');
-      const as_ = m.away_forfeit ? 'Ø' : String(m.away_goals ?? m.away_score ?? '?');
-      label = `✅  ${home}  ${hs} — ${as_}  ${away}`;
-    } else {
-      label = `⏳  ${home}  vs  ${away}`;
+  const combinedTwoLegSemiFinals = activeRound === 2 && getKnockoutLegs(t, 2) === 2;
+  const sections = combinedTwoLegSemiFinals ? [1, 2] : [null];
+
+  for (const leg of sections) {
+    const sectionMatches = leg == null
+      ? roundMatches
+      : roundMatches.filter(m => Number(m.leg || 1) === leg);
+    if (!sectionMatches.length) continue;
+    if (leg != null) {
+      if (leg === 2) inner.push(SEP);
+      inner.push(txt(`**LEG ${leg}**`));
     }
-    inner.push({ type: 1, components: [{ type: 2, style: m.status === 'played' ? 2 : 1, label: label.slice(0, 80), custom_id: `p1_${tid}_matchbtn_${m.id}` }] });
+
+    for (const m of sectionMatches) {
+      const home = getTeam(m.home_team_id).name;
+      const away = getTeam(m.away_team_id).name;
+      let label;
+      if (m.status === 'played') {
+        const hs  = m.home_forfeit ? 'Ø' : String(m.home_goals ?? m.home_score ?? '?');
+        const as_ = m.away_forfeit ? 'Ø' : String(m.away_goals ?? m.away_score ?? '?');
+        label = `✅  ${home}  ${hs} — ${as_}  ${away}`;
+      } else {
+        label = `⏳  ${home}  vs  ${away}`;
+      }
+      inner.push({ type: 1, components: [{ type: 2, style: m.status === 'played' ? 2 : 1, label: label.slice(0, 80), custom_id: `p1_${tid}_matchbtn_${m.id}` }] });
+    }
   }
 
   inner.push(SEP);
@@ -606,15 +659,26 @@ function buildRoundMatchesPanel(tid, round) {
     inner.push(SEP);
   }
 
-  inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
-    placeholder: 'Select matchday...',
-    options: allRounds.slice(0, 25).map(r => ({
-      label: `Matchday ${r}`,
-      value: String(r),
-      default: r === round,
-    })),
-  }]});
-  inner.push(SEP);
+  // Only expose matchdays that have been reached. Matchday 1 has no
+  // history selector; once later matchdays are unlocked, managers can
+  // switch between all unlocked days, including the current one.
+  const trackedRound = db.getConfig('group_round_' + tid);
+  const pendingRounds = allGM.filter(m => m.status !== 'played').map(m => m.round);
+  const unlockedRound = trackedRound && allRounds.includes(trackedRound)
+    ? trackedRound
+    : (pendingRounds.length ? Math.min(...pendingRounds) : allRounds[allRounds.length - 1]);
+  const selectableRounds = allRounds.filter(r => r <= unlockedRound).slice(0, 25);
+  if (selectableRounds.length > 1) {
+    inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_addresult_sel`,
+      placeholder: 'Select matchday...',
+      options: selectableRounds.map(r => ({
+        label: `Matchday ${r}`,
+        value: String(r),
+        default: r === round,
+      })),
+    }]});
+    inner.push(SEP);
+  }
 
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` },
@@ -841,38 +905,127 @@ async function postToChannel(client, channelId, payload) {
   return ch.send(payload).catch(() => null);
 }
 
+function addRoleMention(payload, roleId) {
+  if (!roleId) return payload;
+  let merged = payload;
+  // Component V2 messages (flags 32768) ignore the content field — inject
+  // the mention as the first text component inside the container.
+  const isV2 = (payload.flags & 32768) && Array.isArray(payload.components);
+  if (isV2) {
+    const container = payload.components[0];
+    if (container && container.type === 17 && Array.isArray(container.components)) {
+      merged = {
+        ...payload,
+        components: [
+          {
+            ...container,
+            components: [
+              { type: 10, content: '<@&' + roleId + '>' },
+              ...container.components,
+            ],
+          },
+          ...payload.components.slice(1),
+        ],
+      };
+    }
+  } else {
+    merged = { ...payload, content: '<@&' + roleId + '>' + (payload.content ? '\n' + payload.content : '') };
+  }
+  return merged;
+}
+
 // Ping role (plain msg) then post embed — two separate messages, no tag for teams list
 async function postWithPing(client, channelId, roleId, payload) {
   if (!channelId) return null;
   const ch = await client.channels.fetch(channelId).catch(() => null);
   if (!ch) return null;
-  let merged = payload;
-  if (roleId) {
-    // Component V2 messages (flags 32768) ignore the content field 
-    // inject the mention as the first text component inside the container
-    const isV2 = (payload.flags & 32768) && Array.isArray(payload.components);
-    if (isV2) {
-      const container = payload.components[0];
-      if (container && container.type === 17 && Array.isArray(container.components)) {
-        merged = {
-          ...payload,
-          components: [
-            {
-              ...container,
-              components: [
-                { type: 10, content: '<@&' + roleId + '>' },
-                ...container.components,
-              ],
-            },
-            ...payload.components.slice(1),
-          ],
-        };
-      }
-    } else {
-      merged = { ...payload, content: '<@&' + roleId + '>' + (payload.content ? '\n' + payload.content : '') };
+  const merged = addRoleMention(payload, roleId);
+  return ch.send(merged).catch(() => null);
+}
+
+// Send the season header as a normal Discord message to both public channels.
+async function postSeasonStartMessages(client, tid) {
+  const t = getT(tid);
+  if (!t) return;
+  const message = { content: `# Saison ${t.season}` };
+  const channelIds = [...new Set([t.channels?.results, t.channels?.schedule].filter(Boolean))];
+  await Promise.all(channelIds.map(async channelId => {
+    const channel = client.channels.cache.get(channelId)
+      ?? await client.channels.fetch(channelId).catch(() => null);
+    if (channel) await channel.send(message).catch(() => {});
+  }));
+}
+
+const GROUP_MATCHES_REF_PREFIX = 'group_matches_ref_';
+
+function groupMatchesRefKey(tid, season, round) {
+  return `${GROUP_MATCHES_REF_PREFIX}${tid}_${season}_${round}`;
+}
+
+function clearGroupMatchesRefs(tid) {
+  const config = db.get('config') || {};
+  for (const key of Object.keys(config)) {
+    if (key.startsWith(`${GROUP_MATCHES_REF_PREFIX}${tid}_`)) {
+      db.setConfig(key, null);
     }
   }
-  return ch.send(merged).catch(() => null);
+}
+
+async function getReferencedMessage(client, ref) {
+  if (!ref?.channelId || !ref?.messageId) return null;
+  const ch = client.channels.cache.get(ref.channelId)
+    ?? await client.channels.fetch(ref.channelId).catch(() => null);
+  if (!ch) return null;
+  return ch.messages.cache.get(ref.messageId)
+    ?? await ch.messages.fetch(ref.messageId).catch(() => null);
+}
+
+async function refreshGroupMatchesMessage(client, tid, round) {
+  const t = getT(tid);
+  if (!t) return null;
+  const ref = db.getConfig(groupMatchesRefKey(tid, t.season, round));
+  if (!ref || Number(ref.season) !== Number(t.season)) return null;
+  const msg = await getReferencedMessage(client, ref);
+  if (!msg) return null;
+  const payload = makeGroupMatchesPost(tid, round);
+  if (!payload) return null;
+  return msg.edit(addRoleMention(payload, t.tag_on ? t.registration_role_id : null))
+    .catch(() => null);
+}
+
+async function upsertGroupMatchesMessage(client, tid, round) {
+  const t = getT(tid);
+  if (!t) return { error: '❌ Tournament not found.' };
+  const channelId = t.channels?.schedule;
+  if (!channelId) return { error: '❌ No Channel 2 configured.' };
+  const payload = makeGroupMatchesPost(tid, round);
+  if (!payload) return { error: `❌ No matches found for Matchday ${round}.` };
+
+  const key = groupMatchesRefKey(tid, t.season, round);
+  const ref = db.getConfig(key);
+  if (ref && Number(ref.season) === Number(t.season)) {
+    const existing = await getReferencedMessage(client, ref);
+    if (existing) {
+      const edited = await existing.edit(addRoleMention(payload, t.tag_on ? t.registration_role_id : null))
+        .catch(() => null);
+      if (edited) return { message: edited, updated: true };
+    }
+  }
+
+  const posted = await postWithPing(
+    client,
+    channelId,
+    t.tag_on ? t.registration_role_id : null,
+    payload,
+  );
+  if (!posted) return { error: '❌ Could not post Group matches.' };
+  db.setConfig(key, {
+    channelId,
+    messageId: posted.id,
+    season: t.season,
+    round,
+  });
+  return { message: posted, updated: false };
 }
 
 // Small component v2 ephemeral reply that auto-deletes after 5 s (publish panel feedback)
@@ -889,8 +1042,11 @@ async function p3SmallReply(interaction, message) {
 }
 
 async function refreshBracketMessage(client, tid) {
+  const t = getT(tid);
+  if (!t) return;
   const ref = db.getConfig('bracket_ref_' + tid);
   if (!ref) return;
+  if (ref.season !== undefined && Number(ref.season) !== Number(t.season)) return;
   try {
     const ch  = await client.channels.fetch(ref.channelId).catch(() => null);
     const msg = await ch?.messages.fetch(ref.messageId).catch(() => null);
@@ -905,29 +1061,32 @@ async function refreshStandingsMessage(client, tid) {
   if (!t) return;
   const payload = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid) : null;
   if (!payload) return;
+
   const ref = db.getConfig('standings_ref_' + tid);
-  if (ref) {
-    // Update existing standings post (cache-first)
+  // A tracked standings message is the live message: update it instead of
+  // creating another automatic post.
+  if (ref && (ref.season === undefined || Number(ref.season) === Number(t.season))) {
     try {
       const ch  = client.channels.cache.get(ref.channelId)
                 ?? await client.channels.fetch(ref.channelId).catch(() => null);
-      if (!ch) return;
-      const msg = ch.messages.cache.get(ref.messageId)
-                ?? await ch.messages.fetch(ref.messageId).catch(() => null);
-      if (!msg) return;
-      await msg.edit(payload).catch(() => {});
-    } catch {}
-  } else {
-    // No existing post — auto-post to results channel on Next
-    const _ch = t.channels || {};
-    const postCh = _ch.results || _ch.management;
-    if (!postCh) return;
-    try {
-      const _role = t.tag_on ? t.registration_role_id : null;
-      const posted = await postWithPing(client, postCh, _role, payload).catch(() => null);
-      if (posted) db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id });
+      const msg = ch
+        ? (ch.messages.cache.get(ref.messageId)
+          ?? await ch.messages.fetch(ref.messageId).catch(() => null))
+        : null;
+      if (msg) {
+        const edited = await msg.edit(payload).catch(() => null);
+        if (edited) return;
+      }
     } catch {}
   }
+
+  // No usable tracked message exists: create the automatic post in Channel 1
+  // and remember it so future match updates edit this same message.
+  const channel1 = t.channels?.results;
+  if (!channel1) return;
+  const role = t.tag_on ? t.registration_role_id : null;
+  const posted = await postWithPing(client, channel1, role, payload).catch(() => null);
+  if (posted) db.setConfig('standings_ref_' + tid, { channelId: channel1, messageId: posted.id, season: t.season });
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -1016,7 +1175,7 @@ function buildBotolaScorePicker(tid, matchId, state) {
     statusLine = '-# Draw \u2014 select penalty scores below';
     accent = 0xFEE75C;
   } else {
-    statusLine = '-# Select scores for both teams';
+    statusLine = null;
     accent = 0x5865F2;
   }
 
@@ -1035,10 +1194,13 @@ function buildBotolaScorePicker(tid, matchId, state) {
       default: sel === (i + 3) || sel === String(i + 3),
     })),
   ];
-  const penOpts = (sel) => Array.from({ length: 21 }, (_, i) => ({
-    label: String(i), value: String(i),
-    default: sel === i || sel === String(i),
-  }));
+  const penOpts = (sel, blocked) => {
+    const blockedValue = Number.isInteger(blocked) ? blocked : parseInt(blocked, 10);
+    return Array.from({ length: 21 }, (_, i) => ({
+      label: String(i), value: String(i),
+      default: sel === i || sel === String(i),
+    })).filter((_, i) => !Number.isInteger(blockedValue) || i !== blockedValue);
+  };
 
   const homeOpts = awayForfeit ? minThreeOpts(hv) : normalOpts(hv);
   const awayOpts = homeForfeit ? minThreeOpts(av) : normalOpts(av);
@@ -1050,8 +1212,7 @@ function buildBotolaScorePicker(tid, matchId, state) {
   const inner = [
     txt('**\ud83d\udcca Add Result \u2014 ' + (t ? t.name : 'Tournament') + '**\n' + home + '  vs  ' + away + '  \u00b7  ' + stageLabel),
     SEP,
-    txt(statusLine),
-    SEP,
+    ...(statusLine ? [txt(statusLine), SEP] : []),
     txt('**' + home + '** score'),
     { type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_home_' + matchId, placeholder: home + ' score\u2026', options: homeOpts }] },
     txt('**' + away + '** score'),
@@ -1062,9 +1223,9 @@ function buildBotolaScorePicker(tid, matchId, state) {
     inner.push(SEP);
     inner.push(txt('Draw \u2014 select penalty scores'));
     inner.push(txt('**' + home + '** penalties'));
-    inner.push({ type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_hp_' + matchId, placeholder: home + ' penalties\u2026', options: penOpts(hp) }] });
+    inner.push({ type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_hp_' + matchId, placeholder: home + ' penalties\u2026', options: penOpts(hp, ap) }] });
     inner.push(txt('**' + away + '** penalties'));
-    inner.push({ type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_ap_' + matchId, placeholder: away + ' penalties\u2026', options: penOpts(ap) }] });
+    inner.push({ type: 1, components: [{ type: 3, custom_id: 'p1_' + tid + '_rs_ap_' + matchId, placeholder: away + ' penalties\u2026', options: penOpts(ap, hp) }] });
   }
 
   // Back button: for group matches return to round match list; for KO go to KO picker
@@ -1079,7 +1240,6 @@ function buildBotolaScorePicker(tid, matchId, state) {
     { type: 2, style: 2, label: 'Refresh',    custom_id: 'p1_' + tid + '_refresh' },
   ]});
   inner.push(SEP);
-  inner.push(txt('-# \u00a9 24 2026  |  Goatsi Bot'));
 
   return { flags: 32768, components: [{ type: 17, accent_color: accent, components: inner }] };
 }
@@ -1115,7 +1275,11 @@ async function sendScreenshotRoundMessage(cli, tid, match) {
   if (!label) return;
   await scrCh.send({
     flags: 32768,
-    components: [{ type: 17, accent_color: 0x00FF76, components: [{ type: 10, content: label }] }],
+    components: [{ type: 17, accent_color: 0x00FF76, components: [
+      { type: 10, content: label },
+      SEP,
+      postFooterComponent(),
+    ] }],
   }).catch(() => {});
 }
 
@@ -1168,7 +1332,12 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
     if (!isKO || hv !== av) {
       // Decisive result
       updateStandings(tid, matchId, hv, av);
-      db.update('matches', matchId, { home_forfeit: false, away_forfeit: false, home_goals: hv, away_goals: av });
+      db.update('matches', matchId, {
+        status: 'played',
+        home_forfeit: false, away_forfeit: false,
+        home_goals: hv, away_goals: av,
+        home_pens: null, away_pens: null, pen_winner: null,
+      });
       refreshPanels23(cli, tid).catch(() => {});
       if (isKO) refreshBracketMessage(cli, tid).catch(() => {});
 
@@ -1183,8 +1352,29 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
       });
       refreshPanels23(cli, tid).catch(() => {});
       refreshBracketMessage(cli, tid).catch(() => {});
+    } else {
+      // A knockout result was edited into a draw, or its penalty scores
+      // were cleared/equalised. Keep the new draw visible and reopen the
+      // penalty step instead of leaving the previous winner in place.
+      const wasDecisiveKO = isKO &&
+        match.status === 'played' &&
+        match.home_score != null &&
+        match.away_score != null &&
+        match.home_score !== match.away_score;
+      if (wasDecisiveKO) {
+        state.hp = null;
+        state.ap = null;
+      }
+      db.update('matches', matchId, {
+        status: 'pending',
+        home_score: hv, away_score: av,
+        home_goals: hv, away_goals: av,
+        home_pens: null, away_pens: null, pen_winner: null,
+        home_forfeit: false, away_forfeit: false,
+      });
+      refreshPanels23(cli, tid).catch(() => {});
+      refreshBracketMessage(cli, tid).catch(() => {});
     }
-    // KO equal pens or pens not set yet — no save, just show updated panel
   }
 
   // Send screenshot round header if this score completed a round
@@ -1195,15 +1385,71 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
     }
   }
   tmpSet('p1rs_' + matchId, state);
+
+  // Once the second team score completes the result, return directly to the
+  // match list. Keep the score picker open only while the result is incomplete
+  // (or while a knockout draw still needs penalty scores).
+  const matchNow = db.findById('matches', matchId);
+  // A standings post is created once from the Publish panel and then edited
+  // in place after every group-stage result.
+  if (matchNow?.stage === 'group') {
+    refreshStandingsMessage(cli, tid).catch(() => {});
+    refreshGroupMatchesMessage(cli, tid, matchNow.round).catch(() => {});
+  }
+  if (matchNow?.status === 'played') {
+    const backPanel = matchNow.stage === 'knockout'
+      ? buildKORoundMatchesPanel(tid)
+      : buildRoundMatchesPanel(tid, matchNow.round);
+    if (backPanel) return interaction.editReply(backPanel);
+  }
+
   const panel = buildBotolaScorePicker(tid, matchId, state);
   if (!panel) return interaction.editReply({ content: '\u274c Match not found.', components: [] });
   return interaction.editReply(panel);
 }
 
+function decorateManagementPayload(payload, panelNum, tid) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.components)) return payload;
+
+  const scrub = node => {
+    if (Array.isArray(node)) {
+      return node
+        .filter(item => !(item && item.type === 10 && typeof item.content === 'string' && /©\s*24\s*2026\s*\|\s*Goatsi Bot/.test(item.content)))
+        .map(scrub);
+    }
+    if (!node || typeof node !== 'object') return node;
+    const copy = { ...node };
+    if (Array.isArray(copy.components)) copy.components = scrub(copy.components);
+    return copy;
+  };
+
+  const decorated = scrub(payload);
+  const container = decorated.components.find(c => c && c.type === 17 && Array.isArray(c.components));
+  if (!container) return decorated;
+  while (container.components.length && container.components[container.components.length - 1]?.type === 14) {
+    container.components.pop();
+  }
+
+  const t = getT(tid);
+  const label = panelNum === 1 ? 'Main' : panelNum === 2 ? 'Registration' : 'Publish';
+  const title = `## ${label}  —  ${t?.template || t?.name || 'Tournament'}`;
+  const alreadyHasTitle = container.components.some(c =>
+    c && c.type === 10 && typeof c.content === 'string' && c.content.startsWith(`## ${label}`)
+  );
+  if (!alreadyHasTitle) container.components.unshift({ type: 10, content: title }, SEP);
+  return decorated;
+}
+
 async function handleBotolaInteraction(interaction) {
   // Auto-delete all ephemeral replies so botola messages are temporary
+  const decorateCurrentPanel = opts => {
+    const match = String(interaction.customId || '').match(/^p([123])_(\d+)_/);
+    return match ? decorateManagementPayload(opts, Number(match[1]), Number(match[2])) : opts;
+  };
   const _origReply = interaction.reply.bind(interaction);
   interaction.reply = async (opts) => {
+    // Replies are also used for Publish previews/posts. Do not add management
+    // panel titles to those generated post payloads.
     // For plain text-only ephemeral confirmations (e.g. "✅ Posted to #channel"),
     // ephemeral initial replies cannot be deleted via the API.
     // Use deferUpdate + ephemeral followUp + deleteReply(id) instead.
@@ -1215,6 +1461,10 @@ async function handleBotolaInteraction(interaction) {
     }
     return _origReply(opts);
   };
+  const _origUpdate = interaction.update?.bind(interaction);
+  if (_origUpdate) interaction.update = opts => _origUpdate(decorateCurrentPanel(opts));
+  const _origEditReply = interaction.editReply?.bind(interaction);
+  if (_origEditReply) interaction.editReply = opts => _origEditReply(decorateCurrentPanel(opts));
   const id  = interaction.customId;
   const cli = interaction.client;
 
@@ -1316,7 +1566,7 @@ async function handleBotolaInteraction(interaction) {
     // Begin Season
     if (action === 'begin') {
       await interaction.deferUpdate();
-      if (t.status !== 'setup' && t.status !== 'active') {
+      if (t.status !== 'setup') {
         return interaction.followUp({ content: '❌ Season already started or finished.', ephemeral: true });
       }
       const ttCount = db.get('tournament_teams').filter(tt => tt.tournament_id === tid).length;
@@ -1333,10 +1583,27 @@ async function handleBotolaInteraction(interaction) {
       // Initialise active round tracker (all group rounds are pre-generated)
       db.setConfig('group_round_' + tid, 1);
       db.setConfig('p3_round_' + tid, 1);
-      // Activate
-      db.update('tournaments', tid, { status: 'active' });
-      refreshPanels23(cli, tid).catch(() => {});
-      return interaction.editReply(buildPanel1(getT(tid)));
+      // A new season must never reuse live posts from an older season.
+      db.setConfig('standings_ref_' + tid, null);
+      db.setConfig('bracket_ref_' + tid, null);
+      clearGroupMatchesRefs(tid);
+      // Activate in normal Post mode. Preview is entered only by an explicit click.
+      db.update('tournaments', tid, { status: 'active', preview_mode: false });
+
+      // Show a temporary status while the separate management messages refresh.
+      const startedT = getT(tid);
+      await interaction.editReply(buildPanel1(startedT, { loading: true }));
+
+      // Public announcement runs independently and does not hold the panel status.
+      postSeasonStartMessages(cli, tid)
+        .catch(error => console.error('[begin] season announcement failed:', error));
+
+      // Remove the temporary status after Registration and Publish finish updating.
+      const panelRefresh = refreshPanels23(cli, tid)
+        .catch(error => console.error('[begin] panel refresh failed:', error))
+        .then(() => interaction.editReply(buildPanel1(getT(tid))).catch(() => {}));
+      panelRefresh.catch(() => {});
+      return;
     }
 
     // End Tournament (full reset to setup)
@@ -1396,8 +1663,11 @@ async function handleBotolaInteraction(interaction) {
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       db.setConfig('group_round_' + tid, null);
       db.setConfig('p3_round_' + tid, null);
+      db.setConfig('standings_ref_' + tid, null);
+      db.setConfig('bracket_ref_' + tid, null);
+      clearGroupMatchesRefs(tid);
       db.update('tournaments', tid, { status: 'setup', preview_mode: false });
-      refreshPanels23(cli, tid).catch(() => {});
+      await refreshPanels23(cli, tid);
       return interaction.editReply(buildPanel1(getT(tid)));
     }
 
@@ -1614,7 +1884,8 @@ async function handleBotolaInteraction(interaction) {
     if (action.startsWith('rs_hp_')) {
       const matchId = parseInt(action.slice(6));
       const state   = tmpGet('p1rs_' + matchId) || { home: null, away: null, hp: null, ap: null };
-      state.hp      = parseInt(interaction.values[0]);
+      state.hp      = parseInt(interaction.values[0], 10);
+      if (Number(state.ap) === state.hp) state.ap = null;
       return _saveBotolaScore(cli, tid, matchId, state, interaction);
     }
 
@@ -1622,7 +1893,8 @@ async function handleBotolaInteraction(interaction) {
     if (action.startsWith('rs_ap_')) {
       const matchId = parseInt(action.slice(6));
       const state   = tmpGet('p1rs_' + matchId) || { home: null, away: null, hp: null, ap: null };
-      state.ap      = parseInt(interaction.values[0]);
+      state.ap      = parseInt(interaction.values[0], 10);
+      if (Number(state.hp) === state.ap) state.hp = null;
       return _saveBotolaScore(cli, tid, matchId, state, interaction);
     }
 
@@ -1659,16 +1931,25 @@ async function handleBotolaInteraction(interaction) {
         // Advance the workflow and keep Publish on the new matchday.
         db.setConfig('group_round_' + tid, curRound_adv + 1);
         db.setConfig('p3_round_' + tid, isLastRound ? null : curRound_adv + 1);
-        refreshPanels23(cli, tid).catch(() => {});
+        await refreshPanels23(cli, tid);
         refreshStandingsMessage(cli, tid).catch(() => {});
         return interaction.editReply(buildPanel1(getT(tid)));
       } else if (stage === 'knockout') {
-        advanceKnockout(tid);
-        await refreshAll(cli, tid);
-        await refreshBracketMessage(cli, tid);
-        const _koPanel = buildMatchPickerInline(tid, 'knockout');
-        if (_koPanel) return interaction.update(_koPanel);
-        return;
+        await interaction.deferUpdate();
+        try {
+          advanceKnockout(tid);
+          await refreshAll(cli, tid);
+          await refreshBracketMessage(cli, tid);
+          return interaction.editReply(buildPanel1(getT(tid)));
+        } catch (error) {
+          console.error('[advance] knockout advance failed:', error);
+          return interaction.editReply({
+            flags: 32768,
+            components: [{ type: 17, accent_color: 0xED4245, components: [
+              txt('❌ Could not advance the knockout stage. Please refresh the Main panel and try again.'),
+            ]}],
+          }).catch(() => {});
+        }
       }
       await refreshAll(cli, tid);
       return;
@@ -1723,7 +2004,7 @@ async function handleBotolaInteraction(interaction) {
           ]},
         ]}],
       };
-      return interaction.reply({ ...confirmPayload, ephemeral: true });
+      return interaction.reply({ ...decorateManagementPayload(confirmPayload, 1, tid), ephemeral: true });
     }
 
     // ── Execute Winner Confirmation ─────────────────────────────────────────
@@ -1815,14 +2096,20 @@ async function handleBotolaInteraction(interaction) {
       await refreshAll(cli, tid);
 
       // -- Public champion announcement --
-      const champCh = ch.results || ch.management;
+      const champCh = ch.results;
       if (champCh) {
         const champChannel = await cli.channels.fetch(champCh).catch(() => null);
         if (champChannel) {
-          const playerMentions = playerIds.length
-            ? playerIds.map(pid => `<@${pid}>`).join('  ')
-            : '`No players registered`';
-          const champPayload = makeChampionPost(t.name, t.season, winTeam2?.name || 'UNKNOWN');
+          const winnerPlayerLimit = Number(t.players_per_team) || playerIds.length;
+          const winnerPlayerMentions = playerIds
+            .slice(0, winnerPlayerLimit)
+            .map(pid => `<@${pid}>`);
+          const champPayload = makeChampionPost(
+            t.name,
+            t.season,
+            winTeam2?.name || 'UNKNOWN',
+            winnerPlayerMentions,
+          );
           const _champRole = t.tag_on ? t.registration_role_id : null;
           if (_champRole) {
             await champChannel.send({ content: `<@&${_champRole}>`, allowedMentions: { roles: [_champRole] } })
@@ -1851,8 +2138,11 @@ async function handleBotolaInteraction(interaction) {
       if (tmpTeamIdsNE.length) db.deleteWhere('teams', t2 => tmpTeamIdsNE.includes(t2.id));
       db.deleteWhere('tournament_teams', tt => tt.tournament_id === tid);
       const newSeason = (t.season || 1) + 1;
+      db.setConfig('standings_ref_' + tid, null);
+      db.setConfig('bracket_ref_' + tid, null);
+      clearGroupMatchesRefs(tid);
       db.update('tournaments', tid, { status: 'setup', season: newSeason, preview_mode: false, tag_on: false });
-      refreshPanels23(cli, tid).catch(() => {});
+      await refreshPanels23(cli, tid);
       return interaction.editReply(buildPanel1(getT(tid)));
     }
   }
@@ -1946,14 +2236,15 @@ async function handleBotolaInteraction(interaction) {
     const isEdit = match.status === 'played';
     const tid    = match.tournament_id;
     const round  = match.round;
+    refreshGroupMatchesMessage(cli, tid, round).catch(() => {});
     const allGM2 = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
     const pendingInRound = allGM2.filter(m => m.round === round && m.status !== 'played').length;
     const pendingTotal   = allGM2.filter(m => m.status !== 'played').length;
     const hDisp = hForfeit ? '\u00d8' : String(homeGoals);
     const aDisp = aForfeit ? '\u00d8' : String(awayGoals);
     const roundMsg = pendingInRound === 0
-      ? ` \u2014 Round ${round} complete! All results in.`
-      : ` (${pendingInRound} result${pendingInRound !== 1 ? 's' : ''} left in Round ${round})`;
+      ? ` \u2014 Matchday ${round} complete! All results in.`
+      : ` (${pendingInRound} result${pendingInRound !== 1 ? 's' : ''} left in Matchday ${round})`;
     return interaction.reply({
       content: `\u2705 Result ${isEdit ? 'updated' : 'saved'}: **${hDisp} \u2014 ${aDisp}**${roundMsg}`,
       ephemeral: true,
@@ -1972,6 +2263,20 @@ async function handleBotolaInteraction(interaction) {
     if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
     if (action === 'refresh') return interaction.update(buildPanel2(t));
+
+    // These actions are removed once the season starts. Keep the same rule in
+    // the handler so an older Discord message cannot mutate registration.
+    const registrationLockedAction =
+      action === 'random' ||
+      action === 'removeteam' ||
+      action === 'removeteam_sel' ||
+      action === 'clearteams' ||
+      action === 'clearteams_confirm' ||
+      action.startsWith('addteam') ||
+      action.startsWith('add_confirm_');
+    if (registrationLockedAction && getStage(t) !== 'setup') {
+      return interaction.update(buildPanel2(getT(tid)));
+    }
 
     // ── Random Fill (admin-only test helper) ─────────────────────────────────
     if (action === 'random') {
@@ -2786,7 +3091,32 @@ async function handleBotolaInteraction(interaction) {
 
     if (!isBotolaManager(interaction.member)) return noPermission(interaction);
 
-    if (action === 'refresh') return interaction.update(buildPanel3(t));
+    if (action === 'refresh') return interaction.update(buildPanel3(getT(tid)));
+
+    const liveTournament = getT(tid);
+    const liveStage = liveTournament ? getStage(liveTournament) : 'setup';
+    const isGroupPublishAction =
+      action === 'groupdraw' ||
+      action === 'groupmatches' ||
+      action === 'schedule' ||
+      action.startsWith('schedule_r') ||
+      action === 'results' ||
+      action.startsWith('results_r') ||
+      action === 'standings' ||
+      action === 'roundsel';
+    const isKnockoutPublishAction =
+      action === 'bracket' ||
+      action === 'winner_ann';
+
+    // A stale button can survive in an older Discord message. Re-render the
+    // current stage instead of allowing it to switch the panel backwards.
+    if (
+      (isGroupPublishAction && liveStage !== 'group') ||
+      (isKnockoutPublishAction && liveStage !== 'knockout' && liveStage !== 'finished') ||
+      ((action === 'togglemode' || action.startsWith('togglemode_') || action === 'toggletag') && liveStage === 'setup')
+    ) {
+      return interaction.update(buildPanel3(liveTournament));
+    }
 
     // Round selector  save chosen round and re-render panel
     if (action === 'roundsel') {
@@ -2796,11 +3126,18 @@ async function handleBotolaInteraction(interaction) {
     }
 
 
-    // Toggle post / preview mode
+    // Toggle post / preview mode. The suffix records the state shown by the
+    // clicked panel, so an old Discord button cannot switch mode unexpectedly.
     if (action === 'togglemode') {
-      db.update('tournaments', tid, { preview_mode: !t.preview_mode });
-      const freshT = getT(tid);
-      return interaction.update(buildPanel3(freshT));
+      return interaction.update(buildPanel3(getT(tid)));
+    }
+    if (action === 'togglemode_post' || action === 'togglemode_preview') {
+      const shownPreview = action === 'togglemode_preview';
+      if (Boolean(t.preview_mode) !== shownPreview) {
+        return interaction.update(buildPanel3(getT(tid)));
+      }
+      db.update('tournaments', tid, { preview_mode: !shownPreview });
+      return interaction.update(buildPanel3(getT(tid)));
     }
 
     if (action === 'toggletag') {
@@ -2826,79 +3163,66 @@ async function handleBotolaInteraction(interaction) {
       return p3SmallReply(interaction, `✅ Teams list posted to <#${targetCh}>.`);
     }
 
-    // ── Post Schedule — auto current round ────────────────────────────────
-    if (action === 'schedule') {
+    // ── Post Group Matches — auto current round ────────────────────────────
+    if (action === 'groupmatches' || action === 'schedule') {
       const allGM_s = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
       if (!allGM_s.length) return p3SmallReply(interaction, '\u274c No matches generated yet.');
       const savedRd_s = db.getConfig('p3_round_' + tid);
       const allRds_s  = [...new Set(allGM_s.map(m => m.round))].sort((a, b) => a - b);
       const round_s   = (savedRd_s && allRds_s.includes(savedRd_s)) ? savedRd_s : (allRds_s[0] || 1);
-      const schedPayload = makeSchedulePost(tid, round_s);
-      if (!schedPayload) return p3SmallReply(interaction, '\u274c Failed to build schedule for Round ' + round_s + '.');
-      if (t.preview_mode) return interaction.reply({ ...schedPayload, ephemeral: true });
-      if (!ch.schedule) return p3SmallReply(interaction, '\u274c No schedule channel configured.');
-      const _schedRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.schedule, _schedRole, schedPayload);
-      return p3SmallReply(interaction, `\u2705 Round ${round_s} schedule posted to <#${ch.schedule}>.`);
+      const groupPayload = makeGroupMatchesPost(tid, round_s);
+      if (!groupPayload) return p3SmallReply(interaction, '\u274c Failed to build Group matches for Matchday ' + round_s + '.');
+      if (t.preview_mode) return interaction.reply({ ...groupPayload, ephemeral: true });
+      const result = await upsertGroupMatchesMessage(cli, tid, round_s);
+      if (result.error) return p3SmallReply(interaction, result.error);
+      return p3SmallReply(
+        interaction,
+        result.updated
+          ? `✅ Matchday ${round_s} Group matches post updated in <#${ch.schedule}>.`
+          : `✅ Matchday ${round_s} Group matches posted to <#${ch.schedule}>.`,
+      );
     }
 
-
-    // Post Schedule for a specific round
+    // Legacy specific-round Schedule buttons are treated as Group matches.
     if (action.startsWith('schedule_r') && !isNaN(parseInt(action.slice(10)))) {
-      if (!ch.schedule) return p3SmallReply(interaction, '\u274c No schedule channel configured.');
       const round = parseInt(action.slice(10));
-      const schedPayload = makeSchedulePost(tid, round);
-      if (!schedPayload) return p3SmallReply(interaction, '\u274c No matches found for that round.');
-      if (t.preview_mode) return interaction.reply({ ...schedPayload, ephemeral: true });
-      const _schedRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.schedule, _schedRole, schedPayload);
-      return p3SmallReply(interaction, `\u2705 Round ${round} schedule posted to <#${ch.schedule}>.`);
+      const groupPayload = makeGroupMatchesPost(tid, round);
+      if (!groupPayload) return p3SmallReply(interaction, '\u274c No matches found for that round.');
+      if (t.preview_mode) return interaction.reply({ ...groupPayload, ephemeral: true });
+      const result = await upsertGroupMatchesMessage(cli, tid, round);
+      if (result.error) return p3SmallReply(interaction, result.error);
+      return p3SmallReply(
+        interaction,
+        result.updated
+          ? `✅ Matchday ${round} Group matches post updated in <#${ch.schedule}>.`
+          : `✅ Matchday ${round} Group matches posted to <#${ch.schedule}>.`,
+      );
     }
 
-    // ── Results — auto last completed round ────────────────────────────────
-    if (action === 'results') {
-      const allGM_r = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-      if (!allGM_r.length) return p3SmallReply(interaction, '\u274c No matches yet.');
-      const savedRd_r = db.getConfig('p3_round_' + tid);
-      const allRds_r  = [...new Set(allGM_r.map(m => m.round))].sort((a, b) => a - b);
-      const round_r   = (savedRd_r && allRds_r.includes(savedRd_r)) ? savedRd_r : (allRds_r[0] || 1);
-      const resultsPayload = makeResultsPost(tid, round_r);
-      if (!resultsPayload) return p3SmallReply(interaction, `\u274c No played matches in Round ${round_r} yet.`);
-      if (t.preview_mode) return interaction.reply({ ...resultsPayload, ephemeral: true });
-      if (!ch.results) return p3SmallReply(interaction, '\u274c No results channel configured.');
-      const _resRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.results, _resRole, resultsPayload);
-      return p3SmallReply(interaction, `\u2705 Round ${round_r} results posted to <#${ch.results}>.`);
-    }
-
-
-    // Post Results for a specific round
-    // Post Results for a specific round
-    if (action.startsWith('results_r') && !isNaN(parseInt(action.slice(9)))) {
-      if (!ch.results) return p3SmallReply(interaction, '\u274c No results channel configured.');
-      const round = parseInt(action.slice(9));
-      const resultsPayload = makeResultsPost(tid, round);
-      if (!resultsPayload) return p3SmallReply(interaction, `\u274c No played matches in Round ${round} yet.`);
-      if (t.preview_mode) return interaction.reply({ ...resultsPayload, ephemeral: true });
-      const _resRole = t.tag_on ? t.registration_role_id : null;
-      await postWithPing(cli, ch.results, _resRole, resultsPayload);
-      return p3SmallReply(interaction, `\u2705 Round ${round} results posted to <#${ch.results}>.`);
+    // Results publishing has been removed. A stale old Results button only
+    // refreshes the current panel and never creates a new public post.
+    if (action === 'results' || (action.startsWith('results_r') && !isNaN(parseInt(action.slice(9))))) {
+      return interaction.update(buildPanel3(getT(tid)));
     }
 
     // ── Standings ────────────────────────────────────────────────────────
     if (action === 'standings') {
-      const savedRd_st = db.getConfig('p3_round_' + tid) || null;
-      const standEmbed = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid, savedRd_st) : null;
+      const standEmbed = buildGroupStandingsEmbed ? buildGroupStandingsEmbed(tid) : null;
       if (!standEmbed) return p3SmallReply(interaction, '\u274c No standings to display yet.');
       if (t.preview_mode) return interaction.reply({ ...standEmbed, ephemeral: true });
-      const postCh = ch.results || ch.management;
-      if (!postCh) return p3SmallReply(interaction, '\u274c No results channel configured. Set it via `/admin`.');
+      const postCh = ch.results;
+      if (!postCh) return p3SmallReply(interaction, '\u274c No Channel 1 configured.');
       const _standRole = t.tag_on ? t.registration_role_id : null;
-      const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
-      if (posted) db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id });
-      return p3SmallReply(interaction, `\u2705 Standings (Round ${savedRd_st || 'all'}) posted to <#${postCh}>.`);
-    }
 
+      // Manual Publish → Standings is intentionally a new post every click.
+      // The newest post becomes the live message for future automatic updates.
+      const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
+      if (posted) {
+        db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id, season: t.season });
+        return p3SmallReply(interaction, `\u2705 New standings post sent to <#${postCh}>.`);
+      }
+      return p3SmallReply(interaction, '\u274c Could not post live standings.');
+    }
 
     if (action === 'standings_confirm') {
       return interaction.update(buildPanel3(t));
@@ -2909,8 +3233,8 @@ async function handleBotolaInteraction(interaction) {
       const drawPayload = makeGroupDrawPost(tid);
       if (!drawPayload) return p3SmallReply(interaction, '❌ No groups drawn yet.');
       if (t.preview_mode) return interaction.reply({ ...drawPayload, ephemeral: true });
-      const _gdCh = ch.schedule || ch.management;
-      if (!_gdCh) return p3SmallReply(interaction, '❌ No schedule channel configured.');
+      const _gdCh = ch.results;
+      if (!_gdCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _drawRole = t.tag_on ? t.registration_role_id : null;
       await postWithPing(cli, _gdCh, _drawRole, drawPayload);
       return p3SmallReply(interaction, `✅ Group draw posted to <#${_gdCh}>.`);
@@ -2921,11 +3245,11 @@ async function handleBotolaInteraction(interaction) {
       const bracketPayload = makeBracketPost(tid);
       if (!bracketPayload) return p3SmallReply(interaction, '❌ No knockout matches yet.');
       if (t.preview_mode) return interaction.reply({ ...bracketPayload, ephemeral: true });
-      const _brCh = ch.results || ch.management;
-      if (!_brCh) return p3SmallReply(interaction, '❌ No results channel configured.');
+      const _brCh = ch.results;
+      if (!_brCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _brackRole = t.tag_on ? t.registration_role_id : null;
       const _brPosted = await postWithPing(cli, _brCh, _brackRole, bracketPayload);
-      if (_brPosted) db.setConfig('bracket_ref_' + tid, { channelId: _brCh, messageId: _brPosted.id });
+      if (_brPosted) db.setConfig('bracket_ref_' + tid, { channelId: _brCh, messageId: _brPosted.id, season: t.season });
       return p3SmallReply(interaction, `✅ Bracket posted to <#${_brCh}> — updates live as results are added.`);
     }
 
@@ -2959,16 +3283,23 @@ async function handleBotolaInteraction(interaction) {
       const winTeam  = db.findById('teams', winTeamId);
       const winTTs   = db.findWhere('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === winTeamId);
       const players  = db.findWhere('players', p => winTTs.some(tt => tt.id === p.tournament_team_id));
-      const playerMentions = players.length
-        ? players.map(p => `<@${p.discord_id}>`).join('  ')
-        : '`No players registered`';
+      const winnerPlayerLimit = Number(t.players_per_team) || players.length;
+      const winnerPlayerMentions = players
+        .slice(0, winnerPlayerLimit)
+        .map(p => `<@${p.discord_id}>`)
+        .filter(Boolean);
 
-      const champPayload = makeChampionPost(t.name, t.season, winTeam?.name || 'UNKNOWN');
+      const champPayload = makeChampionPost(
+        t.name,
+        t.season,
+        winTeam?.name || 'UNKNOWN',
+        winnerPlayerMentions,
+      );
 
       if (t.preview_mode) return interaction.reply({ ...champPayload, ephemeral: true });
 
-      const _annCh = ch.results || ch.management;
-      if (!_annCh) return p3SmallReply(interaction, '❌ No results channel configured.');
+      const _annCh = ch.results;
+      if (!_annCh) return p3SmallReply(interaction, '❌ No Channel 1 configured.');
       const _annRole = t.tag_on ? t.registration_role_id : null;
       await postWithPing(cli, _annCh, _annRole, champPayload);
       return p3SmallReply(interaction, `✅ Winner announcement posted to <#${_annCh}>.`);

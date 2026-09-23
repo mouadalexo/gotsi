@@ -34,7 +34,7 @@ function buildFedPanel3() {
   ];
 
   const inner = [];
-  inner.push(txt('## 3 : Publish  \u2014  ' + (fed.tag || fed.name || 'Federation')));
+  inner.push(txt('## Publish  \u2014  ' + (fed.tag || fed.name || 'Federation')));
   inner.push(SEP);
   inner.push(txt('**Channels**'));
   inner.push(SEP);

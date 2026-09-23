@@ -17,7 +17,7 @@ function buildFedPanel2() {
   const left      = Math.max(0, required - clans.length);
 
   const inner = [];
-  inner.push(txt('## 2 : Registration \u2014 ' + (fed.tag || fed.name || 'Federation')));
+  inner.push(txt('## Registration \u2014 ' + (fed.tag || fed.name || 'Federation')));
   inner.push(SEP);
   inner.push(txt(E_CH + '  **' + clans.length + '** clans registered  \u2022  **' + left + '** spot' + (left !== 1 ? 's' : '') + ' left\n-# Registration: ' + (regOpen ? '\uD83D\uDFE2 Open' : '\uD83D\uDD34 Closed')));
   inner.push(SEP);

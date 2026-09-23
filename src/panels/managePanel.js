@@ -3,6 +3,7 @@ const {
   ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { db } = require('../utils/database');
+const { getPostFooterText } = require('../utils/postFooter');
 
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
@@ -67,12 +68,16 @@ function buildManagePanelV2() {
 
   inner.push(SEP);
 
+  inner.push(txt(`**Public Post Footer**
+-# ${getPostFooterText()}`));
   inner.push({ type: 1, components: [
-    btn('🔄  Refresh', 'mgr2_refresh', 2),
+    btn('📝  Edit Post Footer', 'mgr2_set_post_footer', 2),
   ]});
 
   inner.push(SEP);
-  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
+  inner.push({ type: 1, components: [
+    btn('🔄  Refresh', 'mgr2_refresh', 2),
+  ]});
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
@@ -128,8 +133,7 @@ function buildAdminsSubPanel() {
     btn('Remove User', 'mgr2_admin_del_start',   4, admins.length === 0),
     btn('Back',        'mgr2_refresh',            2),
   ]});
-  inner.push(SEP);
-  inner.push(txt('-# © 24 2026  |  Goatsi Bot'));
+  while (inner.length && inner[inner.length - 1]?.type === 14) inner.pop();
 
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }

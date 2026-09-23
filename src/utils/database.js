@@ -1,6 +1,7 @@
 'use strict';
 const path = require('path');
 const fs   = require('fs');
+const { DEFAULT_KNOCKOUT_LEGS } = require('./knockoutConfig');
 
 const DB_PATH = path.join(__dirname, '../../data/db.json');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -44,6 +45,7 @@ function load() {
           if (t.draw_pts           === undefined) t.draw_pts           = 1;
           if (t.loss_pts           === undefined) t.loss_pts           = 0;
           if (t.forfeit_pts        === undefined) t.forfeit_pts        = 0;
+          if (t.knockout_legs      === undefined) t.knockout_legs      = { ...DEFAULT_KNOCKOUT_LEGS };
           if (t.registration_open  === undefined) t.registration_open  = (t.status === 'setup');
           if (t.channels           === undefined) t.channels           = {};
           if (t.panel1_ref         === undefined) t.panel1_ref         = null;

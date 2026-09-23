@@ -1,5 +1,6 @@
 'use strict';
 const { db } = require('../utils/database');
+const { stageForRound, getKnockoutLegs, describeLegs } = require('../utils/knockoutConfig');
 
 const SEP  = { type: 14, divider: true, spacing: 1 };
 const txt  = c => ({ type: 10, content: c });
@@ -67,10 +68,27 @@ function buildTournamentSubPanel(tournamentId) {
   const pending     = matches.filter(m => m.status === 'pending');
   const played      = matches.filter(m => m.status === 'played');
   const hasGroups   = enrolled.some(tt => tt.group_name);
+  const koMatches   = matches.filter(m => m.stage === 'knockout');
+  const hasKo       = koMatches.length > 0;
   const finished    = t.status === 'finished';
   const statusLabel = { setup: '⚙️ Setup', active: '🟢 Active', finished: '🔒 Finished' }[t.status] || t.status;
   const pendRounds  = [...new Set(pending.map(m => m.round))].sort((a, b) => a - b);
   const currentRound = pendRounds[0] ? `Round ${pendRounds[0]}` : '—';
+  const pendingKoRounds = [...new Set(koMatches.filter(m => m.status === 'pending').map(m => m.round))]
+    .sort((a, b) => b - a);
+  const koRound = pendingKoRounds[0] || (koMatches.length ? Math.max(...koMatches.map(m => m.round)) : 0);
+  const koRoundMatches = koRound ? koMatches.filter(m => m.round === koRound) : [];
+  const koStage = koRound ? stageForRound(koRound) : null;
+  const koLegs = koRound
+    ? Math.max(
+        getKnockoutLegs(t, koRound),
+        koRoundMatches.some(m => Number(m.leg) === 2) ? 2 : 1
+      )
+    : 1;
+  const koReady = hasKo && koRoundMatches.length > 0 && koRoundMatches.every(m => m.status === 'played');
+  const koSummary = hasKo
+    ? `${koStage?.label || 'Knockout'} · ${describeLegs(koLegs)} · ${koReady ? 'ready for next round' : 'results pending'}`
+    : 'Not started';
 
   const inner = [
     txt(
@@ -92,10 +110,21 @@ function buildTournamentSubPanel(tournamentId) {
       type: 1,
       components: [
         { type: 2, style: 3, label: 'Post Schedule', custom_id: `tmgr_postschedule_${tournamentId}`, emoji: { name: '📤' }, disabled: !pending.length },
-        { type: 2, style: 1, label: 'Knockout',      custom_id: `tmgr_knockout_${tournamentId}`,     emoji: { name: '🏆' }, disabled: finished || !!pending.find(m => m.stage === 'group') },
+        { type: 2, style: 2, label: 'Add Result',     custom_id: `tmgr_addresult_${tournamentId}`,    emoji: { name: '📝' }, disabled: finished || !matches.length },
+        { type: 2, style: 1, label: 'Knockout',      custom_id: `tmgr_knockout_${tournamentId}`,     emoji: { name: '🏆' }, disabled: finished || hasKo || !!pending.find(m => m.stage === 'group') },
         { type: 2, style: 4, label: 'Close Season',  custom_id: `tmgr_closeseason_${tournamentId}`,  emoji: { name: '🔒' }, disabled: finished },
       ],
     },
+    ...(hasKo ? [
+      txt(`**🏆 Knockout:** ${koSummary}`),
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 3, label: 'Post Bracket', custom_id: `tmgr_postbracket_${tournamentId}`, emoji: { name: '📊' } },
+          { type: 2, style: 1, label: koRound === 1 ? 'Finish Tournament' : 'Next Round', custom_id: `tmgr_nextround_${tournamentId}_${koRound}`, emoji: { name: koRound === 1 ? '🏁' : '➡️' }, disabled: finished || !koReady },
+        ],
+      },
+    ] : []),
     {
       type: 1,
       components: [
@@ -133,9 +162,9 @@ function buildMatchPickerPanel(tournamentId) {
         custom_id: `tmgr_match_sel_${tournamentId}`,
         placeholder: 'Pick a match...',
         options: matches.slice(0, 25).map(m => ({
-          label: `${getTeam(m.home_team_id).name} vs ${getTeam(m.away_team_id).name}`,
+          label: `${getTeam(m.home_team_id).name} vs ${getTeam(m.away_team_id).name}`.slice(0, 100),
           value: String(m.id),
-          description: `${m.stage} · Round ${m.round}`,
+          description: `${m.stage === 'knockout' ? stageForRound(m.round).label : `Group round ${m.round}`}${m.stage === 'knockout' ? ` · Leg ${m.leg || 1}` : ''}`,
         })),
       }],
     });

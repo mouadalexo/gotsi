@@ -100,7 +100,8 @@ module.exports = {
         id.startsWith('tmgr_result_modal_')      ||
         id.startsWith('tmgr_knockout_')          ||
         id.startsWith('tmgr_closeseason_')          ||
-        id.startsWith('tmgr_nextround_')
+        id.startsWith('tmgr_nextround_')          ||
+        id.startsWith('tmgr_postbracket_')
       ) {
         return await handleTournamentManagerInteraction(interaction);
       }

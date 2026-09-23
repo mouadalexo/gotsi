@@ -1,5 +1,6 @@
 'use strict';
 const { db } = require('./database');
+const { postFooterComponent } = require('./postFooter');
 
 const SEP    = { type: 14, divider: true, spacing: 1 };
 const txt    = c => ({ type: 10, content: c });
@@ -34,7 +35,7 @@ function buildWinnersHistoryPayload(whTournamentId) {
   }
 
   inner.push(SEP);
-  inner.push(txt('-# \u00a9 24 2026  |  Goatsi Bot'));
+  inner.push(postFooterComponent());
 
   return {
     flags: 32768,

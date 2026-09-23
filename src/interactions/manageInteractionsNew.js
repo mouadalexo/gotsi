@@ -5,6 +5,12 @@ const {
 const { db }         = require('../utils/database');
 const { isManager, isAdmin } = require('../utils/permissions');
 const { buildManagePanelV2, buildAdminsSubPanel, buildManagerRolePickerPanel } = require('../panels/managePanel');
+const { getPostFooterText } = require('../utils/postFooter');
+const {
+  knockoutStagesForTournament,
+  normalizeKnockoutLegs,
+  describeLegs,
+} = require('../utils/knockoutConfig');
 
 function noPermission(i) {
   return i.reply({ content: '❌ Admins only.', ephemeral: true });
@@ -176,7 +182,83 @@ function _buildTsEditPanel(tid) {
       { type: 1, components: [
         { type: 2, style: 1, label: '✏️ Edit Name', custom_id: `mgr2_ts_name_${tid}` },
         { type: 2, style: 1, label: '🏷️ Edit Tag',  custom_id: `mgr2_ts_tag_${tid}` },
+        { type: 2, style: 1, label: '🏆 KO Format', custom_id: `mgr2_ts_ko_${tid}` },
         { type: 2, style: 2, label: '◀ Back',       custom_id: 'mgr2_tournsettings' },
+      ]},
+    ]}],
+  };
+}
+
+// ── Tournament Settings — knockout format editor ──────────────────────────────
+function _buildKoSettingsPanel(tid) {
+  const t = db.findById('tournaments', tid);
+  if (!t) return _buildTsListPanel();
+
+  const SEP = { type: 14, divider: true, spacing: 1 };
+  const stages = knockoutStagesForTournament(t);
+  const legs = normalizeKnockoutLegs(t.knockout_legs);
+
+  if (!stages.length) {
+    return {
+      flags: 32768,
+      components: [{ type: 17, accent_color: 0x5865F2, components: [
+        { type: 10, content:
+          `**🏆 Knockout Format — ${t.name}**\n` +
+          `This tournament format has no knockout stage.`
+        },
+        SEP,
+        { type: 1, components: [
+          { type: 2, style: 2, label: '◀ Back to Settings', custom_id: `mgr2_ts_ko_back_${tid}` },
+        ]},
+      ]}],
+    };
+  }
+
+  const rows = stages.map(stage => ({
+    type: 1,
+    components: [{
+      type: 3,
+      custom_id: `mgr2_ko_stage_${tid}_${stage.key}`,
+      placeholder: `${stage.label}: ${describeLegs(legs[stage.key])}`,
+      options: [
+        {
+          label: '1 leg',
+          description: 'One match decides the tie',
+          value: '1',
+          default: legs[stage.key] === 1,
+        },
+        {
+          label: '2 legs · home & away',
+          description: 'Aggregate score across both matches',
+          value: '2',
+          default: legs[stage.key] === 2,
+        },
+      ],
+    }],
+  }));
+
+  const summary = stages
+    .map(stage => `**${stage.label}**  ·  ${describeLegs(legs[stage.key])}`)
+    .join('\n');
+
+  return {
+    flags: 32768,
+    components: [{ type: 17, accent_color: 0x8B5CF6, components: [
+      { type: 10, content:
+        `**🏆 Knockout Format — ${t.name}**\n` +
+        `Choose the format for each stage. Group-stage encounters are configured separately.\n\n` +
+        summary
+      },
+      SEP,
+      ...rows,
+      SEP,
+      { type: 10, content:
+        '-# Two-leg ties create home and away matches and use aggregate scoring. ' +
+        'Settings apply when that knockout stage is generated.'
+      },
+      SEP,
+      { type: 1, components: [
+        { type: 2, style: 2, label: '◀ Back to Settings', custom_id: `mgr2_ts_ko_back_${tid}` },
       ]},
     ]}],
   };
@@ -207,8 +289,8 @@ function _buildSetupPanel(tid) {
       },
       SEP2,
       chSel('Management', 'management'),
-      chSel('Results & Standings', 'results'),
-      chSel('Schedule', 'schedule'),
+      chSel('Channel 1', 'results'),
+      chSel('Channel 2', 'schedule'),
       chSel('Teams List', 'teamsList'),
       { type: 1, components: [{
         type: 8, custom_id: `mgr2_ch_${tid}_info`,
@@ -295,6 +377,29 @@ async function handleMgr2Interaction(interaction) {
 
   // ── Refresh manage panel ─────────────────────────────────────────────────
   if (id === 'mgr2_refresh') {
+    return interaction.update(buildManagePanelV2());
+  }
+
+  if (id === 'mgr2_set_post_footer') {
+    return interaction.showModal(
+      new ModalBuilder().setCustomId('mgr2_post_footer_modal').setTitle('Edit Public Post Footer')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('footer')
+              .setLabel('Footer text')
+              .setStyle(TextInputStyle.Short)
+              .setValue(getPostFooterText())
+              .setMaxLength(180)
+              .setRequired(true)
+          )
+        )
+    );
+  }
+
+  if (id === 'mgr2_post_footer_modal') {
+    const footer = interaction.fields.getTextInputValue('footer').trim();
+    if (!footer) return interaction.reply({ content: '❌ Footer text cannot be empty.', ephemeral: true });
+    db.setConfig('post_footer_text', footer);
     return interaction.update(buildManagePanelV2());
   }
 
@@ -444,6 +549,34 @@ async function handleMgr2Interaction(interaction) {
     if (!isAdmin(interaction.member)) return noPermission(interaction);
     const tid = parseInt(interaction.values[0]);
     return interaction.update(_buildTsEditPanel(tid));
+  }
+
+  // ── Tournament Settings — knockout format editor ─────────────────────────
+  if (id.startsWith('mgr2_ts_ko_back_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(id.replace('mgr2_ts_ko_back_', ''));
+    return interaction.update(_buildTsEditPanel(tid));
+  }
+
+  if (id.startsWith('mgr2_ts_ko_') && !id.startsWith('mgr2_ts_ko_back_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const tid = parseInt(id.replace('mgr2_ts_ko_', ''));
+    return interaction.update(_buildKoSettingsPanel(tid));
+  }
+
+  if (id.startsWith('mgr2_ko_stage_')) {
+    if (!isAdmin(interaction.member)) return noPermission(interaction);
+    const rest = id.replace('mgr2_ko_stage_', '');
+    const firstUnderscore = rest.indexOf('_');
+    const tid = parseInt(rest.slice(0, firstUnderscore));
+    const stageKey = rest.slice(firstUnderscore + 1);
+    const t = db.findById('tournaments', tid);
+    if (!t) return interaction.reply({ content: '❌ Tournament not found.', ephemeral: true });
+
+    const nextLegs = normalizeKnockoutLegs(t.knockout_legs);
+    nextLegs[stageKey] = Number(interaction.values?.[0]) === 2 ? 2 : 1;
+    db.update('tournaments', tid, { knockout_legs: nextLegs });
+    return interaction.update(_buildKoSettingsPanel(tid));
   }
 
   // ── Tournament Settings — dropdown field change ───────────────────────────

@@ -34,7 +34,7 @@ function buildFedPanel1() {
   const stage   = getFedStage(fed, matches);
   const inner   = [];
 
-  inner.push(txt('## 1 : Main  \u2014  ' + (fed.tag || fed.name || 'Federation')));
+  inner.push(txt('## Main  \u2014  ' + (fed.tag || fed.name || 'Federation')));
   inner.push(SEP);
 
   if (stage === 'setup') {
