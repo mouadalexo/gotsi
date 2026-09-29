@@ -21,6 +21,53 @@ module.exports = {
     const content = message.content.trim();
     const lower   = content.toLowerCase();
 
+    // ── clear <tournament-tag> — remove a tournament registration role ───────
+    // Exact tag matches only. Unknown tags and extra arguments are ignored.
+    const clearMatch = lower.match(/^clear\s+(\S+)$/i);
+    if (clearMatch) {
+      const tournamentTag = clearMatch[1].toUpperCase();
+      const tournament = (db.get('tournaments') || []).find(t =>
+        String(t.template || '').toUpperCase() === tournamentTag && t.registration_role_id
+      );
+      if (!tournament) return;
+
+      if (!isBotolaManager(message.member)) {
+        return message.reply('❌ Managers only.');
+      }
+
+      const role = await message.guild.roles.fetch(tournament.registration_role_id).catch(() => null);
+      if (!role) {
+        return message.reply(`❌ The registration role for **${tournamentTag}** could not be found.`);
+      }
+
+      const members = await message.guild.members.fetch();
+      const membersToClear = members.filter(member => member.roles.cache.has(role.id));
+      let removed = 0;
+      let failed = 0;
+      for (const member of membersToClear.values()) {
+        try {
+          await member.roles.remove(role, `Cleared ${tournamentTag} registration role by ${message.author.tag}`);
+          removed++;
+        } catch (_) {
+          failed++;
+        }
+      }
+
+      await message.delete().catch(() => {});
+      return sendTemporary(message.channel, {
+        flags: 32768,
+        components: [{
+          type: 17,
+          accent_color: failed ? 0xF0B429 : 0x57F287,
+          components: [{
+            type: 10,
+            content: `✅ Cleared **${role.name}** from **${removed}** member${removed === 1 ? '' : 's'} for **${tournament.name}**.` +
+              (failed ? `\n⚠️ Could not remove it from **${failed}** member${failed === 1 ? '' : 's'} (permission or hierarchy).` : ''),
+          }],
+        }],
+      });
+    }
+
     // ── =fleader @user ────────────────────────────────────────────────────────
     // Leader assignment is now handled by staff through /clan_database.
     if (lower.startsWith('&leader')) return;
