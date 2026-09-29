@@ -34,7 +34,7 @@ function buildPage1() {
           `${E_ARR}  Click **New Tournament** → choose template (EL or CL)\n` +
           `${E_ARR}  Enter the **Season Number** (e.g. \`3\`) → tournament created as \`EL S3\`\n\n` +
           `**Set Channels**\n` +
-          `${E_ARR}  Assign Channel 1 for posts and Channel 3 for screenshots per tournament\n\n` +
+          `${E_ARR}  Assign Channel 1 for posts and Channel 2 for screenshots per tournament\n\n` +
           `**⚙️ Template Config**\n` +
           `${E_ARR}  Controls which options managers see in the Settings panel\n` +
           `${E_ARR}  EL defaults: Teams \`16/32/64\`, Groups of \`4\`, Advance \`2\`, Solo 1v1\n` +

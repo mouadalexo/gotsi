@@ -38,9 +38,12 @@ module.exports = {
         const tournaments = db.get('tournaments');
         const toRefresh = [];
         for (const t of tournaments) {
-          if (t.channels && Object.prototype.hasOwnProperty.call(t.channels, 'schedule')) {
+          if (t.channels && (Object.prototype.hasOwnProperty.call(t.channels, 'schedule')
+            || Object.prototype.hasOwnProperty.call(t.channels, 'channel3'))) {
             const channels = { ...t.channels };
+            if (!channels.channel2 && channels.channel3) channels.channel2 = channels.channel3;
             delete channels.schedule;
+            delete channels.channel3;
             db.update('tournaments', t.id, { channels });
           }
           const cfg = getTplCfg(t.template || '');

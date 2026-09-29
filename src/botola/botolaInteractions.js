@@ -960,9 +960,9 @@ async function postWithPing(client, channelId, roleId, payload) {
   return ch.send(merged).catch(() => null);
 }
 
-async function postChannel3Header(client, tid, line) {
+async function postScreenshotHeader(client, tid, line) {
   const t = getT(tid);
-  const channelId = t?.channels?.channel3;
+  const channelId = t?.channels?.channel2;
   if (!channelId) return;
   const channel = client.channels.cache.get(channelId)
     ?? await client.channels.fetch(channelId).catch(() => null);
@@ -970,7 +970,7 @@ async function postChannel3Header(client, tid, line) {
 }
 
 // Send the season header to the two existing public channels and, when
-// configured, send Channel 3 its separate Saison and Matchday 1 headers.
+// configured, send Channel 2 its separate Saison and Matchday 1 headers.
 async function postSeasonStartMessages(client, tid) {
   const t = getT(tid);
   if (!t) return;
@@ -981,11 +981,11 @@ async function postSeasonStartMessages(client, tid) {
       ?? await client.channels.fetch(channelId).catch(() => null);
     if (channel) await channel.send(message).catch(() => {});
   }));
-  await postChannel3Header(client, tid, `Saison ${t.season}`);
-  await postChannel3Header(client, tid, 'Matchday 1');
+  await postScreenshotHeader(client, tid, `Saison ${t.season}`);
+  await postScreenshotHeader(client, tid, 'Matchday 1');
 }
 
-const CHANNEL3_KO_LABELS = {
+const CHANNEL2_KO_LABELS = {
   1: 'Final',
   2: 'Semi-Final',
   4: 'Quarter-Final',
@@ -993,8 +993,8 @@ const CHANNEL3_KO_LABELS = {
   16: 'Round of 32',
 };
 
-function channel3KoLabel(round) {
-  return CHANNEL3_KO_LABELS[round] || `Round ${round}`;
+function channel2KoLabel(round) {
+  return CHANNEL2_KO_LABELS[round] || `Round ${round}`;
 }
 
 function firstKnockoutRoundLabel(tid) {
@@ -1002,7 +1002,7 @@ function firstKnockoutRoundLabel(tid) {
     .filter(m => m.tournament_id === tid && m.stage === 'knockout')
     .map(m => Number(m.round))
     .filter(Number.isFinite);
-  return rounds.length ? channel3KoLabel(Math.min(...rounds)) : 'Knockout Stage';
+  return rounds.length ? channel2KoLabel(Math.min(...rounds)) : 'Knockout Stage';
 }
 
 const GROUP_MATCHES_REF_PREFIX = 'group_matches_ref_';
@@ -2005,7 +2005,7 @@ async function handleBotolaInteraction(interaction) {
         }));
         // Last group round → generate KO bracket (post manually via panel 3)
         if (isLastRound) generateKnockoutBracket(tid);
-        await postChannel3Header(
+        await postScreenshotHeader(
           cli,
           tid,
           isLastRound ? firstKnockoutRoundLabel(tid) : `Matchday ${curRound_adv + 1}`,
@@ -2025,7 +2025,7 @@ async function handleBotolaInteraction(interaction) {
         try {
           const advancedTo = advanceKnockout(tid);
           if (Number.isInteger(advancedTo) && advancedTo >= 1) {
-            await postChannel3Header(cli, tid, channel3KoLabel(advancedTo));
+            await postScreenshotHeader(cli, tid, channel2KoLabel(advancedTo));
           }
           await refreshAll(cli, tid);
           await refreshBracketMessage(cli, tid);
