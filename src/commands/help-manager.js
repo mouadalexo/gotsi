@@ -27,7 +27,7 @@ function buildMgrPage1() {
         `**3.** **Panel 3 (Posts)** → **Post Teams List** → preview → confirm\n` +
         `**4.** **Panel 1 (Control)** → adjust **Settings** if needed (team count, group size, etc.)\n` +
         `**5.** **Panel 1** → **Begin Season** — draws groups + generates full match schedule\n` +
-        `**6.** **Panel 3** → **Schedule** → posts Round 1 to the schedule channel automatically\n` +
+        `**6.** **Panel 3** → **Schedule** → posts Round 1 to the Channel 1 posts channel automatically\n` +
         `**7.** After matches are played → **Panel 1** → **Add Result** per match\n` +
         `**8.** Repeat 6–7 for every group stage round\n` +
         `**9.** **Panel 1** → **Advance to Knockout** *(unlocks when all group results are in)*\n` +
@@ -128,19 +128,19 @@ function buildMgrPage3() {
         `${E_FIRE}  **Panel 3 Buttons**\n\n` +
         `**Row 1 (blue)**\n` +
         `${E_ARR}  **Group Draw** \u2014 posts the group draw to the management channel\n` +
-        `${E_ARR}  **Schedule** \u2014 auto-detects the current pending round and posts it to the schedule channel\n\n` +
+        `${E_ARR}  **Schedule** \u2014 auto-detects the current pending round and posts it to the Channel 1 posts channel\n\n` +
         `**Row 2 (green)**\n` +
         `${E_ARR}  **Results** \u2014 auto-detects the last fully completed round and posts it to the results channel\n` +
         `${E_ARR}  **Standings** \u2014 generates the current group standings and posts to the results channel\n\n` +
         `**Row 3 (red)**\n` +
         `${E_ARR}  **KO Bracket** \u2014 posts the current knockout bracket\n\n` +
-        `> **Tip:** Schedule and Results no longer ask you to pick a round \u2014 they detect it automatically.`
+        `> **Tip:** Group matches and standings use the current tournament round \u2014 they detect it automatically.`
       ),
       SEP,
       txt(
         `${E_HASH}  **Post Flow \u2014 Each Button**\n\n` +
         `**Schedule**\n` +
-        `${E_ARR}  Click \u2192 current round schedule posts instantly to the schedule channel\n` +
+        `${E_ARR}  Click \u2192 current round schedule posts instantly to the Channel 1 posts channel\n` +
         `${E_ARR}  Post it **before** the round starts so players know their matchups\n\n` +
         `**Results**\n` +
         `${E_ARR}  Click \u2192 last completed round results post instantly to the results channel\n` +

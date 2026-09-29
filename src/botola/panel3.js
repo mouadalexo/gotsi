@@ -53,8 +53,8 @@ function buildPanel3(tournament) {
 
   const ch = t.channels || {};
   const chParts = [
-    ch.results  ? `**Channel 1** → <#${ch.results}>`   : '**Channel 1** → `not set`',
-    ch.schedule ? `**Channel 2** → <#${ch.schedule}>` : '**Channel 2** → `not set`',
+    ch.results  ? `**Channel 1 — Posts** → <#${ch.results}>` : '**Channel 1 — Posts** → `not set`',
+    ch.channel3 ? `**Channel 3 — Screenshots** → <#${ch.channel3}>` : '**Channel 3 — Screenshots** → `not set`',
   ];
 
   const inner = [];

@@ -38,6 +38,11 @@ module.exports = {
         const tournaments = db.get('tournaments');
         const toRefresh = [];
         for (const t of tournaments) {
+          if (t.channels && Object.prototype.hasOwnProperty.call(t.channels, 'schedule')) {
+            const channels = { ...t.channels };
+            delete channels.schedule;
+            db.update('tournaments', t.id, { channels });
+          }
           const cfg = getTplCfg(t.template || '');
           const fix = {};
           if (cfg.tpg_opts.length        === 1 && t.teams_per_group   !== cfg.tpg_opts[0])        fix.teams_per_group   = cfg.tpg_opts[0];

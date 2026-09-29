@@ -34,7 +34,7 @@ function buildPage1() {
           `${E_ARR}  Click **New Tournament** → choose template (EL or CL)\n` +
           `${E_ARR}  Enter the **Season Number** (e.g. \`3\`) → tournament created as \`EL S3\`\n\n` +
           `**Set Channels**\n` +
-          `${E_ARR}  Assign channels per tournament: Management, Results, Schedule, Teams List\n\n` +
+          `${E_ARR}  Assign Channel 1 for posts and Channel 3 for screenshots per tournament\n\n` +
           `**⚙️ Template Config**\n` +
           `${E_ARR}  Controls which options managers see in the Settings panel\n` +
           `${E_ARR}  EL defaults: Teams \`16/32/64\`, Groups of \`4\`, Advance \`2\`, Solo 1v1\n` +
@@ -88,7 +88,7 @@ function buildPage2() {
         txt(
           `${E_FIRE}  **Panel 3 — Post & Publish**\n\n` +
           `${E_ARR}  **Post Teams List** — preview (only you see it) → confirm → posts to Teams channel\n` +
-          `${E_ARR}  **Post Schedule** — pick a round → posts to Schedule channel *(one round at a time)*\n` +
+          `${E_ARR}  **Post Group Matches** — pick a round → posts to the Channel 1 posts channel *(one round at a time)*\n` +
           `${E_ARR}  **Post Results** — auto-posts when a full round is entered, no action needed\n` +
           `${E_ARR}  **Post Standings** — preview → confirm → posts to Results channel\n` +
           `${E_ARR}  **Post Group Draw** — posts the draw to the management channel`
@@ -102,7 +102,7 @@ function buildPage2() {
           `**4.** Panel 2 → Add all teams + assign players\n` +
           `**5.** Panel 3 → Post Teams List → preview → confirm\n` +
           `**6.** Panel 1 → **Begin Season** → groups drawn, schedule generated\n` +
-          `**7.** Panel 3 → Post Schedule → Round 1\n` +
+          `**7.** Panel 3 → Post Group Matches → Round 1\n` +
           `**8.** After round played → Panel 1 → Add Result per match\n` +
           `   *(results auto-post when full round is entered)*\n` +
           `**9.** Repeat 7–8 for every group round\n` +
@@ -114,7 +114,7 @@ function buildPage2() {
           `${E_HASH}  **Quick Tips**\n` +
           `${E_ARR}  Results **auto-post** when every match in a round is entered\n` +
           `${E_ARR}  Teams List **auto-updates** after every enroll / unenroll\n` +
-          `${E_ARR}  Post Schedule **one round at a time** — you control when each round is revealed\n` +
+          `${E_ARR}  Post Group Matches **one round at a time** — you control when each round is revealed\n` +
           `${E_ARR}  Season numbers are **unique per template** — EL S3 and CL S3 can coexist\n` +
           `${E_ARR}  **Template Config** in \`/admin\` controls which select menus managers see\n` +
           `${E_ARR}  Use **Refresh** on any panel to reload the latest data\n\n` +

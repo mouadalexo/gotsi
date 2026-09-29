@@ -288,17 +288,8 @@ function _buildSetupPanel(tid) {
         `-# Tag Role → ${t.registration_role_id ? `<@&${t.registration_role_id}>` : '\`not set\`'}`
       },
       SEP2,
-      chSel('Management', 'management'),
-      chSel('Channel 1', 'results'),
-      chSel('Channel 2', 'schedule'),
-      chSel('Channel 3', 'channel3'),
-      chSel('Teams List', 'teamsList'),
-      { type: 1, components: [{
-        type: 8, custom_id: `mgr2_ch_${tid}_info`,
-        placeholder: t.info_channel ? 'Info Channel (currently set)' : 'Info Channel — select channel',
-        channel_types: [0, 5], min_values: 0, max_values: 1,
-        ...(t.info_channel ? { default_values: [{ id: t.info_channel, type: 'channel' }] } : {}),
-      }]},
+      chSel('Channel 1 — Posts', 'results'),
+      chSel('Channel 3 — Screenshots', 'channel3'),
       SEP2,
       { type: 1, components: [
         { type: 2, style: t.registration_role_id ? 1 : 2, label: t.registration_role_id ? '🎟️ Role ✓' : '🎟️ Set Role', custom_id: `mgr2_setup_role_${tid}` },
@@ -679,8 +670,14 @@ async function handleMgr2Interaction(interaction) {
       db.update('tournaments', tid2, { info_channel: val || null });
       return interaction.update(_buildSetupPanel(tid2));
     }
+    // Channel 2 and the former auxiliary channel selectors are retired.
+    // Ignore stale controls from an older setup panel instead of restoring them.
+    if (key2 !== 'results' && key2 !== 'channel3') {
+      return interaction.update(_buildSetupPanel(tid2));
+    }
     const updCh  = { ...(t2.channels || {}), [key2]: val };
     if (key2 === 'results') updCh.standings = val;
+    delete updCh.schedule;
     db.update('tournaments', tid2, { channels: updCh });
     return interaction.update(_buildSetupPanel(tid2));
   }

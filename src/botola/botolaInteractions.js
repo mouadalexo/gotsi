@@ -975,7 +975,7 @@ async function postSeasonStartMessages(client, tid) {
   const t = getT(tid);
   if (!t) return;
   const message = { content: `# Saison ${t.season}` };
-  const channelIds = [...new Set([t.channels?.results, t.channels?.schedule].filter(Boolean))];
+  const channelIds = [...new Set([t.channels?.results].filter(Boolean))];
   await Promise.all(channelIds.map(async channelId => {
     const channel = client.channels.cache.get(channelId)
       ?? await client.channels.fetch(channelId).catch(() => null);
@@ -1029,6 +1029,11 @@ async function getReferencedMessage(client, ref) {
     ?? await ch.messages.fetch(ref.messageId).catch(() => null);
 }
 
+async function deleteReferencedMessage(client, ref) {
+  const msg = await getReferencedMessage(client, ref);
+  if (msg) await msg.delete().catch(() => {});
+}
+
 async function refreshGroupMatchesMessage(client, tid, round) {
   const t = getT(tid);
   if (!t) return null;
@@ -1045,8 +1050,8 @@ async function refreshGroupMatchesMessage(client, tid, round) {
 async function upsertGroupMatchesMessage(client, tid, round) {
   const t = getT(tid);
   if (!t) return { error: '❌ Tournament not found.' };
-  const channelId = t.channels?.schedule;
-  if (!channelId) return { error: '❌ No Channel 2 configured.' };
+  const channelId = t.channels?.results;
+  if (!channelId) return { error: '❌ No Channel 1 configured for tournament posts.' };
   const payload = makeGroupMatchesPost(tid, round);
   if (!payload) return { error: `❌ No matches found for Matchday ${round}.` };
 
@@ -3264,8 +3269,8 @@ async function handleBotolaInteraction(interaction) {
       return p3SmallReply(
         interaction,
         result.updated
-          ? `✅ Matchday ${round_s} Group matches post updated in <#${ch.schedule}>.`
-          : `✅ Matchday ${round_s} Group matches posted to <#${ch.schedule}>.`,
+          ? `✅ Matchday ${round_s} Group matches post updated in <#${ch.results}>.`
+          : `✅ Matchday ${round_s} Group matches posted to <#${ch.results}>.`,
         buildPanel3(getT(tid)),
       );
     }
@@ -3281,8 +3286,8 @@ async function handleBotolaInteraction(interaction) {
       return p3SmallReply(
         interaction,
         result.updated
-          ? `✅ Matchday ${round} Group matches post updated in <#${ch.schedule}>.`
-          : `✅ Matchday ${round} Group matches posted to <#${ch.schedule}>.`,
+          ? `✅ Matchday ${round} Group matches post updated in <#${ch.results}>.`
+          : `✅ Matchday ${round} Group matches posted to <#${ch.results}>.`,
         buildPanel3(getT(tid)),
       );
     }
@@ -3302,8 +3307,13 @@ async function handleBotolaInteraction(interaction) {
       if (!postCh) return p3SmallReply(interaction, '\u274c No Channel 1 configured.');
       const _standRole = t.tag_on ? t.registration_role_id : null;
 
-      // Manual Publish → Standings is intentionally a new post every click.
-      // The newest post becomes the live message for future automatic updates.
+      // Manual Publish → Standings replaces the previous public standings post.
+      // Delete the old reference first so repeated clicks never leave duplicates.
+      const previousRef = db.getConfig('standings_ref_' + tid);
+      if (previousRef) {
+        await deleteReferencedMessage(cli, previousRef);
+        db.setConfig('standings_ref_' + tid, null);
+      }
       const posted = await postWithPing(cli, postCh, _standRole, standEmbed);
       if (posted) {
         db.setConfig('standings_ref_' + tid, { channelId: postCh, messageId: posted.id, season: t.season });
