@@ -27,6 +27,13 @@ const { postFooterComponent } = require('../utils/postFooter');
 const SEP = { type: 14, divider: true, spacing: 1 };
 const txt = c => ({ type: 10, content: c });
 
+function addScreenshotChannel(inner, tid) {
+  const channelId = db.findById('tournaments', tid)?.channels?.channel2;
+  if (!channelId) return;
+  inner.push(txt(`📸 Screenshots: <#${channelId}>`));
+  inner.push(SEP);
+}
+
 function noPermission(i) {
   return i.reply({ content: '❌ Managers only.', ephemeral: true });
 }
@@ -590,7 +597,7 @@ function buildKORoundMatchesPanel(tid) {
     }
   }
 
-  inner.push(SEP);
+  addScreenshotChannel(inner, tid);
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '← Back', custom_id: `p1_${tid}_refresh` },
   ]});
@@ -624,7 +631,7 @@ function buildGroupSelectorPanel(tid) {
       custom_id: `p1_${tid}_grpsel_${g}_${curRound}`,
     }))});
   }
-  inner.push(SEP);
+  addScreenshotChannel(inner, tid);
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '\u2190 Back', custom_id: `p1_${tid}_refresh` },
   ]});
@@ -675,6 +682,8 @@ function buildRoundMatchesPanel(tid, round) {
     }
     inner.push(SEP);
   }
+
+  addScreenshotChannel(inner, tid);
 
   // Only expose matchdays that have been reached. Matchday 1 has no
   // history selector; once later matchdays are unlocked, managers can
@@ -729,13 +738,13 @@ function buildGroupMatchPicker(tid, group, round) {
     txt(`**\ud83d\udcca Group ${group} \u2014 Round ${round}/${totalRounds}**`),
     SEP,
   ];
+  addScreenshotChannel(inner, tid);
   if (!options.length) {
     inner.push(txt('No matches in this group for this round.'));
   } else {
     inner.push({ type: 1, components: [{ type: 3, custom_id: `p1_${tid}_result_sel`,
       placeholder: 'Select match to add/edit result\u2026', options }] });
   }
-  inner.push(SEP);
   inner.push({ type: 1, components: [
     { type: 2, style: 2, label: '\u2190 Groups', custom_id: `p1_${tid}_grpback` },
   ]});
@@ -1312,8 +1321,8 @@ function buildBotolaScorePicker(tid, matchId, state) {
 // Send a screenshot round header to the screenshot channel when a round completes
 async function sendScreenshotRoundMessage(cli, tid, match) {
   const t = getT(tid);
-  if (!t || !t.channels?.screenshot) return;
-  const scrCh = await cli.channels.fetch(t.channels.screenshot).catch(() => null);
+  if (!t || !t.channels?.channel2) return;
+  const scrCh = await cli.channels.fetch(t.channels.channel2).catch(() => null);
   if (!scrCh) return;
 
   const ROUND_LABELS = { 1: 'Final', 2: 'Semi Final', 4: 'Quarter Final', 8: 'Round of 16', 16: 'Round of 32' };
