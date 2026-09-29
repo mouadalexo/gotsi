@@ -30,7 +30,7 @@ const txt = c => ({ type: 10, content: c });
 function addScreenshotChannel(inner, tid) {
   const channelId = db.findById('tournaments', tid)?.channels?.channel2;
   if (!channelId) return;
-  inner.push(txt(`📸 Screenshots: <#${channelId}>`));
+  inner.push(txt(`<#${channelId}>`));
   inner.push(SEP);
 }
 
@@ -658,7 +658,7 @@ function buildRoundMatchesPanel(tid, round) {
   const allDone = played === total && total > 0;
 
   const inner = [
-    txt(`**\u1F4CA Add Result \u2014 Matchday ${round}/${totalRounds}**`),
+    txt(`**\uD83D\uDCCA Add Result \u2014 Matchday ${round}/${totalRounds}**`),
     SEP,
     txt(`**${played}/${total}** matches played this matchday` + (allDone ? ' \u2014 all done, go back to advance.' : '')),
     SEP,
