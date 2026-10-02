@@ -4,7 +4,7 @@ const {
 } = require('discord.js');
 const { db }         = require('../utils/database');
 const { isManager, isAdmin } = require('../utils/permissions');
-const { buildManagePanelV2, buildAdminsSubPanel, buildManagerRolePickerPanel } = require('../panels/managePanel');
+const { buildManagePanelV2, buildCompetitionReactionPanel, buildAdminsSubPanel, buildManagerRolePickerPanel } = require('../panels/managePanel');
 const { getPostFooterText } = require('../utils/postFooter');
 const {
   knockoutStagesForTournament,
@@ -370,6 +370,60 @@ async function handleMgr2Interaction(interaction) {
   // ── Refresh manage panel ─────────────────────────────────────────────────
   if (id === 'mgr2_refresh') {
     return interaction.update(buildManagePanelV2());
+  }
+
+  if (id === 'mgr2_comp_reaction_settings') {
+    return interaction.update(buildCompetitionReactionPanel());
+  }
+
+  if (id === 'mgr2_comp_reaction_channel') {
+    const channelIds = [...new Set((interaction.values || []).filter(Boolean).map(String))];
+    db.setConfig('competition_reaction_channel_ids', channelIds);
+    return interaction.update(buildCompetitionReactionPanel());
+  }
+
+  if (id === 'mgr2_comp_reaction_set') {
+    return interaction.showModal(
+      new ModalBuilder().setCustomId('mgr2_comp_reaction_emoji_modal').setTitle('Set Reaction Emoji Name')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('emoji_name').setLabel('Custom emoji name')
+              .setStyle(TextInputStyle.Short).setPlaceholder('For example: verify')
+              .setMinLength(2).setMaxLength(32).setRequired(true)
+          )
+        )
+    );
+  }
+
+  if (id === 'mgr2_comp_reaction_emoji_modal') {
+    const raw = interaction.fields.getTextInputValue('emoji_name').trim();
+    if (!/^[A-Za-z0-9_]{2,32}$/.test(raw) || /^\d+$/.test(raw)) {
+      return interaction.reply({ content: 'Enter the custom emoji name only, not its ID. Example: verify', ephemeral: true });
+    }
+    let emojis = interaction.guild.emojis.cache;
+    let emoji = emojis.find(e => e.name && e.name.toLowerCase() === raw.toLowerCase());
+    if (!emoji) {
+      emojis = await interaction.guild.emojis.fetch().catch(() => null);
+      emoji = emojis?.find(e => e.name && e.name.toLowerCase() === raw.toLowerCase());
+    }
+    if (!emoji) {
+      return interaction.reply({ content: `No custom emoji named \`${raw}\` was found in this server.`, ephemeral: true });
+    }
+    db.setConfig('competition_verify_emoji_name', emoji.name);
+    db.setConfig('competition_verify_emoji_id', null);
+    return interaction.update(buildCompetitionReactionPanel());
+  }
+
+  if (id === 'mgr2_comp_reaction_default') {
+    db.setConfig('competition_verify_emoji_name', 'verify');
+    db.setConfig('competition_verify_emoji_id', null);
+    return interaction.update(buildCompetitionReactionPanel());
+  }
+
+  if (id === 'mgr2_comp_reaction_remove') {
+    db.setConfig('competition_verify_emoji_name', 'disabled');
+    db.setConfig('competition_verify_emoji_id', null);
+    return interaction.update(buildCompetitionReactionPanel());
   }
 
   if (id === 'mgr2_set_post_footer') {

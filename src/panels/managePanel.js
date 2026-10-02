@@ -36,6 +36,22 @@ function buildNewSeasonModal(template) {
 }
 
 // ── V2 Manage Panel ───────────────────────────────────────────────────────────
+function getReactionChannelIds() {
+  const configuredIds = db.getConfig('competition_reaction_channel_ids');
+  if (Array.isArray(configuredIds)) return [...new Set(configuredIds.map(String))];
+  const legacyId = db.getConfig('competition_reaction_channel_id');
+  return legacyId ? [String(legacyId)] : [];
+}
+
+function getReactionEmojiStatus() {
+  const name = db.getConfig('competition_verify_emoji_name');
+  const legacyId = db.getConfig('competition_verify_emoji_id');
+  if (name === 'disabled' || (name == null && legacyId === null)) return 'disabled';
+  if (typeof name === 'string' && name) return `emoji named ${name}`;
+  if (legacyId && legacyId !== 'default') return 'previous emoji setting (replace with a name)';
+  return 'server emoji named verify';
+}
+
 function buildManagePanelV2() {
   const managerRoleId = db.getConfig('manager_role_id');
 
@@ -66,6 +82,15 @@ function buildManagePanelV2() {
     btn(managerRoleId ? '🔑  Manager Role ✓' : '🔑  Set Manager Role', 'mgr2_set_manager_role', managerRoleId ? 1 : 2),
   ]});
 
+  const reactionChannelIds = getReactionChannelIds();
+  const channelState = reactionChannelIds.length ? reactionChannelIds.map(id => `<#${id}>`).join(', ') : 'none selected';
+  inner.push(SEP);
+  inner.push(txt(`**Reaction Channels**
+-# Emoji: ${getReactionEmojiStatus()} · Channels: ${channelState}`));
+  inner.push({ type: 1, components: [
+    btn('Reaction Settings', 'mgr2_comp_reaction_settings', 2),
+  ]});
+
   inner.push(SEP);
 
   inner.push(txt(`**Public Post Footer**
@@ -79,6 +104,34 @@ function buildManagePanelV2() {
     btn('🔄  Refresh', 'mgr2_refresh', 2),
   ]});
 
+  return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
+}
+
+// ── Competition message reaction settings ─────────────────────────────────────
+function buildCompetitionReactionPanel() {
+  const channelIds = getReactionChannelIds();
+  const channelStatus = channelIds.length ? channelIds.map(id => `<#${id}>`).join(', ') : 'none selected';
+  const inner = [
+    txt(`# Reaction Channels\n> Choose one or more channels where the bot should react to new messages.\n> **Emoji:** ${getReactionEmojiStatus()}\n> **Channels:** ${channelStatus}`),
+    SEP,
+    { type: 1, components: [{
+      type: 8,
+      custom_id: 'mgr2_comp_reaction_channel',
+      placeholder: channelIds.length ? 'Change reaction channels…' : 'Select reaction channels…',
+      channel_types: [0, 5, 15],
+      min_values: 0,
+      max_values: 25,
+      ...(channelIds.length ? { default_values: channelIds.map(id => ({ id, type: 'channel' })) } : {}),
+    }]},
+    SEP,
+    { type: 1, components: [
+      btn('Set Emoji Name', 'mgr2_comp_reaction_set', 1),
+      btn('Use Default Verify', 'mgr2_comp_reaction_default', 2),
+      btn('Disable Reaction', 'mgr2_comp_reaction_remove', 4),
+    ]},
+    SEP,
+    { type: 1, components: [{ type: 2, style: 2, label: 'Back to Manage', custom_id: 'mgr2_refresh' }]},
+  ];
   return { flags: 32768, components: [{ type: 17, accent_color: 0x5865F2, components: inner }] };
 }
 
@@ -141,6 +194,7 @@ function buildAdminsSubPanel() {
 module.exports = {
   buildNewSeasonModal,
   buildManagePanelV2,
+  buildCompetitionReactionPanel,
   buildAdminsSubPanel,
   buildManagerRolePickerPanel,
 };

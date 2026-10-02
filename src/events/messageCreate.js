@@ -5,6 +5,70 @@ const { db }              = require('../utils/database');
 const { getRosterConfig, getRoster, getRosterForMember } = require('../federation/fedRosterPanel');
 
 
+// Add the configured server emoji to messages in the selected reaction channels.
+function isReactionChannel(channel) {
+  const candidates = [channel, channel?.parent];
+  if (channel?.parentId && channel?.guild) {
+    candidates.push(channel.guild.channels.cache.get(channel.parentId));
+  }
+  const configuredIds = db.getConfig('competition_reaction_channel_ids');
+  const legacyId = db.getConfig('competition_reaction_channel_id');
+  const allowedIds = Array.isArray(configuredIds)
+    ? configuredIds.map(String)
+    : legacyId ? [String(legacyId)] : [];
+  return candidates.some(candidate => allowedIds.includes(String(candidate?.id || '')));
+}
+
+async function reactWithVerify(message) {
+  try {
+    const configuredName = db.getConfig('competition_verify_emoji_name');
+    const legacyId = db.getConfig('competition_verify_emoji_id');
+    if (configuredName === 'disabled' || (configuredName == null && legacyId === null)) return;
+
+    let emoji = null;
+    if (configuredName && configuredName !== 'default') {
+      const findByName = collection => collection?.find(e => e.name && e.name.toLowerCase() === String(configuredName).toLowerCase());
+      emoji = findByName(message.guild.emojis.cache);
+      if (!emoji) {
+        const emojis = await message.guild.emojis.fetch().catch(() => null);
+        emoji = findByName(emojis);
+      }
+      if (!emoji) {
+        console.error('[REACTION] Emoji named ' + configuredName + ' not found in guild ' + message.guild.id);
+        return;
+      }
+    } else if (!configuredName && legacyId && legacyId !== 'default') {
+      emoji = message.guild.emojis.cache.get(String(legacyId));
+      if (!emoji) {
+        const emojis = await message.guild.emojis.fetch().catch(() => null);
+        emoji = emojis && emojis.get(String(legacyId));
+      }
+      if (!emoji) {
+        console.error('[REACTION] Legacy configured emoji not found in guild ' + message.guild.id);
+        return;
+      }
+    } else {
+      const findVerify = collection => collection?.find(e => e.name && e.name.toLowerCase() === 'verify');
+      emoji = findVerify(message.guild.emojis.cache);
+      if (!emoji) {
+        const emojis = await message.guild.emojis.fetch().catch(() => null);
+        emoji = findVerify(emojis);
+      }
+      if (!emoji) {
+        console.error('[REACTION] No custom emoji named verify found in guild ' + message.guild.id);
+        return;
+      }
+    }
+
+    const existing = message.reactions.cache.find(r => r.emoji.id === emoji.id);
+    if (existing?.me) return;
+    await message.react(emoji);
+    console.log('[REACTION] Added emoji ' + emoji.name + ' to message ' + message.id + ' in #' + message.channel.name);
+  } catch (e) {
+    console.error('[REACTION] Failed in channel ' + message.channelId + ':', e.message);
+  }
+}
+
 // Keep leadership-management confirmations visible briefly, then remove them.
 async function sendTemporary(channel, payload, delayMs = 10_000) {
   const sent = await channel.send(payload);
@@ -15,8 +79,11 @@ async function sendTemporary(channel, payload, delayMs = 10_000) {
 module.exports = {
   name: 'messageCreate',
   async execute(message, client) {
+    if (!message.guild) return;
+    if (isReactionChannel(message.channel)) {
+      await reactWithVerify(message);
+    }
     if (message.author.bot) return;
-    if (!message.guild)     return;
 
     const content = message.content.trim();
     const lower   = content.toLowerCase();

@@ -107,16 +107,18 @@ function makeGroupMatchesPost(tid, round) {
   const { t, getTeam, getGrp } = getContext(tid);
   if (!t) return null;
   const allGM   = db.get('matches').filter(m => m.tournament_id === tid && m.stage === 'group');
-  const total   = [...new Set(allGM.map(m => m.round))].length;
+  const regularGM = allGM.filter(m => m.is_tiebreaker !== true);
+  const total   = [...new Set(regularGM.map(m => m.round))].length;
   const matches = allGM.filter(m => m.round === round);
   const label   = `${t.template || t.name} S${t.season}`;
+  const isTiebreakerRound = matches.some(m => m.is_tiebreaker === true);
   const complete = matches.length > 0 && matches.every(m => m.status === 'played');
 
   const grouped  = groupMatchesByGroup(matches, getGrp, getTeam);
   const entries  = Object.entries(grouped).sort();
 
   const inner = [
-    txt(`${E_CUP}  **GROUP MATCHES — MATCHDAY ${round}/${total}  —  ${label.toUpperCase()}**`),
+    txt(`${E_CUP}  **${isTiebreakerRound ? 'GROUP TIE-BREAKER' : `GROUP MATCHES — MATCHDAY ${round}/${total}`}  —  ${label.toUpperCase()}**`),
     SEP,
   ];
 
@@ -136,21 +138,34 @@ function makeGroupMatchesPost(tid, round) {
   return box(complete ? ORANGE : PURPLE, inner);
 }
 
-// ── 3. Standings Post ──────────────────────────────────────────────────────────────────────────────
-// upToRound: if set, only count matches with round <= upToRound
-function makeStandingsPost(tid, upToRound = null) {
-  const { t, teams, ttRows } = getContext(tid);
-  if (!t) return null;
-  const label = `${t.template || t.name} S${t.season}`;
-  const NW    = 18;
 
-  // Compute stats from actual played matches (never trust pre-stored totals)
-  const init    = () => ({ w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
-  const stats   = {};
-  const played  = db.get('matches').filter(m =>
+// ── Group standings calculation and tie-break helpers ─────────────────────────
+// Tie-breaker matches decide ordering only. They do not add group points or goals.
+function getTiebreakerWinner(tid, teamA, teamB, upToRound = null) {
+  const match = db.get('matches').find(m =>
     m.tournament_id === tid &&
-    m.stage         === 'group' &&
-    m.status        === 'played' &&
+    m.stage === 'group' &&
+    m.is_tiebreaker === true &&
+    m.status === 'played' &&
+    (upToRound === null || m.round <= upToRound) &&
+    ((m.home_team_id === teamA && m.away_team_id === teamB) ||
+     (m.home_team_id === teamB && m.away_team_id === teamA))
+  );
+  if (!match) return null;
+  if (match.home_score > match.away_score) return match.home_team_id;
+  if (match.away_score > match.home_score) return match.away_team_id;
+  return match.pen_winner || null;
+}
+
+function computeGroupTable(tid, upToRound = null) {
+  const { t, teams, ttRows } = getContext(tid);
+  const init = () => ({ w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
+  const stats = {};
+  const played = db.get('matches').filter(m =>
+    m.tournament_id === tid &&
+    m.stage === 'group' &&
+    m.is_tiebreaker !== true &&
+    m.status === 'played' &&
     (upToRound === null || m.round <= upToRound)
   );
 
@@ -159,7 +174,6 @@ function makeStandingsPost(tid, upToRound = null) {
     if (!stats[m.away_team_id]) stats[m.away_team_id] = init();
     const hs = stats[m.home_team_id];
     const as = stats[m.away_team_id];
-
     if (m.home_forfeit && m.away_forfeit) {
       hs.l++; as.l++; continue;
     }
@@ -171,32 +185,51 @@ function makeStandingsPost(tid, upToRound = null) {
       as.l++; as.ga += 3;
       hs.w++; hs.gf += 3; hs.pts += 3; continue;
     }
-
     const hg = m.home_score || 0;
     const ag = m.away_score || 0;
     hs.gf += hg; hs.ga += ag;
     as.gf += ag; as.ga += hg;
-    if (hg > ag)      { hs.w++; hs.pts += 3; as.l++; }
+    if (hg > ag) { hs.w++; hs.pts += 3; as.l++; }
     else if (hg < ag) { as.w++; as.pts += 3; hs.l++; }
-    else              { hs.d++; hs.pts += 1; as.d++; as.pts += 1; }
+    else { hs.d++; hs.pts++; as.d++; as.pts++; }
   }
 
-  // Group teams
   const groups = {};
   for (const tt of ttRows.filter(tt => tt.group_name)) {
-    const g    = tt.group_name;
     const team = teams.find(tm => tm.id === tt.team_id) || { name: 'Unknown' };
-    const s    = stats[tt.team_id] || init();
-    if (!groups[g]) groups[g] = [];
-    groups[g].push({ name: team.name, played: s.w + s.d + s.l, ...s });
+    const st = stats[tt.team_id] || init();
+    if (!groups[tt.group_name]) groups[tt.group_name] = [];
+    groups[tt.group_name].push({
+      teamId: tt.team_id,
+      name: team.name,
+      played: st.w + st.d + st.l,
+      ...st,
+    });
   }
+  return { t, groups };
+}
+
+function compareGroupEntries(tid, a, b) {
+  const points = b.pts - a.pts;
+  if (points !== 0) return points;
+  const difference = (b.gf - b.ga) - (a.gf - a.ga);
+  if (difference !== 0) return difference;
+  const winner = getTiebreakerWinner(tid, a.teamId, b.teamId);
+  if (winner === a.teamId) return -1;
+  if (winner === b.teamId) return 1;
+  return 0;
+}
+
+// ── 3. Standings Post ──────────────────────────────────────────────────────────────────────────────
+// upToRound: if set, only count matches with round <= upToRound
+function makeStandingsPost(tid, upToRound = null) {
+  const { t, groups } = computeGroupTable(tid, upToRound);
+  if (!t) return null;
+  const label = `${t.template || t.name} S${t.season}`;
+  const NW = 18;
 
   for (const g of Object.keys(groups)) {
-    groups[g].sort((a, b) => {
-      const pd = b.pts - a.pts;
-      if (pd !== 0) return pd;
-      return (b.gf - b.ga) - (a.gf - a.ga);
-    });
+    groups[g].sort((a, b) => compareGroupEntries(tid, a, b));
   }
 
   const inner = [
@@ -207,11 +240,11 @@ function makeStandingsPost(tid, upToRound = null) {
   const entries = Object.entries(groups).sort();
   entries.forEach(([g, gTeams]) => {
     const header = `\`#  ${'Team'.padEnd(NW)}  P  Dif  Pts\``;
-    const rows   = gTeams.map((tm, i) => {
-      const pos  = i + 1;
+    const rows = gTeams.map((tm, i) => {
+      const pos = i + 1;
       const name = trunc(tm.name, NW).padEnd(NW);
-      const gd   = tm.gf - tm.ga;
-      const dif  = (gd >= 0 ? '+' : '') + gd;
+      const gd = tm.gf - tm.ga;
+      const dif = (gd >= 0 ? '+' : '') + gd;
       return `\`${String(pos).padEnd(2)} ${name}  ${String(tm.played).padStart(1)}  ${dif.padStart(3)}  ${String(tm.pts).padStart(3)}\``;
     });
     inner.push(txt(`${E_HASH}  **GROUP ${g}**\n${header}\n${rows.join('\n')}`));
@@ -425,6 +458,9 @@ module.exports = {
   scoreSep,
   scoreSepF,
   makeStandingsPost,
+  computeGroupTable,
+  compareGroupEntries,
+  getTiebreakerWinner,
   makeGroupDrawPost,
   makeBracketPost,
   makeChampionPost,
