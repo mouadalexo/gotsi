@@ -1988,18 +1988,20 @@ async function handleBotolaInteraction(interaction) {
         const allRds_adv    = [...new Set(allGM_adv.map(m => m.round))].sort((a, b) => a - b);
         const curRound_adv  = db.getConfig('group_round_' + tid) || allRds_adv[0] || 1;
 
-        // Guard: current round must be fully played
-        const stillPendingInRound = allGM_adv.filter(m => m.round === curRound_adv && m.status !== 'played');
-        if (stillPendingInRound.length > 0) {
+        const lastGroupRound = allRds_adv[allRds_adv.length - 1] || curRound_adv;
+        const isLastRound = curRound_adv >= lastGroupRound;
+
+        // Group Matchdays may be skipped, but knockout standings must be
+        // calculated only after every group-stage result has been entered.
+        if (isLastRound && pendingGM_adv.length > 0) {
           return interaction.reply({
-            content: `❌ **Cannot advance yet — ${stillPendingInRound.length} match${stillPendingInRound.length !== 1 ? 'es' : ''} still pending in Matchday ${curRound_adv}.**`,
+            content: `❌ **Cannot advance to knockout yet — ${pendingGM_adv.length} group-stage result${pendingGM_adv.length !== 1 ? 's' : ''} remain unresolved across all Matchdays. Enter every group result first.**`,
             ephemeral: true,
           });
         }
 
         await interaction.deferUpdate();
 
-        const isLastRound = curRound_adv === allRds_adv[allRds_adv.length - 1];
         await interaction.editReply(buildPanel1(getT(tid), {
           loadingText: isLastRound
             ? '⏳ **Preparing the next knockout stage...**\nUpdating management panels...'

@@ -28,7 +28,7 @@ function buildPanel1(tournament, options = {}) {
   const groupMatches    = allMatches.filter(m => m.stage === 'group');
   const knockoutMatches = allMatches.filter(m => m.stage === 'knockout');
   const playedGroup     = groupMatches.filter(m => m.status === 'played').length;
-  const pendingGroup    = groupMatches.filter(m => m.status === 'pending').length;
+  const pendingGroup    = groupMatches.filter(m => m.status !== 'played').length;
   const ttRows          = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
 
   const inner = [];
@@ -101,6 +101,13 @@ function buildPanel1(tournament, options = {}) {
         ? `\u2705 **Match Day ${curRound} complete!** Click **${advLabel}** to continue.`
         : `\u23f3 **Match Day ${curRound}** \u2014 **${curPending}** result${curPending !== 1 ? 's' : ''} remaining`
     ));
+    if (pendingGroup > 0) {
+      inner.push(SEP);
+      inner.push(txt(
+        `\u26a0\ufe0f **${pendingGroup} group-stage result${pendingGroup !== 1 ? 's' : ''} remain unresolved across all Matchdays.** ` +
+        `You can skip pending results between Matchdays, but all group results are required before advancing to knockout.`
+      ));
+    }
     inner.push(SEP);
     inner.push({ type: 1, components: [
       btn('Add Result',     `p1_${tid}_addresult`, 1, false),
