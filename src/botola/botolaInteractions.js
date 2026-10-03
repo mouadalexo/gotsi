@@ -1995,7 +1995,7 @@ async function handleBotolaInteraction(interaction) {
         // calculated only after every group-stage result has been entered.
         if (isLastRound && pendingGM_adv.length > 0) {
           return interaction.reply({
-            content: `❌ **Cannot advance to knockout yet — ${pendingGM_adv.length} group-stage result${pendingGM_adv.length !== 1 ? 's' : ''} remain unresolved across all Matchdays. Enter every group result first.**`,
+            content: `❌ **Cannot advance to knockout yet — ${pendingGM_adv.length} group-stage result${pendingGM_adv.length !== 1 ? 's' : ''} ${pendingGM_adv.length === 1 ? 'is' : 'are'} still pending across all Matchdays. Enter every group result first.**`,
             ephemeral: true,
           });
         }
