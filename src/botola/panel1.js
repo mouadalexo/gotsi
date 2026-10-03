@@ -104,8 +104,7 @@ function buildPanel1(tournament, options = {}) {
     if (pendingGroup > 0) {
       inner.push(SEP);
       inner.push(txt(
-        `\u26a0\ufe0f **${pendingGroup} group-stage result${pendingGroup !== 1 ? 's' : ''} are still pending across all Matchdays.** ` +
-        `You can skip pending results between Matchdays, but all group results are required before advancing to knockout.`
+        `\u26a0\ufe0f **${pendingGroup} group-stage match${pendingGroup !== 1 ? 'es' : ''} ${pendingGroup === 1 ? 'is' : 'are'} pending in total.**`
       ));
     }
     inner.push(SEP);
