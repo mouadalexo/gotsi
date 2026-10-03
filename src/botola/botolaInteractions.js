@@ -1449,13 +1449,6 @@ async function _saveBotolaScore(cli, tid, matchId, state, interaction) {
     }
   }
 
-  // Send screenshot round header if this score completed a round
-  if (!_wasPlayed) {
-    const _matchNow = db.findById('matches', matchId);
-    if (_matchNow && _matchNow.status === 'played') {
-      sendScreenshotRoundMessage(cli, tid, _matchNow).catch(() => {});
-    }
-  }
   tmpSet('p1rs_' + matchId, state);
 
   // Once the second team score completes the result, return directly to the
