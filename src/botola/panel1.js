@@ -28,7 +28,6 @@ function buildPanel1(tournament, options = {}) {
   const groupMatches    = allMatches.filter(m => m.stage === 'group');
   const knockoutMatches = allMatches.filter(m => m.stage === 'knockout');
   const playedGroup     = groupMatches.filter(m => m.status === 'played').length;
-  const pendingGroup    = groupMatches.filter(m => m.status !== 'played').length;
   const ttRows          = db.get('tournament_teams').filter(tt => tt.tournament_id === tid);
 
   const inner = [];
@@ -75,6 +74,9 @@ function buildPanel1(tournament, options = {}) {
     const allRds    = [...new Set(groupMatches.map(m => m.round))].sort((a, b) => a - b);
     const curRound  = db.getConfig('group_round_' + tid) || allRds[0] || 1;
     const lastRound = allRds[allRds.length - 1] || 1;
+    const pendingBeforeCurrentRound = groupMatches.filter(
+      m => m.round < curRound && m.status !== 'played'
+    ).length;
     const isLastRound = curRound >= lastRound;
 
     // Figure out the first KO round label (Quarter-Finals, Semi-Final, etc.)
@@ -101,10 +103,12 @@ function buildPanel1(tournament, options = {}) {
         ? `\u2705 **Match Day ${curRound} complete!** Click **${advLabel}** to continue.`
         : `\u23f3 **Match Day ${curRound}** \u2014 **${curPending}** result${curPending !== 1 ? 's' : ''} remaining`
     ));
-    if (pendingGroup > 0) {
+    if (pendingBeforeCurrentRound > 0) {
       inner.push(SEP);
       inner.push(txt(
-        `\u26a0\ufe0f **${pendingGroup} group-stage match${pendingGroup !== 1 ? 'es' : ''} ${pendingGroup === 1 ? 'is' : 'are'} pending in total.**`
+        pendingBeforeCurrentRound === 1
+          ? `\u26a0\ufe0f **1 group-stage match remains pending from an earlier matchday.**`
+          : `\u26a0\ufe0f **${pendingBeforeCurrentRound} group-stage matches remain pending from earlier matchdays.**`
       ));
     }
     inner.push(SEP);
