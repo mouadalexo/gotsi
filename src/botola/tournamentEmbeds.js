@@ -86,6 +86,65 @@ function getContext(tid) {
   return { t, teams, ttRows, getTeam, getGrp };
 }
 
+function knockoutTieKey(match) {
+  const home = Number(match.home_team_id);
+  const away = Number(match.away_team_id);
+  return match.tie_key || (
+    Number.isFinite(home) && Number.isFinite(away)
+      ? `${Math.min(home, away)}-${Math.max(home, away)}`
+      : `match-${match.id}`
+  );
+}
+
+function groupKnockoutTies(matches) {
+  const tieMap = new Map();
+  for (const match of matches) {
+    const key = knockoutTieKey(match);
+    if (!tieMap.has(key)) tieMap.set(key, []);
+    tieMap.get(key).push(match);
+  }
+  return [...tieMap.values()];
+}
+
+function getKnockoutTieWinner(tie, configuredLegs) {
+  const leg1 = tie.find(match => (match.leg || 1) === 1);
+  if (!leg1 || leg1.status !== 'played') return null;
+
+  if (configuredLegs === 2) {
+    const leg2 = tie.find(match => Number(match.leg) === 2);
+    if (!leg2 || leg2.status !== 'played') return null;
+    const homeAggregate = (leg1.home_score || 0) + (leg2.away_score || 0);
+    const awayAggregate = (leg1.away_score || 0) + (leg2.home_score || 0);
+    if (homeAggregate !== awayAggregate) {
+      return homeAggregate > awayAggregate ? leg1.home_team_id : leg1.away_team_id;
+    }
+    return leg2.pen_winner || leg1.pen_winner || leg1.away_team_id || null;
+  }
+
+  if (leg1.home_score > leg1.away_score) return leg1.home_team_id || null;
+  if (leg1.away_score > leg1.home_score) return leg1.away_team_id || null;
+  return leg1.pen_winner || leg1.away_team_id || null;
+}
+
+function projectNextRoundTies(round, tournament, matchesByRound) {
+  const feederRound = round * 2;
+  const configuredLegs = getKnockoutLegs(tournament, feederRound);
+  const feederMatches = matchesByRound[feederRound] || [];
+  const eligibleMatches = configuredLegs === 2
+    ? feederMatches
+    : feederMatches.filter(match => Number(match.leg || 1) !== 2);
+  const winners = groupKnockoutTies(eligibleMatches)
+    .map(tie => getKnockoutTieWinner(tie, configuredLegs));
+
+  return Array.from({ length: round }, (_, index) => [{
+    id: `preview-${round}-${index}`,
+    home_team_id: winners[index * 2] || null,
+    away_team_id: winners[index * 2 + 1] || null,
+    leg: 1,
+    status: 'pending',
+  }]);
+}
+
 function groupMatchesByGroup(matches, getGrp, getTeam) {
   const grouped = {};
   for (const m of matches) {
@@ -343,20 +402,10 @@ function makeBracketPost(tid) {
     inner.push(SEP);
     inner.push(txt(`${E_ARR}  **${rName}**`));
 
-    const tieMap = new Map();
-    for (const match of rMatches) {
-      const home = Number(match.home_team_id);
-      const away = Number(match.away_team_id);
-      const key = match.tie_key || (
-        Number.isFinite(home) && Number.isFinite(away)
-          ? `${Math.min(home, away)}-${Math.max(home, away)}`
-          : `match-${match.id}`
-      );
-      if (!tieMap.has(key)) tieMap.set(key, []);
-      tieMap.get(key).push(match);
-    }
-
-    const ties = [...tieMap.values()];
+    const actualTies = groupKnockoutTies(rMatches);
+    const ties = actualTies.length
+      ? actualTies
+      : projectNextRoundTies(round, t, matchesByRound);
     const tieCount = ties.length || round;
     const renderTie = (tie, index) => {
       tie.sort((a, b) => (a.leg || 1) - (b.leg || 1) || a.id - b.id);
