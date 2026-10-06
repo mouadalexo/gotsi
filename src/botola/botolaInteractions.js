@@ -3401,14 +3401,16 @@ async function handleBotolaInteraction(interaction) {
         winTeamId = (leg1.home_score || 0) >= (leg1.away_score || 0) ? leg1.home_team_id : leg1.away_team_id;
       }
 
-      const winTeam  = db.findById('teams', winTeamId);
-      const winTTs   = db.findWhere('tournament_teams', tt => tt.tournament_id === tid && tt.team_id === winTeamId);
-      const players  = db.findWhere('players', p => winTTs.some(tt => tt.id === p.tournament_team_id));
+      const winTeam = db.findById('teams', winTeamId);
+      const players = db.findWhere('players', p =>
+        Number(p.team_id) === Number(winTeamId)
+        && Number(p.tournament_id) === Number(tid)
+        && Boolean(p.discord_id)
+      ).sort((a, b) => Number(a.slot || 0) - Number(b.slot || 0));
       const winnerPlayerLimit = Number(t.players_per_team) || players.length;
       const winnerPlayerMentions = players
         .slice(0, winnerPlayerLimit)
-        .map(p => `<@${p.discord_id}>`)
-        .filter(Boolean);
+        .map(p => `<@${p.discord_id}>`);
 
       const champPayload = makeChampionPost(
         t.name,
